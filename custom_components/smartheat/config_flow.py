@@ -5,6 +5,7 @@ import os
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
@@ -14,7 +15,7 @@ from .const import (
     CLIMATE_ATTRIBUTE_BY_ROLE, CLOUDFLARED_ADDON_SLUG, DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN,
     HEIZUNGSBRUECKE_ADDON_SLUG, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
 )
-from .supervisor_client import SupervisorApiError, SupervisorClient
+from .supervisor_client import AddonNotFoundError, async_get_addon_manager
 
 
 class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -36,16 +37,19 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Diese Integration provisioniert echte MQTT-Zugangsdaten und schreibt sie in
         # zwei Add-ons per Supervisor-API -- das funktioniert nur auf einer Supervisor-
         # Installation (HA OS/Supervised). Muss VOR allem anderen (inkl. der ersten
-        # Login-Form) geprueft werden, fail fast: siehe _push_config_and_finish, das
-        # sonst erst nach erfolgreichem provision() (mit bereits ausgestellten
-        # Live-Credentials in self._provisioning) auf os.environ["SUPERVISOR_TOKEN"]
-        # zugreift -- ein KeyError dort wuerde die Flow mit einem unhandled "Unknown
-        # error" abbrechen und die Credentials nie anzeigen (der eigentliche Zweck von
-        # async_step_retry_push). is_hassio(hass) ist HA's eigener, kanonischer
-        # Supervisor-Detection-Helper (prueft "hassio" in hass.config.components,
-        # verifiziert gegen .venv/.../homeassistant/helpers/hassio.py); der zusaetzliche
-        # rohe os.environ-Check bleibt als Verteidigung in der Tiefe, falls hassio zwar
-        # geladen ist, der Token aber (z.B. in einem kaputten Testsetup) fehlt.
+        # Login-Form) geprueft werden, fail fast, damit ein Nutzer auf einer
+        # Nicht-Supervisor-Installation nicht erst den ganzen Login-/Tenant-/Profil-/
+        # Entities-Flow durchlaeuft (und provision() dabei bereits Live-Credentials
+        # ausstellt), bevor _push_config_and_finish scheitert. is_hassio(hass) ist HA's
+        # eigener, kanonischer Supervisor-Detection-Helper (prueft "hassio" in
+        # hass.config.components, verifiziert gegen .venv/.../homeassistant/helpers/
+        # hassio.py); der zusaetzliche rohe os.environ-Check bleibt als Verteidigung in
+        # der Tiefe, falls hassio zwar geladen ist, der Token aber (z.B. in einem
+        # kaputten Testsetup) fehlt -- AddonManager selbst faellt in diesem Fall nicht
+        # mit einem KeyError um (holt sich os.environ.get(..., "") intern), sondern
+        # scheitert kontrolliert mit AddonError beim ersten echten Supervisor-Aufruf,
+        # was _push_config_and_finish ohnehin abfaengt; dieser fruehe Guard ist also
+        # reine UX (schneller, klarer Abbruch statt eines spaeten "provisioning_failed").
         if not is_hassio(self.hass) or "SUPERVISOR_TOKEN" not in os.environ:
             return self.async_abort(reason="not_supervisor")
 
@@ -150,12 +154,10 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self._push_config_and_finish()
 
     async def _push_config_and_finish(self):
-        # Der Guard in async_step_user hat SUPERVISOR_TOKEN bereits als vorhanden
-        # geprueft, bevor diese Methode (nach erfolgreichem provision()) je erreicht
-        # werden kann -- kein erneuter Guard hier noetig.
-        supervisor = SupervisorClient(
-            async_get_clientsession(self.hass), token=os.environ["SUPERVISOR_TOKEN"]
-        )
+        # Der Guard in async_step_user hat is_hassio(hass)/SUPERVISOR_TOKEN bereits als
+        # vorhanden geprueft, bevor diese Methode (nach erfolgreichem provision()) je
+        # erreicht werden kann -- AddonManager holt sich seinen eigenen Supervisor-Client
+        # (get_supervisor_client(hass)) intern, kein manueller Token-Zugriff mehr hier.
         heizungsbruecke_options = {
             "tenant_id": self._tenant_id,
             "profile": self._profile_id,
@@ -168,11 +170,17 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "service_token_secret": self._provisioning["cloudflared_service_token_secret"],
         }
         try:
-            await supervisor.set_addon_options(HEIZUNGSBRUECKE_ADDON_SLUG, heizungsbruecke_options)
-            await supervisor.set_addon_options(CLOUDFLARED_ADDON_SLUG, cloudflared_options)
-            await supervisor.restart_addon(CLOUDFLARED_ADDON_SLUG)
-            await supervisor.restart_addon(HEIZUNGSBRUECKE_ADDON_SLUG)
-        except SupervisorApiError:
+            heizungsbruecke = await async_get_addon_manager(
+                self.hass, "Heizungsbruecke", HEIZUNGSBRUECKE_ADDON_SLUG
+            )
+            cloudflared = await async_get_addon_manager(
+                self.hass, "Cloudflared Access TCP-Bridge", CLOUDFLARED_ADDON_SLUG
+            )
+            await heizungsbruecke.async_set_addon_options(heizungsbruecke_options)
+            await cloudflared.async_set_addon_options(cloudflared_options)
+            await cloudflared.async_restart_addon()
+            await heizungsbruecke.async_restart_addon()
+        except (AddonNotFoundError, AddonError):
             return self.async_show_form(
                 step_id="retry_push",
                 data_schema=vol.Schema({}),

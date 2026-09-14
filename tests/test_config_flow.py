@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import voluptuous as vol
@@ -17,6 +18,24 @@ def _enable_supervisor(hass, monkeypatch):
     """
     hass.config.components.add("hassio")
     monkeypatch.setenv("SUPERVISOR_TOKEN", "test-supervisor-token")
+
+    # AddonManager.__init__ (siehe supervisor_client.async_get_addon_manager) resolved
+    # sich selbst einen echten Supervisor-Client -- das schluege in diesem leichtgewichtigen
+    # hass ohne echt geladene hassio-Integration mit einem KeyError fehl (hass.data[...]).
+    # Der Platzhalter wird nie tatsaechlich benutzt: jeder Test, der bis _push_config_and_finish
+    # kommt, patcht async_set_addon_options/async_restart_addon direkt auf der Klasse.
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.addon_manager.get_supervisor_client",
+        lambda hass: SimpleNamespace(),
+    )
+    # Slug-Aufloesung (Repository-Hash-Praefix, siehe Task 14) ist hier bewusst eine
+    # Identitaetsfunktion -- die Tests in test_supervisor_client.py decken die eigentliche
+    # Aufloesungslogik ab, hier soll nur die Config-Flow-Seite (welche Optionen/Restarts an
+    # welchen -- unveraendert bare -- Slug gehen) getestet werden.
+    monkeypatch.setattr(
+        "custom_components.smartheat.supervisor_client.async_resolve_addon_slug",
+        AsyncMock(side_effect=lambda hass, repository_url, config_slug: config_slug),
+    )
 
 
 async def test_user_step_aborts_when_not_supervisor(hass, monkeypatch):
@@ -143,10 +162,10 @@ async def test_second_flow_with_same_tenant_aborts_as_already_configured(hass, m
     """I5: Single-Instance-Guard -- verhindert zwei Config-Entries fuer dieselbe Anlage
     (siehe async_set_unique_id/_abort_if_unique_id_configured in async_step_tenant)."""
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options", AsyncMock()
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.restart_addon", AsyncMock()
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
     )
     first = await _reach_finish(hass, monkeypatch)
     assert first["type"] == "create_entry"
@@ -284,13 +303,23 @@ async def _reach_finish(hass, monkeypatch, provision_exception=None):
 async def test_finish_pushes_options_to_both_addons_and_creates_entry(hass, monkeypatch):
     pushed = []
     restarted = []
+
+    # Plain async functions statt AsyncMock: eine AsyncMock-Instanz als Klassenattribut ist
+    # kein Descriptor, "self" wird beim Aufruf ueber eine Instanz NICHT automatisch gebunden
+    # (siehe .superpowers/sdd/.../progress.md, Task 12) -- hier wird self.addon_slug aber
+    # gebraucht, um pro Add-on-Instanz zuzuordnen, welcher (bare, dank der oben in
+    # _enable_supervisor gepatchten Identitaets-Slug-Aufloesung unveraenderte) Slug betroffen war.
+    async def _record_options(self, config):
+        pushed.append((self.addon_slug, config))
+
+    async def _record_restart(self):
+        restarted.append(self.addon_slug)
+
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options",
-        AsyncMock(side_effect=lambda slug, options: pushed.append((slug, options))),
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", _record_options
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.restart_addon",
-        AsyncMock(side_effect=lambda slug: restarted.append(slug)),
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", _record_restart
     )
 
     result = await _reach_finish(hass, monkeypatch)
@@ -312,11 +341,11 @@ async def test_finish_pushes_options_to_both_addons_and_creates_entry(hass, monk
 
 
 async def test_finish_shows_retry_step_with_credentials_on_supervisor_failure(hass, monkeypatch):
-    from custom_components.smartheat.supervisor_client import SupervisorApiError
+    from homeassistant.components.hassio import AddonError
 
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options",
-        AsyncMock(side_effect=SupervisorApiError("Supervisor nicht erreichbar")),
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options",
+        AsyncMock(side_effect=AddonError("Supervisor nicht erreichbar")),
     )
 
     result = await _reach_finish(hass, monkeypatch)
@@ -327,15 +356,16 @@ async def test_finish_shows_retry_step_with_credentials_on_supervisor_failure(ha
 
 
 async def test_retry_push_succeeds_without_reprovisioning(hass, monkeypatch):
-    from custom_components.smartheat.config_flow import HeizungsserverClient
-    from custom_components.smartheat.supervisor_client import SupervisorApiError
+    from homeassistant.components.hassio import AddonError
 
-    set_options_mock = AsyncMock(side_effect=SupervisorApiError("kaputt"))
+    from custom_components.smartheat.config_flow import HeizungsserverClient
+
+    set_options_mock = AsyncMock(side_effect=AddonError("kaputt"))
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options", set_options_mock
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options_mock
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.restart_addon", AsyncMock()
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
     )
 
     result = await _reach_finish(hass, monkeypatch)
@@ -367,10 +397,10 @@ async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
     from homeassistant.config_entries import ConfigEntryState
 
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options", AsyncMock()
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.SupervisorClient.restart_addon", AsyncMock()
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
     )
 
     result = await _reach_finish(hass, monkeypatch)

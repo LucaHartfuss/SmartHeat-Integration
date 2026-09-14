@@ -27,5 +27,13 @@ ROLE_UNIT_EXPECTATIONS: dict[str, str] = {
     "entity_heat_limit": "°C",
 }
 
+# Beide Add-ons kommen aus diesem einen Custom-Repository. Ein Supervisor praefigiert den
+# Slug eines von einem Custom-Repository installierten Add-ons mit einem Repository-Hash
+# (verifiziert gegen einen echten Supervisor, z.B. "f5f6325b_heizungsbruecke" statt nur
+# "heizungsbruecke" -- siehe Task 14 in .superpowers/sdd/2026-09-14-smartheat-config-
+# integration/progress.md). Die beiden Konstanten unten sind deshalb NICHT der tatsaechliche
+# API-Slug, sondern nur der bare config.yaml-Slug -- supervisor_client.py loest daraus zur
+# Laufzeit per ADDON_REPOSITORY_URL + Slug-Suffix den echten, installationsspezifischen Slug auf.
+ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
 CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
