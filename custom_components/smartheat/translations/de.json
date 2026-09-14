@@ -37,6 +37,10 @@
       "entity_not_found": "Dieses Entity existiert nicht",
       "provisioning_failed": "Provisioning fehlgeschlagen",
       "unknown": "Unerwarteter Fehler"
+    },
+    "abort": {
+      "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons ueber die Supervisor-API konfiguriert.",
+      "already_configured": "Diese Anlage ist bereits konfiguriert. Entferne zuerst den bestehenden SmartHeat-Konfigurationseintrag, um sie neu einzurichten."
     }
   }
 }

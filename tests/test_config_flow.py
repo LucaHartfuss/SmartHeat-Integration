@@ -2,11 +2,35 @@ from unittest.mock import AsyncMock
 
 import voluptuous as vol
 
-from custom_components.smartheat.api_client import InvalidAuth
+from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
 from custom_components.smartheat.const import DOMAIN
 
 
-async def test_user_step_shows_form_initially(hass):
+def _enable_supervisor(hass, monkeypatch):
+    """Simuliert eine Supervisor-Installation (HA OS/Supervised).
+
+    Der Guard am Anfang von async_step_user (Critical 1: unhandled KeyError auf
+    SUPERVISOR_TOKEN) prueft sowohl is_hassio(hass) (hass.config.components) als
+    auch os.environ["SUPERVISOR_TOKEN"] -- beides muss fuer jeden Test gesetzt sein,
+    der ueber den user-Schritt hinauskommen soll. Siehe auch
+    test_user_step_aborts_when_not_supervisor fuer den Gegenfall.
+    """
+    hass.config.components.add("hassio")
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "test-supervisor-token")
+
+
+async def test_user_step_aborts_when_not_supervisor(hass, monkeypatch):
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "not_supervisor"
+
+
+async def test_user_step_shows_form_initially(hass, monkeypatch):
+    _enable_supervisor(hass, monkeypatch)
+
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
 
     assert result["type"] == "form"
@@ -14,6 +38,7 @@ async def test_user_step_shows_form_initially(hass):
 
 
 async def test_user_step_shows_invalid_auth_error(hass, monkeypatch):
+    _enable_supervisor(hass, monkeypatch)
     monkeypatch.setattr(
         "custom_components.smartheat.config_flow.HeizungsserverClient.login",
         AsyncMock(side_effect=InvalidAuth("nope")),
@@ -30,6 +55,7 @@ async def test_user_step_shows_invalid_auth_error(hass, monkeypatch):
 
 
 async def test_user_step_proceeds_to_tenant_step_on_success(hass, monkeypatch):
+    _enable_supervisor(hass, monkeypatch)
     monkeypatch.setattr(
         "custom_components.smartheat.config_flow.HeizungsserverClient.login",
         AsyncMock(return_value="tok123"),
@@ -48,7 +74,8 @@ async def test_user_step_proceeds_to_tenant_step_on_success(hass, monkeypatch):
     assert result["step_id"] == "tenant"
 
 
-async def _reach_profile_step(hass, monkeypatch):
+async def _reach_tenant_step(hass, monkeypatch):
+    _enable_supervisor(hass, monkeypatch)
     monkeypatch.setattr(
         "custom_components.smartheat.config_flow.HeizungsserverClient.login",
         AsyncMock(return_value="tok123"),
@@ -57,6 +84,14 @@ async def _reach_profile_step(hass, monkeypatch):
         "custom_components.smartheat.config_flow.HeizungsserverClient.list_tenants",
         AsyncMock(return_value=[{"tenant_id": "wohnung1", "profile_id": "vaillant_gastherme_heizkoerper"}]),
     )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"email": "a@b.de", "password": "geheim"},
+    )
+
+
+async def _reach_profile_step(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
         "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
         AsyncMock(return_value=[
@@ -66,14 +101,63 @@ async def _reach_profile_step(hass, monkeypatch):
              "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
         ]),
     )
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"email": "a@b.de", "password": "geheim"},
-    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"tenant_id": "wohnung1"},
     )
     return result
+
+
+async def test_tenant_step_shows_cannot_connect_error(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        AsyncMock(side_effect=CannotConnect("nicht erreichbar")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung1"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tenant"
+    assert result["errors"]["base"] == "cannot_connect"
+
+
+async def test_tenant_step_shows_unknown_error_on_api_error(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        AsyncMock(side_effect=ApiError("kaputt")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung1"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tenant"
+    assert result["errors"]["base"] == "unknown"
+
+
+async def test_second_flow_with_same_tenant_aborts_as_already_configured(hass, monkeypatch):
+    """I5: Single-Instance-Guard -- verhindert zwei Config-Entries fuer dieselbe Anlage
+    (siehe async_set_unique_id/_abort_if_unique_id_configured in async_step_tenant)."""
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.SupervisorClient.restart_addon", AsyncMock()
+    )
+    first = await _reach_finish(hass, monkeypatch)
+    assert first["type"] == "create_entry"
+
+    second = await _reach_tenant_step(hass, monkeypatch)
+    second = await hass.config_entries.flow.async_configure(
+        second["flow_id"], {"tenant_id": "wohnung1"},
+    )
+
+    assert second["type"] == "abort"
+    assert second["reason"] == "already_configured"
 
 
 async def test_tenant_step_proceeds_to_profile_step(hass, monkeypatch):
@@ -165,17 +249,26 @@ def _provisioning_response():
     }
 
 
-async def _reach_finish(hass, monkeypatch):
-    monkeypatch.setenv("SUPERVISOR_TOKEN", "sup-tok")
+async def _reach_finish(hass, monkeypatch, provision_exception=None):
+    """Durchlaeuft die Flow bis (und ueber) den finish-Schritt.
+
+    provision_exception erlaubt es Tests, provision() statt eines erfolgreichen
+    Ergebnisses eine Exception werfen zu lassen (siehe
+    test_finish_step_routes_back_to_entities_on_provisioning_failure), ohne die
+    gesamte Setup-Logik hier zu duplizieren.
+    """
     hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
     hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
     hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
     hass.states.async_set("number.curve", "0.5", {})
     hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
     hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+    if provision_exception is not None:
+        provision_mock = AsyncMock(side_effect=provision_exception)
+    else:
+        provision_mock = AsyncMock(return_value=_provisioning_response())
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
-        AsyncMock(return_value=_provisioning_response()),
+        "custom_components.smartheat.config_flow.HeizungsserverClient.provision", provision_mock
     )
     result = await _reach_profile_step(hass, monkeypatch)
     result = await hass.config_entries.flow.async_configure(
@@ -260,3 +353,31 @@ async def test_retry_push_succeeds_without_reprovisioning(hass, monkeypatch):
 
     assert result["type"] == "create_entry"
     assert provision_mock.call_count == 1  # nicht erneut aufgerufen beim Retry
+
+
+async def test_finish_step_routes_back_to_entities_on_provisioning_failure(hass, monkeypatch):
+    result = await _reach_finish(hass, monkeypatch, provision_exception=ApiError("Provisioning kaputt"))
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "entities"
+    assert result["errors"]["base"] == "provisioning_failed"
+
+
+async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
+    from homeassistant.config_entries import ConfigEntryState
+
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.SupervisorClient.set_addon_options", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.SupervisorClient.restart_addon", AsyncMock()
+    )
+
+    result = await _reach_finish(hass, monkeypatch)
+    assert result["type"] == "create_entry"
+
+    await hass.async_block_till_done()
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    assert len(entries) == 1
+    assert entries[0].state == ConfigEntryState.LOADED
