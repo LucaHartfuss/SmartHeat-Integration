@@ -1,3 +1,9 @@
 pytest
 pytest-asyncio
 pytest-homeassistant-custom-component
+# aiohttp's optional DNS resolver. Declared explicitly and pinned (rather than
+# left as an undeclared transitive dependency) because tests/conftest.py
+# relies on pycares directly to work around a pytest-homeassistant-custom-
+# component thread-leak false positive -- see the comment there.
+aiodns==3.2.0
+pycares==5.0.1
