@@ -1,0 +1,42 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SmartHeat Login",
+        "data": { "email": "E-Mail", "password": "Passwort" }
+      },
+      "tenant": {
+        "title": "Anlage auswaehlen",
+        "data": { "tenant_id": "Anlage" }
+      },
+      "profile": {
+        "title": "Profil auswaehlen",
+        "data": { "profile_id": "Heizungsprofil" }
+      },
+      "entities": {
+        "title": "Entities zuordnen",
+        "data": {
+          "entity_room_actual": "Raumtemperatur (Ist)",
+          "entity_room_target": "Raumtemperatur (Soll)",
+          "entity_outdoor_temp": "Aussentemperatur",
+          "entity_curve_current": "Aktuelle Heizkurve",
+          "entity_offset_current": "Aktueller Offset",
+          "entity_heat_limit": "Heizgrenze"
+        }
+      },
+      "retry_push": {
+        "title": "Add-ons konnten nicht konfiguriert werden",
+        "description": "MQTT-Zugangsdaten (bei anhaltendem Fehler manuell anwenden): {mqtt_username} / {mqtt_password}"
+      }
+    },
+    "error": {
+      "invalid_auth": "E-Mail oder Passwort falsch",
+      "cannot_connect": "SmartHeat-Service nicht erreichbar",
+      "no_tenants": "Keinem Account sind Anlagen zugeordnet",
+      "unit_mismatch": "Falsche Einheit fuer dieses Entity",
+      "entity_not_found": "Dieses Entity existiert nicht",
+      "provisioning_failed": "Provisioning fehlgeschlagen",
+      "unknown": "Unerwarteter Fehler"
+    }
+  }
+}
