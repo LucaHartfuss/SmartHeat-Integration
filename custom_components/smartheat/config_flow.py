@@ -8,9 +8,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
 from .const import (
-    CLIMATE_ATTRIBUTE_BY_ROLE, DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN,
-    ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
+    CLIMATE_ATTRIBUTE_BY_ROLE, CLOUDFLARED_ADDON_SLUG, DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN,
+    HEIZUNGSBRUECKE_ADDON_SLUG, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
 )
+from .supervisor_client import SupervisorApiError, SupervisorClient
 
 
 class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -23,6 +24,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._profiles: list[dict] = []
         self._profile_id: str | None = None
         self._entities: dict[str, str] = {}
+        self._provisioning: dict | None = None
 
     def _client(self) -> HeizungsserverClient:
         return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
@@ -108,7 +110,69 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
 
     async def async_step_finish(self, user_input: dict | None = None):
-        return self.async_create_entry(title=self._tenant_id, data={"tenant_id": self._tenant_id})
+        errors: dict[str, str] = {}
+        try:
+            self._provisioning = await self._client().provision(
+                self._token, self._tenant_id, self._profile_id
+            )
+        except ApiError:
+            errors["base"] = "provisioning_failed"
+            return self.async_show_form(step_id="entities", data_schema=vol.Schema({
+                vol.Required(role): selector.selector({"entity": {"domain": domains}})
+                for role, domains in ROLE_DOMAINS.items()
+            }), errors=errors)
+
+        return await self._push_config_and_finish()
+
+    async def _push_config_and_finish(self):
+        import os
+
+        supervisor = SupervisorClient(
+            async_get_clientsession(self.hass), token=os.environ["SUPERVISOR_TOKEN"]
+        )
+        heizungsbruecke_options = {
+            "tenant_id": self._tenant_id,
+            "profile": self._profile_id,
+            **self._entities,
+        }
+        cloudflared_options = {
+            "hostname": self._provisioning["cloudflared_hostname"],
+            "local_port": self._provisioning["cloudflared_local_port"],
+            "service_token_id": self._provisioning["cloudflared_service_token_id"],
+            "service_token_secret": self._provisioning["cloudflared_service_token_secret"],
+        }
+        try:
+            await supervisor.set_addon_options(HEIZUNGSBRUECKE_ADDON_SLUG, heizungsbruecke_options)
+            await supervisor.set_addon_options(CLOUDFLARED_ADDON_SLUG, cloudflared_options)
+            await supervisor.restart_addon(CLOUDFLARED_ADDON_SLUG)
+            await supervisor.restart_addon(HEIZUNGSBRUECKE_ADDON_SLUG)
+        except SupervisorApiError:
+            return self.async_show_form(
+                step_id="retry_push",
+                data_schema=vol.Schema({}),
+                description_placeholders={
+                    "mqtt_username": self._provisioning["username"],
+                    "mqtt_password": self._provisioning["password"],
+                },
+            )
+
+        return self.async_create_entry(
+            title=self._tenant_id,
+            data={"tenant_id": self._tenant_id, "profile_id": self._profile_id},
+        )
+
+    async def async_step_retry_push(self, user_input: dict | None = None):
+        if user_input is not None:
+            return await self._push_config_and_finish()
+
+        return self.async_show_form(
+            step_id="retry_push",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "mqtt_username": self._provisioning["username"],
+                "mqtt_password": self._provisioning["password"],
+            },
+        )
 
 
 def _resolve_entities(hass, user_input: dict) -> tuple[dict[str, str], dict[str, str]]:
