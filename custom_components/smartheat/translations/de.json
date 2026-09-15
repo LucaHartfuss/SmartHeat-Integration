@@ -9,16 +9,15 @@
       "tenant": {
         "title": "Anlage auswählen",
         "description": "Das Dropdown-Menü listet alle Heizungen, die mit Ihrem Account verbunden sind. Welche möchten Sie einrichten?",
-        "data": { "tenant_id": "Anlage", "zurueck": "Zurück zur vorherigen Ansicht" }
+        "data": { "tenant_id": "Anlage" }
       },
       "profile": {
         "title": "Profil auswählen",
-        "description": "Wählen Sie die drei Eigenschaften Ihrer Heizungsanlage aus: Hersteller, Heizart und Wärmeabgabe. Aus dieser Kombination wird automatisch das passende Profil ermittelt.",
+        "description": "Wählen Sie die drei Eigenschaften Ihrer Heizungsanlage aus: Hersteller, Erzeugertyp und Wärmeabgabe. Aus dieser Kombination wird automatisch das passende Profil ermittelt.",
         "data": {
           "hersteller": "Hersteller",
-          "erzeuger_typ": "Heizart",
-          "verteilsystem": "Wärmeabgabe",
-          "zurueck": "Zurück zur vorherigen Ansicht"
+          "erzeuger_typ": "Erzeugertyp",
+          "verteilsystem": "Wärmeabgabe"
         }
       },
       "entities": {
@@ -30,8 +29,7 @@
           "entity_outdoor_temp": "Außentemperatur",
           "entity_curve_current": "Aktuelle Heizkurve",
           "entity_offset_current": "Aktueller Offset",
-          "entity_heat_limit": "Heizgrenze",
-          "zurueck": "Zurück zur vorherigen Ansicht"
+          "entity_heat_limit": "Heizgrenze"
         }
       },
       "retry_push": {

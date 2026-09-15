@@ -9,7 +9,7 @@
       "tenant": {
         "title": "Select installation",
         "description": "The dropdown lists every heating installation linked to your account. Which one would you like to set up?",
-        "data": { "tenant_id": "Installation", "zurueck": "Back to previous step" }
+        "data": { "tenant_id": "Installation" }
       },
       "profile": {
         "title": "Select profile",
@@ -17,8 +17,7 @@
         "data": {
           "hersteller": "Manufacturer",
           "erzeuger_typ": "Heat source",
-          "verteilsystem": "Heat distribution",
-          "zurueck": "Back to previous step"
+          "verteilsystem": "Heat distribution"
         }
       },
       "entities": {
@@ -30,8 +29,7 @@
           "entity_outdoor_temp": "Outdoor temperature",
           "entity_curve_current": "Current heating curve",
           "entity_offset_current": "Current offset",
-          "entity_heat_limit": "Heat limit",
-          "zurueck": "Back to previous step"
+          "entity_heat_limit": "Heat limit"
         }
       },
       "retry_push": {
