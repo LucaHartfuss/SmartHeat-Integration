@@ -3,25 +3,35 @@
     "step": {
       "user": {
         "title": "SmartHeat Login",
+        "description": "Melden Sie sich mit Ihrem bestehenden SmartHeat-Account an oder registrieren Sie sich auf <Platzhalter für Link zur Webseite>.",
         "data": { "email": "E-Mail", "password": "Passwort" }
       },
       "tenant": {
-        "title": "Anlage auswaehlen",
-        "data": { "tenant_id": "Anlage" }
+        "title": "Anlage auswählen",
+        "description": "Das Dropdown-Menü listet alle Heizungen, die mit Ihrem Account verbunden sind. Welche möchten Sie einrichten?",
+        "data": { "tenant_id": "Anlage", "zurueck": "Zurück zur vorherigen Ansicht" }
       },
       "profile": {
-        "title": "Profil auswaehlen",
-        "data": { "profile_id": "Heizungsprofil" }
+        "title": "Profil auswählen",
+        "description": "Wählen Sie die drei Eigenschaften Ihrer Heizungsanlage aus: Hersteller, Heizart und Wärmeabgabe. Aus dieser Kombination wird automatisch das passende Profil ermittelt.",
+        "data": {
+          "hersteller": "Hersteller",
+          "erzeuger_typ": "Heizart",
+          "verteilsystem": "Wärmeabgabe",
+          "zurueck": "Zurück zur vorherigen Ansicht"
+        }
       },
       "entities": {
         "title": "Entities zuordnen",
+        "description": "Ordnen Sie jeder Rolle das passende Home-Assistant-Entity zu, damit die Heizkurven-Regelung auf die richtigen Sensoren und Aktoren zugreifen kann.",
         "data": {
           "entity_room_actual": "Raumtemperatur (Ist)",
           "entity_room_target": "Raumtemperatur (Soll)",
-          "entity_outdoor_temp": "Aussentemperatur",
+          "entity_outdoor_temp": "Außentemperatur",
           "entity_curve_current": "Aktuelle Heizkurve",
           "entity_offset_current": "Aktueller Offset",
-          "entity_heat_limit": "Heizgrenze"
+          "entity_heat_limit": "Heizgrenze",
+          "zurueck": "Zurück zur vorherigen Ansicht"
         }
       },
       "retry_push": {
@@ -32,14 +42,15 @@
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
       "cannot_connect": "SmartHeat-Service nicht erreichbar",
-      "no_tenants": "Keinem Account sind Anlagen zugeordnet",
-      "unit_mismatch": "Falsche Einheit fuer dieses Entity",
+      "no_tenants": "Schließen Sie auf unserer Webseite ein Abo ab, um für den Zugriff auf unseren Heizungssteuerungs-Server berechtigt zu werden.",
+      "profile_combination_unsupported": "Diese Kombination wird aktuell nicht unterstützt",
+      "unit_mismatch": "Falsche Einheit für dieses Entity",
       "entity_not_found": "Dieses Entity existiert nicht",
       "provisioning_failed": "Provisioning fehlgeschlagen",
       "unknown": "Unerwarteter Fehler"
     },
     "abort": {
-      "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons ueber die Supervisor-API konfiguriert.",
+      "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons über die Supervisor-API konfiguriert.",
       "already_configured": "Diese Anlage ist bereits konfiguriert. Entferne zuerst den bestehenden SmartHeat-Konfigurationseintrag, um sie neu einzurichten."
     }
   }

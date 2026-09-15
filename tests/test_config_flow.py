@@ -126,6 +126,26 @@ async def _reach_profile_step(hass, monkeypatch):
     return result
 
 
+async def _reach_profile_step_with_two_verified_profiles(hass, monkeypatch):
+    """Zwei VERIFIZIERTE Profile, die sich in genau einer Dimension unterscheiden --
+    noetig um zu testen, dass eine Kombination aus (fuer sich genommen) gueltigen
+    Einzel-Choices trotzdem als serverseitig unbekannte Kombination abgelehnt wird
+    (z.B. Vaillant+Waermepumpe, fuer das es kein Profil gibt)."""
+    result = await _reach_tenant_step(hass, monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        AsyncMock(return_value=[
+            {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
+             "profile_id": "vaillant_gastherme_heizkoerper", "verified": True},
+            {"hersteller": "Vaillant", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
+             "profile_id": "vaillant_waermepumpe_fussbodenheizung", "verified": True},
+        ]),
+    )
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung1"},
+    )
+
+
 async def test_tenant_step_shows_cannot_connect_error(hass, monkeypatch):
     result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
@@ -186,27 +206,53 @@ async def test_tenant_step_proceeds_to_profile_step(hass, monkeypatch):
     assert result["step_id"] == "profile"
 
 
-async def test_profile_step_only_offers_verified_profiles(hass, monkeypatch):
+def _schema_validator(schema: vol.Schema, field_name: str):
+    (validator,) = [v for k, v in schema.schema.items() if str(k) == field_name]
+    return validator
+
+
+def _schema_key(schema: vol.Schema, field_name: str):
+    (key,) = [k for k in schema.schema if str(k) == field_name]
+    return key
+
+
+async def test_profile_step_only_offers_verified_profile_dimensions(hass, monkeypatch):
     result = await _reach_profile_step(hass, monkeypatch)
 
-    (validator,) = [
-        v for k, v in result["data_schema"].schema.items() if str(k) == "profile_id"
-    ]
+    schema = result["data_schema"]
     # vol.In() speichert die uebergebenen Choices auf .container -- direkter Beweis,
-    # dass nur das verifizierte Profil (nicht auch weishaupt_..., verified=False) im
-    # Formular waehlbar ist.
-    assert set(validator.container) == {"vaillant_gastherme_heizkoerper"}
+    # dass nur die Dimensionen des verifizierten Profils (nicht auch Weishaupt/
+    # Waermepumpe/Fussbodenheizung, verified=False) im Formular waehlbar sind.
+    assert set(_schema_validator(schema, "hersteller").container) == {"Vaillant"}
+    assert set(_schema_validator(schema, "erzeuger_typ").container) == {"Gastherme"}
+    assert set(_schema_validator(schema, "verteilsystem").container) == {"Heizkoerper"}
 
 
 async def test_profile_step_proceeds_to_entities_step(hass, monkeypatch):
     result = await _reach_profile_step(hass, monkeypatch)
 
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"profile_id": "vaillant_gastherme_heizkoerper"},
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
     )
 
     assert result["type"] == "form"
     assert result["step_id"] == "entities"
+
+
+async def test_profile_step_rejects_unsupported_combination(hass, monkeypatch):
+    result = await _reach_profile_step_with_two_verified_profiles(hass, monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        # Gastherme und Fussbodenheizung sind je fuer sich gueltige (verifizierte)
+        # Choices, aber "Vaillant+Gastherme+Fussbodenheizung" existiert als Profil nicht.
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Fussbodenheizung"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "profile"
+    assert result["errors"]["base"] == "profile_combination_unsupported"
 
 
 async def test_entities_step_rejects_unit_mismatch(hass, monkeypatch):
@@ -218,7 +264,8 @@ async def test_entities_step_rejects_unit_mismatch(hass, monkeypatch):
     hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
     result = await _reach_profile_step(hass, monkeypatch)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"profile_id": "vaillant_gastherme_heizkoerper"},
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
     )
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {
@@ -291,7 +338,8 @@ async def _reach_finish(hass, monkeypatch, provision_exception=None):
     )
     result = await _reach_profile_step(hass, monkeypatch)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"profile_id": "vaillant_gastherme_heizkoerper"},
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
     )
     return await hass.config_entries.flow.async_configure(result["flow_id"], {
         "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
@@ -411,3 +459,172 @@ async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
     entries = hass.config_entries.async_entries(DOMAIN)
     assert len(entries) == 1
     assert entries[0].state == ConfigEntryState.LOADED
+
+
+async def test_tenant_step_back_returns_to_user_step(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"zurueck": True, "tenant_id": "wohnung1"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+
+
+async def test_profile_step_back_returns_to_tenant_step(hass, monkeypatch):
+    result = await _reach_profile_step(hass, monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"zurueck": True, "hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tenant"
+
+
+async def test_entities_step_back_returns_to_profile_step(hass, monkeypatch):
+    result = await _reach_profile_step(hass, monkeypatch)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "zurueck": True,
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "profile"
+
+
+async def test_tenant_step_prefills_previous_choice_as_default(hass, monkeypatch):
+    result = await _reach_profile_step(hass, monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"zurueck": True, "hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+
+    schema = result["data_schema"]
+    assert _schema_key(schema, "tenant_id").default() == "wohnung1"
+
+
+async def test_user_step_prefills_email_after_returning_from_tenant_step(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"zurueck": True, "tenant_id": "wohnung1"},
+    )
+
+    schema = result["data_schema"]
+    assert _schema_key(schema, "email").default() == "a@b.de"
+
+
+async def test_entities_step_back_preserves_profile_selection_defaults(hass, monkeypatch):
+    result = await _reach_profile_step(hass, monkeypatch)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "zurueck": True,
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
+
+    schema = result["data_schema"]
+    assert _schema_key(schema, "hersteller").default() == "Vaillant"
+    assert _schema_key(schema, "erzeuger_typ").default() == "Gastherme"
+    assert _schema_key(schema, "verteilsystem").default() == "Heizkoerper"
+
+
+async def test_entities_step_prefills_previous_entity_selection_as_default(hass, monkeypatch):
+    """Der entities-Schritt selbst hat kein "zurueck", das zu ihm zurueckfuehrt (die
+    Toggle fuehrt zum profile-Schritt) -- ein Provisioning-Fehler ist der einzige echte
+    Weg, auf dem ein Nutzer diesen Schritt mit bereits vorausgefuellten Defaults erneut
+    sieht (siehe test_finish_step_routes_back_to_entities_on_provisioning_failure)."""
+    result = await _reach_finish(hass, monkeypatch, provision_exception=ApiError("Provisioning kaputt"))
+
+    assert result["step_id"] == "entities"
+    schema = result["data_schema"]
+    # entity_room_target wurde in _reach_finish als sensor.* (nicht climate.*) befuellt,
+    # daher hier eine stichprobenartige Pruefung auf einer einfachen Rolle.
+    assert _schema_key(schema, "entity_room_actual").default() == "sensor.rt"
+
+
+async def test_back_then_forward_overwrites_previous_tenant_choice(hass, monkeypatch):
+    """Kernanforderung: nach Zurueck-Navigation eine ANDERE Anlage waehlen -- das
+    Endergebnis (finaler Config-Entry) muss die neue, nicht die urspruengliche Wahl
+    widerspiegeln."""
+    _enable_supervisor(hass, monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.login",
+        AsyncMock(return_value="tok123"),
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_tenants",
+        AsyncMock(return_value=[
+            {"tenant_id": "wohnung1", "profile_id": "vaillant_gastherme_heizkoerper"},
+            {"tenant_id": "wohnung2", "profile_id": "vaillant_gastherme_heizkoerper"},
+        ]),
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        AsyncMock(return_value=[
+            {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
+             "profile_id": "vaillant_gastherme_heizkoerper", "verified": True},
+        ]),
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
+        AsyncMock(return_value=_provisioning_response()),
+    )
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
+    )
+    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.curve", "0.5", {})
+    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"email": "a@b.de", "password": "geheim"},
+    )
+    # Erste Wahl: wohnung1.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung1"},
+    )
+    # Zurueck zum tenant-Schritt, ohne die Anlage zu wechseln.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"zurueck": True, "hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    # Jetzt wohnung2 waehlen -- ueberschreibt die urspruengliche Wahl.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung2"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
+
+    assert result["type"] == "create_entry"
+    assert result["data"]["tenant_id"] == "wohnung2"

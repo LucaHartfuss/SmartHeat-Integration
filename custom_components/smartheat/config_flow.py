@@ -13,7 +13,8 @@ from homeassistant.helpers.hassio import is_hassio
 from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
 from .const import (
     CLIMATE_ATTRIBUTE_BY_ROLE, CLOUDFLARED_ADDON_SLUG, DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN,
-    HEIZUNGSBRUECKE_ADDON_SLUG, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
+    ERZEUGER_TYP_LABELS, HEIZUNGSBRUECKE_ADDON_SLUG, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
+    VERTEILSYSTEM_LABELS,
 )
 from .supervisor_client import AddonNotFoundError, async_get_addon_manager
 
@@ -23,9 +24,13 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._token: str | None = None
+        self._email: str | None = None
         self._tenants: list[dict] = []
         self._tenant_id: str | None = None
         self._profiles: list[dict] = []
+        self._hersteller: str | None = None
+        self._erzeuger_typ: str | None = None
+        self._verteilsystem: str | None = None
         self._profile_id: str | None = None
         self._entities: dict[str, str] = {}
         self._provisioning: dict | None = None
@@ -65,15 +70,20 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ApiError:
                 errors["base"] = "unknown"
             else:
+                # Wird unabhaengig vom no_tenants-Fall gemerkt, damit die E-Mail beim
+                # erneuten Anzeigen dieses Schritts (Fehler oder spaeteres Zurueck-
+                # Navigieren aus dem tenant-Schritt) vorausgefuellt bleibt.
+                self._email = user_input["email"]
                 if not self._tenants:
                     errors["base"] = "no_tenants"
                 else:
                     return await self.async_step_tenant()
 
+        email_field = vol.Required("email", default=self._email) if self._email else vol.Required("email")
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required("email"): str,
+                email_field: str,
                 vol.Required("password"): str,
             }),
             errors=errors,
@@ -82,6 +92,8 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_tenant(self, user_input: dict | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
+            if user_input.get("zurueck"):
+                return await self.async_step_user()
             self._tenant_id = user_input["tenant_id"]
             # Single-Instance-Guard: verhindert, dass die Flow zweimal fuer dieselbe
             # Anlage durchlaufen wird und zwei Config-Entries entstehen, die beide
@@ -98,45 +110,87 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return await self.async_step_profile()
 
+        tenant_ids = {t["tenant_id"] for t in self._tenants}
+        # Nur vorausfuellen, wenn die vorherige Wahl unter den aktuellen Choices noch
+        # existiert -- verhindert einen Default ausserhalb von vol.In() nach einem
+        # Zurueck-Sprung bis vor den user-Schritt mit anschliessendem Account-Wechsel.
+        tenant_field = (
+            vol.Required("tenant_id", default=self._tenant_id)
+            if self._tenant_id in tenant_ids
+            else vol.Required("tenant_id")
+        )
         return self.async_show_form(
             step_id="tenant",
             data_schema=vol.Schema({
-                vol.Required("tenant_id"): vol.In(
-                    {t["tenant_id"]: t["tenant_id"] for t in self._tenants}
-                ),
+                vol.Optional("zurueck", default=False): bool,
+                tenant_field: vol.In({t: t for t in tenant_ids}),
             }),
             errors=errors,
         )
 
     async def async_step_profile(self, user_input: dict | None = None):
-        if user_input is not None:
-            self._profile_id = user_input["profile_id"]
-            return await self.async_step_entities()
-
+        errors: dict[str, str] = {}
         verified = [p for p in self._profiles if p["verified"]]
+        herstellers = sorted({p["hersteller"] for p in verified})
+        erzeuger_typen = sorted({p["erzeuger_typ"] for p in verified})
+        verteilsysteme = sorted({p["verteilsystem"] for p in verified})
+
+        if user_input is not None:
+            if user_input.get("zurueck"):
+                return await self.async_step_tenant()
+            match = _match_profile(
+                verified, user_input["hersteller"], user_input["erzeuger_typ"], user_input["verteilsystem"]
+            )
+            if match is None:
+                errors["base"] = "profile_combination_unsupported"
+            else:
+                self._hersteller = user_input["hersteller"]
+                self._erzeuger_typ = user_input["erzeuger_typ"]
+                self._verteilsystem = user_input["verteilsystem"]
+                self._profile_id = match["profile_id"]
+                return await self.async_step_entities()
+
+        # Wie beim tenant-Schritt: nur vorausfuellen, wenn die vorherige Wahl noch unter
+        # den aktuellen (verifizierten) Choices existiert.
+        def _field(key: str, current: str | None, choices: list[str]) -> vol.Marker:
+            if current in choices:
+                return vol.Required(key, default=current)
+            return vol.Required(key)
+
         return self.async_show_form(
             step_id="profile",
             data_schema=vol.Schema({
-                vol.Required("profile_id"): vol.In({
-                    p["profile_id"]: f"{p['hersteller']} {p['erzeuger_typ']} ({p['verteilsystem']})"
-                    for p in verified
-                }),
+                vol.Optional("zurueck", default=False): bool,
+                _field("hersteller", self._hersteller, herstellers): vol.In({h: h for h in herstellers}),
+                _field("erzeuger_typ", self._erzeuger_typ, erzeuger_typen): vol.In(
+                    {v: ERZEUGER_TYP_LABELS.get(v, v) for v in erzeuger_typen}
+                ),
+                _field("verteilsystem", self._verteilsystem, verteilsysteme): vol.In(
+                    {v: VERTEILSYSTEM_LABELS.get(v, v) for v in verteilsysteme}
+                ),
             }),
+            errors=errors,
         )
 
     async def async_step_entities(self, user_input: dict | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
+            if user_input.get("zurueck"):
+                return await self.async_step_profile()
             resolved, errors = _resolve_entities(self.hass, user_input)
             if not errors:
                 self._entities = resolved
                 return await self.async_step_finish()
 
-        schema = vol.Schema({
-            vol.Required(role): selector.selector({"entity": {"domain": domains}})
-            for role, domains in ROLE_DOMAINS.items()
-        })
-        return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="entities", data_schema=self._entities_schema(), errors=errors)
+
+    def _entities_schema(self) -> vol.Schema:
+        fields: dict = {vol.Optional("zurueck", default=False): bool}
+        for role, domains in ROLE_DOMAINS.items():
+            raw_default = _raw_entity_id(self._entities[role]) if role in self._entities else None
+            field = vol.Required(role, default=raw_default) if raw_default else vol.Required(role)
+            fields[field] = selector.selector({"entity": {"domain": domains}})
+        return vol.Schema(fields)
 
     async def async_step_finish(self, user_input: dict | None = None):
         errors: dict[str, str] = {}
@@ -146,10 +200,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except ApiError:
             errors["base"] = "provisioning_failed"
-            return self.async_show_form(step_id="entities", data_schema=vol.Schema({
-                vol.Required(role): selector.selector({"entity": {"domain": domains}})
-                for role, domains in ROLE_DOMAINS.items()
-            }), errors=errors)
+            return self.async_show_form(
+                step_id="entities", data_schema=self._entities_schema(), errors=errors
+            )
 
         return await self._push_config_and_finish()
 
@@ -207,6 +260,32 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "mqtt_password": self._provisioning["password"],
             },
         )
+
+
+def _match_profile(
+    verified_profiles: list[dict], hersteller: str, erzeuger_typ: str, verteilsystem: str
+) -> dict | None:
+    """Loest die drei einzeln gewaehlten Profildimensionen zu einem konkreten,
+    verifizierten Server-Profil auf. Nicht jede Kombination hat ein Profil (z.B.
+    Vaillant+Waermepumpe existiert aktuell nicht) -- in diesem Fall None, der Aufrufer
+    zeigt dann "profile_combination_unsupported" an, statt serverseitig ungueltige
+    profile_ids zu raten oder still ein falsches Profil zu waehlen.
+    """
+    for profile in verified_profiles:
+        if (
+            profile["hersteller"] == hersteller
+            and profile["erzeuger_typ"] == erzeuger_typ
+            and profile["verteilsystem"] == verteilsystem
+        ):
+            return profile
+    return None
+
+
+def _raw_entity_id(resolved_value: str) -> str:
+    """Kehrt die climate-Attribut-Flattening aus _resolve_entities fuer's Vorausfuellen
+    um: 'climate.wohnzimmer::temperature' -> 'climate.wohnzimmer' (der Entity-Selector
+    im Formular erwartet eine rohe entity_id, nicht den ::attribute-Suffix)."""
+    return resolved_value.split("::", 1)[0]
 
 
 def _resolve_entities(hass, user_input: dict) -> tuple[dict[str, str], dict[str, str]]:

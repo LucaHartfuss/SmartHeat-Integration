@@ -37,3 +37,17 @@ ROLE_UNIT_EXPECTATIONS: dict[str, str] = {
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
 CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
+
+# Server-seitige Profil-Werte (heizungsserver/generic/profiles.py) sind reines ASCII
+# (siehe dortige hersteller/erzeuger_typ/verteilsystem-Felder) -- diese Mappings liefern
+# nur die Umlaut-Anzeige im Wizard-Dropdown, der uebermittelte Wert bleibt unveraendert
+# der rohe Server-Wert. Unbekannte (kuenftige) Werte fallen auf sich selbst zurueck.
+ERZEUGER_TYP_LABELS: dict[str, str] = {
+    "Gastherme": "Gastherme",
+    "Waermepumpe": "Wärmepumpe",
+}
+
+VERTEILSYSTEM_LABELS: dict[str, str] = {
+    "Heizkoerper": "Heizkörper",
+    "Fussbodenheizung": "Fußbodenheizung",
+}

@@ -3,25 +3,35 @@
     "step": {
       "user": {
         "title": "SmartHeat Login",
+        "description": "Sign in with your existing SmartHeat account or register at <placeholder for website link>.",
         "data": { "email": "Email", "password": "Password" }
       },
       "tenant": {
         "title": "Select installation",
-        "data": { "tenant_id": "Installation" }
+        "description": "The dropdown lists every heating installation linked to your account. Which one would you like to set up?",
+        "data": { "tenant_id": "Installation", "zurueck": "Back to previous step" }
       },
       "profile": {
         "title": "Select profile",
-        "data": { "profile_id": "Heating system profile" }
+        "description": "Choose the three properties of your heating system: manufacturer, heat source, and heat distribution. The matching profile is determined automatically from this combination.",
+        "data": {
+          "hersteller": "Manufacturer",
+          "erzeuger_typ": "Heat source",
+          "verteilsystem": "Heat distribution",
+          "zurueck": "Back to previous step"
+        }
       },
       "entities": {
         "title": "Map entities",
+        "description": "Assign the matching Home Assistant entity to each role so the heating curve control can access the correct sensors and actuators.",
         "data": {
           "entity_room_actual": "Room temperature (actual)",
           "entity_room_target": "Room temperature (target)",
           "entity_outdoor_temp": "Outdoor temperature",
           "entity_curve_current": "Current heating curve",
           "entity_offset_current": "Current offset",
-          "entity_heat_limit": "Heat limit"
+          "entity_heat_limit": "Heat limit",
+          "zurueck": "Back to previous step"
         }
       },
       "retry_push": {
@@ -32,7 +42,8 @@
     "error": {
       "invalid_auth": "Invalid email or password",
       "cannot_connect": "Could not reach the SmartHeat service",
-      "no_tenants": "No installations linked to this account",
+      "no_tenants": "Subscribe on our website to get access to our heating control server.",
+      "profile_combination_unsupported": "This combination is not supported yet",
       "unit_mismatch": "Wrong unit for this entity",
       "entity_not_found": "This entity does not exist",
       "provisioning_failed": "Provisioning failed",
