@@ -336,8 +336,7 @@ async def test_entities_step_flattens_climate_room_target():
 
 def _provisioning_response():
     return {
-        "username": "wohnung1_abc", "password": "geheim-mqtt",
-        "mosquitto_passwd_command": "mosquitto_passwd -b ...", "acl_snippet": "...",
+        "username": "wohnung1_abc", "password": "geheim-mqtt", "acl_snippet": "...",
         "cloudflared_hostname": "mqtt-verify.hartfussha.org", "cloudflared_local_port": 18830,
         "cloudflared_service_token_id": "cf-id", "cloudflared_service_token_secret": "cf-secret",
     }
@@ -407,6 +406,8 @@ async def test_finish_pushes_options_to_both_addons_and_creates_entry(hass, monk
     heizungsbruecke_options = next(o for slug, o in pushed if slug == "heizungsbruecke")
     assert heizungsbruecke_options["tenant_id"] == "wohnung1"
     assert heizungsbruecke_options["profile"] == "vaillant_gastherme_heizkoerper"
+    assert heizungsbruecke_options["mqtt_username"] == "wohnung1_abc"
+    assert heizungsbruecke_options["mqtt_password"] == "geheim-mqtt"
     assert heizungsbruecke_options["entity_room_actual"] == "sensor.rt"
     cloudflared_options = next(o for slug, o in pushed if slug == "cloudflared_access_mqtt")
     assert cloudflared_options == {

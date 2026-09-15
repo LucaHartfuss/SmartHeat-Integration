@@ -165,6 +165,8 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         heizungsbruecke_options = {
             "tenant_id": self._tenant_id,
             "profile": self._profile_id,
+            "mqtt_username": self._provisioning["username"],
+            "mqtt_password": self._provisioning["password"],
             **self._entities,
         }
         cloudflared_options = {

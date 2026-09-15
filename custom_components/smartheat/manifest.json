@@ -5,7 +5,7 @@
   "documentation": "https://github.com/LucaHartfuss/SmartHeat-Integration",
   "issue_tracker": "https://github.com/LucaHartfuss/SmartHeat-Integration/issues",
   "codeowners": ["@LucaHartfuss"],
-  "version": "0.2.1",
+  "version": "0.2.2",
   "requirements": [],
   "iot_class": "cloud_polling"
 }
