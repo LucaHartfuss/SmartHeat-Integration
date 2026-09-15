@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "SmartHeat Login",
-        "description": "Melden Sie sich mit Ihrem bestehenden SmartHeat-Account an oder registrieren Sie sich auf <Platzhalter für Link zur Webseite>.",
+        "description": "Melden Sie sich mit Ihrem bestehenden SmartHeat-Account an oder registrieren Sie sich auf unserer Webseite.",
         "data": { "email": "E-Mail", "password": "Passwort" }
       },
       "tenant": {
@@ -28,7 +28,7 @@
           "entity_room_target": "Raumtemperatur (Soll)",
           "entity_outdoor_temp": "Außentemperatur",
           "entity_curve_current": "Aktuelle Heizkurve",
-          "entity_offset_current": "Aktueller Offset",
+          "entity_offset_current": "Aktueller Fußpunkt",
           "entity_heat_limit": "Heizgrenze"
         }
       },

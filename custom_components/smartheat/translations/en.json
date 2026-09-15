@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "SmartHeat Login",
-        "description": "Sign in with your existing SmartHeat account or register at <placeholder for website link>.",
+        "description": "Sign in with your existing SmartHeat account or register on our website.",
         "data": { "email": "Email", "password": "Password" }
       },
       "tenant": {
