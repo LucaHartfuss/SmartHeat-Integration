@@ -33,8 +33,8 @@ def _enable_supervisor(hass, monkeypatch):
     # Aufloesungslogik ab, hier soll nur die Config-Flow-Seite (welche Optionen/Restarts an
     # welchen -- unveraendert bare -- Slug gehen) getestet werden.
     monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addon_slug",
-        AsyncMock(side_effect=lambda hass, repository_url, config_slug: config_slug),
+        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
+        AsyncMock(side_effect=lambda hass, repository_url, config_slugs: {slug: slug for slug in config_slugs}),
     )
 
 
@@ -488,3 +488,66 @@ async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
     entries = hass.config_entries.async_entries(DOMAIN)
     assert len(entries) == 1
     assert entries[0].state == ConfigEntryState.LOADED
+
+
+async def test_finish_resolves_both_addons_from_a_single_supervisor_call(hass, monkeypatch):
+    # _enable_supervisor (invoked internally via _reach_tenant_step, which every
+    # _reach_finish call goes through) already patches async_resolve_addon_slugs to an
+    # AsyncMock identity function -- rather than pre-patching our own (which
+    # _enable_supervisor's later call would silently clobber, since it runs *after* any
+    # patch a test applies before awaiting _reach_finish), inspect that same installed
+    # mock's call_count afterwards. It's the exact function _push_config_and_finish now
+    # calls via async_get_addon_managers, so this still verifies si-3: one resolution
+    # call for both add-ons, not two (previously async_get_addon_manager was called
+    # once per add-on).
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
+    )
+
+    result = await _reach_finish(hass, monkeypatch)
+
+    assert result["type"] == "create_entry"
+    from custom_components.smartheat import supervisor_client
+    assert supervisor_client.async_resolve_addon_slugs.call_count == 1
+
+
+async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatch):
+    from custom_components.smartheat.supervisor_client import AmbiguousAddonMatchError
+
+    # Reimplements _reach_finish's tail instead of calling it directly: _enable_supervisor
+    # (via _reach_tenant_step, reached inside _reach_profile_step below) installs its own
+    # identity AsyncMock for async_resolve_addon_slugs -- a patch applied *before* that call
+    # would just be overwritten by it. Patching the raising mock in *after* _reach_profile_step
+    # returns (i.e. after _enable_supervisor has already run) makes it stick through the
+    # remaining profile/entities steps and into _push_config_and_finish.
+    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.curve", "0.5", {})
+    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
+        AsyncMock(return_value=_provisioning_response()),
+    )
+    result = await _reach_profile_step(hass, monkeypatch)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
+        AsyncMock(side_effect=AmbiguousAddonMatchError("mehrdeutig")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "retry_push"

@@ -16,7 +16,7 @@ from .const import (
     ERZEUGER_TYP_LABELS, HEIZUNGSBRUECKE_ADDON_SLUG, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
     VERTEILSYSTEM_LABELS,
 )
-from .supervisor_client import AddonNotFoundError, async_get_addon_manager
+from .supervisor_client import AddonNotFoundError, AmbiguousAddonMatchError, async_get_addon_managers
 
 
 class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -176,17 +176,18 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "service_token_secret": self._provisioning["cloudflared_service_token_secret"],
         }
         try:
-            heizungsbruecke = await async_get_addon_manager(
-                self.hass, "Heizungsbruecke", HEIZUNGSBRUECKE_ADDON_SLUG
-            )
-            cloudflared = await async_get_addon_manager(
-                self.hass, "Cloudflared Access TCP-Bridge", CLOUDFLARED_ADDON_SLUG
+            heizungsbruecke, cloudflared = await async_get_addon_managers(
+                self.hass,
+                [
+                    ("Heizungsbruecke", HEIZUNGSBRUECKE_ADDON_SLUG),
+                    ("Cloudflared Access TCP-Bridge", CLOUDFLARED_ADDON_SLUG),
+                ],
             )
             await heizungsbruecke.async_set_addon_options(heizungsbruecke_options)
             await cloudflared.async_set_addon_options(cloudflared_options)
             await cloudflared.async_restart_addon()
             await heizungsbruecke.async_restart_addon()
-        except (AddonNotFoundError, AddonError):
+        except (AddonNotFoundError, AddonError, AmbiguousAddonMatchError):
             return self.async_show_form(
                 step_id="retry_push",
                 data_schema=vol.Schema({}),

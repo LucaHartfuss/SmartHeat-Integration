@@ -5,8 +5,11 @@ import pytest
 
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
+    AmbiguousAddonMatchError,
     async_get_addon_manager,
+    async_get_addon_managers,
     async_resolve_addon_slug,
+    async_resolve_addon_slugs,
 )
 
 REPO_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
@@ -96,3 +99,63 @@ async def test_get_addon_manager_returns_manager_for_resolved_slug(monkeypatch):
 
     assert manager.addon_slug == "f5f6325b_heizungsbruecke"
     assert manager.addon_name == "Heizungsbruecke"
+
+
+async def test_translates_raw_supervisor_error_into_addon_error(monkeypatch):
+    from aiohasupervisor.exceptions import SupervisorError
+    from homeassistant.components.hassio import AddonError
+
+    fake_client = SimpleNamespace(
+        addons=SimpleNamespace(list=AsyncMock(side_effect=SupervisorError("Supervisor down")))
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: fake_client,
+    )
+
+    with pytest.raises(AddonError):
+        await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
+
+
+async def test_raises_ambiguous_when_two_addons_share_url_and_suffix(monkeypatch):
+    _patch_supervisor_client(monkeypatch, [
+        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
+        _installed_addon("aabbccdd_heizungsbruecke", REPO_URL),
+    ])
+
+    with pytest.raises(AmbiguousAddonMatchError):
+        await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
+
+
+async def test_resolve_addon_slugs_resolves_multiple_slugs_from_one_list_call(monkeypatch):
+    installed = [
+        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
+        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),
+    ]
+    fake_client = SimpleNamespace(addons=SimpleNamespace(list=AsyncMock(return_value=installed)))
+    monkeypatch.setattr(
+        "custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: fake_client,
+    )
+
+    slugs = await async_resolve_addon_slugs(
+        hass=None, repository_url=REPO_URL, config_slugs=["heizungsbruecke", "cloudflared_access_mqtt"],
+    )
+
+    assert slugs == {
+        "heizungsbruecke": "f5f6325b_heizungsbruecke",
+        "cloudflared_access_mqtt": "f5f6325b_cloudflared_access_mqtt",
+    }
+    assert fake_client.addons.list.call_count == 1
+
+
+async def test_get_addon_managers_resolves_both_from_one_supervisor_call(monkeypatch):
+    _patch_supervisor_client(monkeypatch, [
+        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
+        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),
+    ])
+
+    managers = await async_get_addon_managers(
+        hass=None,
+        addon_specs=[("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared Access TCP-Bridge", "cloudflared_access_mqtt")],
+    )
+
+    assert [m.addon_slug for m in managers] == ["f5f6325b_heizungsbruecke", "f5f6325b_cloudflared_access_mqtt"]
