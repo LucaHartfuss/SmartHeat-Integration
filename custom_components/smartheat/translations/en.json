@@ -37,6 +37,9 @@
         "description": "MQTT credentials (apply manually if this keeps failing): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
       }
     },
+    "retry_push_hints": {
+      "ambiguous_addon_match": "Multiple matching add-on installations were found. Please remove the duplicate/outdated installation in the Supervisor, then try again."
+    },
     "error": {
       "invalid_auth": "Invalid email or password",
       "cannot_connect": "Could not reach the SmartHeat service",
@@ -45,6 +48,7 @@
       "unit_mismatch": "Wrong unit for this entity",
       "entity_not_found": "This entity does not exist",
       "provisioning_failed": "Provisioning failed",
+      "session_expired": "Your session has expired. Please sign in again.",
       "unknown": "Unexpected error"
     },
     "abort": {

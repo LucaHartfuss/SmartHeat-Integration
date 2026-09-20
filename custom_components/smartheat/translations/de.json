@@ -37,6 +37,9 @@
         "description": "MQTT-Zugangsdaten (bei anhaltendem Fehler manuell anwenden): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
       }
     },
+    "retry_push_hints": {
+      "ambiguous_addon_match": "Mehrere passende Add-on-Installationen gefunden. Bitte die doppelte/veraltete Installation im Supervisor entfernen, dann erneut versuchen."
+    },
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
       "cannot_connect": "SmartHeat-Service nicht erreichbar",
@@ -45,6 +48,7 @@
       "unit_mismatch": "Falsche Einheit für dieses Entity",
       "entity_not_found": "Dieses Entity existiert nicht",
       "provisioning_failed": "Provisioning fehlgeschlagen",
+      "session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
       "unknown": "Unerwarteter Fehler"
     },
     "abort": {

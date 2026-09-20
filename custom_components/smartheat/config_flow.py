@@ -6,7 +6,7 @@ import os
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.hassio import AddonError
-from homeassistant.helpers import selector
+from homeassistant.helpers import selector, translation
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
 
@@ -31,6 +31,11 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._entities: dict[str, str] = {}
         self._provisioning: dict | None = None
         self._retry_error_detail: str = ""
+        # Final-Review-Fix (Finding 2): gesetzt, wenn ein InvalidAuth mitten in der Flow
+        # (Tenant- oder Finish-Schritt) zurueck zum Login zwingt, damit async_step_user
+        # beim naechsten Rendern erklaeren kann, warum der Nutzer ploetzlich wieder ganz
+        # vorne steht, statt es wie einen kommentarlosen Reset aussehen zu lassen.
+        self._session_expired: bool = False
 
     def _client(self) -> HeizungsserverClient:
         return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
@@ -57,6 +62,11 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
+            # Ein neuer Login-Versuch loest den session_expired-Hinweis unabhaengig vom
+            # Ausgang ab -- entweder er gelingt (Hinweis nicht mehr relevant), oder er
+            # scheitert an etwas Konkretem (invalid_auth/cannot_connect/unknown unten),
+            # was Vorrang vor der alten "Sitzung abgelaufen"-Meldung hat.
+            self._session_expired = False
             try:
                 self._token = await self._client().login(user_input["email"], user_input["password"])
                 self._tenants = await self._client().list_tenants(self._token)
@@ -71,6 +81,8 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["base"] = "no_tenants"
                 else:
                     return await self.async_step_tenant()
+        elif self._session_expired:
+            errors["base"] = "session_expired"
 
         return self.async_show_form(
             step_id="user",
@@ -95,6 +107,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._profiles = await self._client().list_profiles(self._token)
             except InvalidAuth:
                 self._token = None
+                self._session_expired = True
                 return await self.async_step_user()
             except CannotConnect:
                 errors["base"] = "cannot_connect"
@@ -158,6 +171,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except InvalidAuth:
             self._token = None
+            self._session_expired = True
             return await self.async_step_user()
         except ApiError:
             errors["base"] = "provisioning_failed"
@@ -203,9 +217,23 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # nicht nur "erneut versuchen" -- daher ein eigener, spezifischer Hinweistext statt
             # des generischen (siehe supervisor_client.py's AmbiguousAddonMatchError-Docstring,
             # der diesen Hinweis bisher nirgends in der UI zeigte).
-            self._retry_error_detail = (
-                "Mehrere passende Add-on-Installationen gefunden. Bitte die doppelte/"
-                "veraltete Installation im Supervisor entfernen, dann erneut versuchen."
+            #
+            # Final-Review-Fix (Finding 1): dieser Text landet unveraendert als
+            # description_placeholders["error_detail"] im Formular -- description_placeholders
+            # werden von HA NIE selbst lokalisiert (siehe data_entry_flow.py: reine
+            # Mapping[str, str]-Werte, straight durchgereicht), nur die umgebende
+            # Step-Description (aus strings.json/translations/*.json) wird passend zur
+            # hass.config.language gewaehlt. Ein Python-Literal hier ist also IMMER in
+            # derselben Sprache, egal welche UI-Sprache eingestellt ist -- das war exakt der
+            # Bug (deutscher Text auch in der englischen UI). Fix: den Text selbst aus den
+            # Uebersetzungsdateien nachschlagen (translation.async_get_translations), genau
+            # der Mechanismus, den HA intern fuer Config-Flow-Strings verwendet, nur eben
+            # explizit von uns aufgerufen statt implizit vom Frontend.
+            translations = await translation.async_get_translations(
+                self.hass, self.hass.config.language, "config", integrations=[DOMAIN]
+            )
+            self._retry_error_detail = translations.get(
+                f"component.{DOMAIN}.config.retry_push_hints.ambiguous_addon_match", ""
             )
             return self._show_retry_push_form()
         except (AddonNotFoundError, AddonError):

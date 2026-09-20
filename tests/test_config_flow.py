@@ -54,6 +54,10 @@ async def test_user_step_shows_form_initially(hass, monkeypatch):
 
     assert result["type"] == "form"
     assert result["step_id"] == "user"
+    # Final-Review-Fix (Finding 2) Regressionsschutz: ein ganz normaler Erststart darf
+    # keinen "session_expired"-Hinweis zeigen -- das Flag darf also nicht versehentlich
+    # von Anfang an gesetzt sein.
+    assert result["errors"] == {}
 
 
 async def test_user_step_shows_invalid_auth_error(hass, monkeypatch):
@@ -237,6 +241,11 @@ async def test_tenant_step_routes_back_to_user_step_on_invalid_auth(hass, monkey
 
     assert result["type"] == "form"
     assert result["step_id"] == "user"
+    # Final-Review-Fix (Finding 2): der Reset zurueck auf den Login-Schritt darf nicht
+    # stillschweigend passieren -- der Nutzer hat bis hierhin schon Login+Tenant-Auswahl
+    # investiert und braucht eine Erklaerung, warum er wieder am Anfang steht, statt es
+    # mit einem Absturz zu verwechseln.
+    assert result["errors"] == {"base": "session_expired"}
 
 
 def _schema_validator(schema: vol.Schema, field_name: str):
@@ -512,6 +521,11 @@ async def test_finish_step_routes_back_to_user_step_on_invalid_auth(hass, monkey
 
     assert result["type"] == "form"
     assert result["step_id"] == "user"
+    # Final-Review-Fix (Finding 2): an dieser Stelle im Flow hat der Nutzer bereits
+    # Login, Tenant, Profil UND alle sechs Entity-Zuordnungen gemacht -- ein
+    # kommentarloser Reset waere hier am schlimmsten. Muss denselben Hinweis zeigen wie
+    # der Tenant-Schritt oben.
+    assert result["errors"] == {"base": "session_expired"}
 
 
 async def test_finish_step_routes_back_to_user_step_on_real_401_from_provision(
@@ -560,6 +574,7 @@ async def test_finish_step_routes_back_to_user_step_on_real_401_from_provision(
 
     assert result["type"] == "form"
     assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "session_expired"}
 
 
 async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
@@ -649,9 +664,19 @@ async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatc
     # einen konkreten Loesungshinweis in der UI, weil der Nutzer hier tatsaechlich etwas
     # Bestimmtes tun muss (doppelte Add-on-Installation im Supervisor entfernen), statt es
     # nur erneut zu versuchen.
+    #
+    # Final-Review-Fix (Finding 1): "Supervisor" allein war kein taugliches Kriterium --
+    # das Wort ist in beiden Sprachen identisch, ein Regressions-auf-hartcodiertes-Deutsch
+    # waere hier nie aufgefallen. Stattdessen exakt gegen den lokalisierten Text aus
+    # translations/en.json pruefen (hass.config.language ist im Test-Harness per Default
+    # "en") und zusaetzlich sicherstellen, dass der deutsche Text NICHT drin ist.
     error_detail = result["description_placeholders"]["error_detail"]
     assert error_detail != ""
-    assert "Supervisor" in error_detail
+    assert error_detail == (
+        "Multiple matching add-on installations were found. Please remove the "
+        "duplicate/outdated installation in the Supervisor, then try again."
+    )
+    assert "doppelte" not in error_detail
 
     # Konsistenz-Check aus dem Brief: der Fehlertyp muss auch beim erneuten Anzeigen des
     # Formulars (async_step_retry_push mit user_input=None, z.B. nach einem Reload) erhalten
@@ -659,6 +684,50 @@ async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatc
     flow = hass.config_entries.flow._progress[result["flow_id"]]
     redisplayed = await flow.async_step_retry_push(None)
     assert redisplayed["description_placeholders"]["error_detail"] == error_detail
+
+
+async def test_finish_shows_retry_step_on_ambiguous_addon_match_localized_to_german(hass, monkeypatch):
+    """Final-Review-Fix (Finding 1): derselbe Ablauf wie oben, aber mit
+    hass.config.language == "de" -- beweist, dass der Hinweistext tatsaechlich aus den
+    Uebersetzungsdateien nachgeschlagen wird (translation.async_get_translations),
+    nicht ein hartcodierter deutscher Python-String ist, der zufaellig auch fuer
+    Deutsch passt."""
+    from custom_components.smartheat.supervisor_client import AmbiguousAddonMatchError
+
+    hass.config.language = "de"
+    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.curve", "0.5", {})
+    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
+        AsyncMock(return_value=_provisioning_response()),
+    )
+    result = await _reach_profile_step(hass, monkeypatch)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
+        AsyncMock(side_effect=AmbiguousAddonMatchError("mehrdeutig")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "retry_push"
+    error_detail = result["description_placeholders"]["error_detail"]
+    assert error_detail == (
+        "Mehrere passende Add-on-Installationen gefunden. Bitte die doppelte/"
+        "veraltete Installation im Supervisor entfernen, dann erneut versuchen."
+    )
 
 
 async def test_finish_shows_generic_hint_on_addon_not_found(hass, monkeypatch):
