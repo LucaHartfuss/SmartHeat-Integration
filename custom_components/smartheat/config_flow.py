@@ -113,6 +113,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         verified = [p for p in self._profiles if p["verified"]]
 
+        if not verified:
+            return self.async_abort(reason="no_verified_profiles")
+
         if user_input is not None:
             match = _match_profile(
                 verified, user_input["hersteller"], user_input["erzeuger_typ"], user_input["verteilsystem"]

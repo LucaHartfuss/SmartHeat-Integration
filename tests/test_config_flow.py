@@ -199,6 +199,24 @@ async def test_second_flow_with_same_tenant_aborts_as_already_configured(hass, m
     assert second["reason"] == "already_configured"
 
 
+async def test_profile_step_aborts_when_no_verified_profiles(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        AsyncMock(return_value=[
+            {"hersteller": "Weishaupt", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
+             "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
+        ]),
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung1"},
+    )
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "no_verified_profiles"
+
+
 async def test_tenant_step_proceeds_to_profile_step(hass, monkeypatch):
     result = await _reach_profile_step(hass, monkeypatch)
 

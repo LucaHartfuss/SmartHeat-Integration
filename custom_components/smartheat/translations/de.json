@@ -49,7 +49,8 @@
     },
     "abort": {
       "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons über die Supervisor-API konfiguriert.",
-      "already_configured": "Diese Anlage ist bereits konfiguriert. Entferne zuerst den bestehenden SmartHeat-Konfigurationseintrag, um sie neu einzurichten."
+      "already_configured": "Diese Anlage ist bereits konfiguriert. Entferne zuerst den bestehenden SmartHeat-Konfigurationseintrag, um sie neu einzurichten.",
+      "no_verified_profiles": "Aktuell ist auf dem SmartHeat-Server kein verifiziertes Profil fuer diese Anlage verfuegbar. Bitte spaeter erneut versuchen oder den Support kontaktieren."
     }
   }
 }
