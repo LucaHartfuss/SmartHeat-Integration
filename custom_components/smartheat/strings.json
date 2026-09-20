@@ -34,7 +34,7 @@
       },
       "retry_push": {
         "title": "Could not configure add-ons",
-        "description": "MQTT credentials (apply manually if this keeps failing): {mqtt_username} / {mqtt_password}"
+        "description": "MQTT credentials (apply manually if this keeps failing): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
       }
     },
     "error": {

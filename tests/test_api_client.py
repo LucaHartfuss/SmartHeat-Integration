@@ -67,3 +67,19 @@ async def test_provision_raises_api_error_on_failure(aiohttp_client):
 
     with pytest.raises(ApiError):
         await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+
+async def test_provision_raises_invalid_auth_on_401(aiohttp_client):
+    # Analog zu test_login_raises_invalid_auth_on_401 / _get_authenticated()s 401-Handling:
+    # ein abgelaufenes Token waehrend des Provisionierens muss InvalidAuth werfen, nicht den
+    # generischen ApiError-Zweig treffen (siehe config_flow.py::async_step_finish, das auf
+    # InvalidAuth explizit mit einem Re-Login-Routing reagiert).
+    async def handler(request):
+        return web.json_response({"error": "Sitzung abgelaufen"}, status=401)
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/provision", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(InvalidAuth):
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")

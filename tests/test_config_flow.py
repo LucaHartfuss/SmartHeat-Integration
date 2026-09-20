@@ -463,6 +463,10 @@ async def test_finish_shows_retry_step_with_credentials_on_supervisor_failure(ha
     assert result["type"] == "form"
     assert result["step_id"] == "retry_push"
     assert result["description_placeholders"]["mqtt_username"] == "wohnung1_abc"
+    # Task 2b: fuer den generischen AddonError-Fall (im Gegensatz zu AmbiguousAddonMatchError
+    # unten) gibt es keinen spezifischen Loesungshinweis -- Regressionsschutz, dass der
+    # generische Fall durch die 2b-Aenderung nicht ploetzlich Ambiguous-Text zeigt.
+    assert result["description_placeholders"]["error_detail"] == ""
 
 
 async def test_retry_push_succeeds_without_reprovisioning(hass, monkeypatch):
@@ -505,6 +509,54 @@ async def test_finish_step_routes_back_to_entities_on_provisioning_failure(hass,
 
 async def test_finish_step_routes_back_to_user_step_on_invalid_auth(hass, monkeypatch):
     result = await _reach_finish(hass, monkeypatch, provision_exception=InvalidAuth("Sitzung abgelaufen"))
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+
+
+async def test_finish_step_routes_back_to_user_step_on_real_401_from_provision(
+    hass, monkeypatch, aiohttp_client, socket_enabled
+):
+    """Task 2a: der Vorgaenger-Test oben mockt provision() direkt auf InvalidAuth --
+    das haette auch dann gruen gezeigt, wenn provision() selbst nie InvalidAuth wirft
+    (nur ApiError, siehe api_client.py), weil hier gar nicht provision()s eigene
+    401-Behandlung durchlaufen wird. Dieser Test laesst provision() unangetastet und
+    schickt einen echten HTTP-401 durch die tatsaechliche Implementierung, um genau
+    diese Luecke (die den Re-Login-Branch in async_step_finish tot liegen liess) zu
+    schliessen."""
+    from aiohttp import web
+
+    async def handler(request):
+        return web.json_response({"error": "Sitzung abgelaufen"}, status=401)
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/provision", handler)
+    fake_server = await aiohttp_client(app)
+    fake_base_url = str(fake_server.make_url("")).rstrip("/")
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.DEFAULT_HEIZUNGSSERVER_BASE_URL", fake_base_url
+    )
+
+    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.curve", "0.5", {})
+    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+
+    # login/list_tenants/list_profiles bleiben wie ueberall sonst gemockt (_reach_profile_step) --
+    # nur provision() selbst laeuft tatsaechlich gegen den obigen Fake-Server, der ein reales
+    # HTTP-401 liefert.
+    result = await _reach_profile_step(hass, monkeypatch)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
 
     assert result["type"] == "form"
     assert result["step_id"] == "user"
@@ -591,3 +643,56 @@ async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatc
 
     assert result["type"] == "form"
     assert result["step_id"] == "retry_push"
+    # Task 2b: im Gegensatz zu AddonError/AddonNotFoundError (siehe die generischen Tests
+    # oben, test_finish_shows_retry_step_with_credentials_on_supervisor_failure und
+    # test_finish_shows_generic_hint_on_addon_not_found) braucht AmbiguousAddonMatchError
+    # einen konkreten Loesungshinweis in der UI, weil der Nutzer hier tatsaechlich etwas
+    # Bestimmtes tun muss (doppelte Add-on-Installation im Supervisor entfernen), statt es
+    # nur erneut zu versuchen.
+    error_detail = result["description_placeholders"]["error_detail"]
+    assert error_detail != ""
+    assert "Supervisor" in error_detail
+
+    # Konsistenz-Check aus dem Brief: der Fehlertyp muss auch beim erneuten Anzeigen des
+    # Formulars (async_step_retry_push mit user_input=None, z.B. nach einem Reload) erhalten
+    # bleiben, nicht nur direkt nach dem ersten Fehlschlag.
+    flow = hass.config_entries.flow._progress[result["flow_id"]]
+    redisplayed = await flow.async_step_retry_push(None)
+    assert redisplayed["description_placeholders"]["error_detail"] == error_detail
+
+
+async def test_finish_shows_generic_hint_on_addon_not_found(hass, monkeypatch):
+    # Task 2b Regressionsschutz: AddonNotFoundError (wie AddonError) bekommt weiterhin den
+    # bisherigen generischen Text (leeres error_detail), keinen der Ambiguous-spezifischen
+    # Hinweistexte.
+    from custom_components.smartheat.supervisor_client import AddonNotFoundError
+
+    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.curve", "0.5", {})
+    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
+        AsyncMock(return_value=_provisioning_response()),
+    )
+    result = await _reach_profile_step(hass, monkeypatch)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    monkeypatch.setattr(
+        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
+        AsyncMock(side_effect=AddonNotFoundError("nicht gefunden")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
+        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    })
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "retry_push"
+    assert result["description_placeholders"]["error_detail"] == ""

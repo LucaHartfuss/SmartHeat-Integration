@@ -51,6 +51,8 @@ class HeizungsserverClient:
                 json={"profile_id": profile_id},
                 headers={"Authorization": f"Bearer {token}"},
             ) as response:
+                if response.status == 401:
+                    raise InvalidAuth("Sitzung abgelaufen")
                 if response.status != 200:
                     raise ApiError(f"Provisioning fehlgeschlagen (HTTP {response.status})")
                 return await response.json()

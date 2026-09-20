@@ -30,6 +30,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._profile_id: str | None = None
         self._entities: dict[str, str] = {}
         self._provisioning: dict | None = None
+        self._retry_error_detail: str = ""
 
     def _client(self) -> HeizungsserverClient:
         return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
@@ -196,33 +197,42 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await cloudflared.async_set_addon_options(cloudflared_options)
             await cloudflared.async_restart_addon()
             await heizungsbruecke.async_restart_addon()
-        except (AddonNotFoundError, AddonError, AmbiguousAddonMatchError):
-            return self.async_show_form(
-                step_id="retry_push",
-                data_schema=vol.Schema({}),
-                description_placeholders={
-                    "mqtt_username": self._provisioning["username"],
-                    "mqtt_password": self._provisioning["password"],
-                },
+        except AmbiguousAddonMatchError:
+            # Anders als die beiden generischen Faelle unten muss der Nutzer hier etwas
+            # Konkretes tun (doppelte/veraltete Add-on-Installation im Supervisor entfernen),
+            # nicht nur "erneut versuchen" -- daher ein eigener, spezifischer Hinweistext statt
+            # des generischen (siehe supervisor_client.py's AmbiguousAddonMatchError-Docstring,
+            # der diesen Hinweis bisher nirgends in der UI zeigte).
+            self._retry_error_detail = (
+                "Mehrere passende Add-on-Installationen gefunden. Bitte die doppelte/"
+                "veraltete Installation im Supervisor entfernen, dann erneut versuchen."
             )
+            return self._show_retry_push_form()
+        except (AddonNotFoundError, AddonError):
+            self._retry_error_detail = ""
+            return self._show_retry_push_form()
 
         return self.async_create_entry(
             title=self._tenant_id,
             data={"tenant_id": self._tenant_id, "profile_id": self._profile_id},
         )
 
-    async def async_step_retry_push(self, user_input: dict | None = None):
-        if user_input is not None:
-            return await self._push_config_and_finish()
-
+    def _show_retry_push_form(self):
         return self.async_show_form(
             step_id="retry_push",
             data_schema=vol.Schema({}),
             description_placeholders={
                 "mqtt_username": self._provisioning["username"],
                 "mqtt_password": self._provisioning["password"],
+                "error_detail": self._retry_error_detail,
             },
         )
+
+    async def async_step_retry_push(self, user_input: dict | None = None):
+        if user_input is not None:
+            return await self._push_config_and_finish()
+
+        return self._show_retry_push_form()
 
 
 def _match_profile(

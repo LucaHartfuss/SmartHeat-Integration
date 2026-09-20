@@ -34,7 +34,7 @@
       },
       "retry_push": {
         "title": "Add-ons konnten nicht konfiguriert werden",
-        "description": "MQTT-Zugangsdaten (bei anhaltendem Fehler manuell anwenden): {mqtt_username} / {mqtt_password}"
+        "description": "MQTT-Zugangsdaten (bei anhaltendem Fehler manuell anwenden): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
       }
     },
     "error": {
