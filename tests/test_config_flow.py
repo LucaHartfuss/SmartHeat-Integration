@@ -206,6 +206,21 @@ async def test_tenant_step_proceeds_to_profile_step(hass, monkeypatch):
     assert result["step_id"] == "profile"
 
 
+async def test_tenant_step_routes_back_to_user_step_on_invalid_auth(hass, monkeypatch):
+    result = await _reach_tenant_step(hass, monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        AsyncMock(side_effect=InvalidAuth("Sitzung abgelaufen")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"tenant_id": "wohnung1"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+
+
 def _schema_validator(schema: vol.Schema, field_name: str):
     (validator,) = [v for k, v in schema.schema.items() if str(k) == field_name]
     return validator
@@ -468,6 +483,13 @@ async def test_finish_step_routes_back_to_entities_on_provisioning_failure(hass,
     assert result["type"] == "form"
     assert result["step_id"] == "entities"
     assert result["errors"]["base"] == "provisioning_failed"
+
+
+async def test_finish_step_routes_back_to_user_step_on_invalid_auth(hass, monkeypatch):
+    result = await _reach_finish(hass, monkeypatch, provision_exception=InvalidAuth("Sitzung abgelaufen"))
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
 
 
 async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):

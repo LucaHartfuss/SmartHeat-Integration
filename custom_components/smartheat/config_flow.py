@@ -92,6 +92,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             try:
                 self._profiles = await self._client().list_profiles(self._token)
+            except InvalidAuth:
+                self._token = None
+                return await self.async_step_user()
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except ApiError:
@@ -149,6 +152,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._provisioning = await self._client().provision(
                 self._token, self._tenant_id, self._profile_id
             )
+        except InvalidAuth:
+            self._token = None
+            return await self.async_step_user()
         except ApiError:
             errors["base"] = "provisioning_failed"
             return self.async_show_form(
