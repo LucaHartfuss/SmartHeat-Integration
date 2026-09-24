@@ -1,6 +1,7 @@
 """Config-Flow fuer die SmartHeat-Integration."""
 from __future__ import annotations
 
+import logging
 import os
 
 import voluptuous as vol
@@ -13,11 +14,14 @@ from homeassistant.helpers.hassio import is_hassio
 from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
 from .const import (
     CLIMATE_ATTRIBUTE_BY_ROLE, CLOUDFLARED_ADDON_SLUG, DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN,
-    ERZEUGER_TYP_LABELS, HEIZUNGSBRUECKE_ADDON_SLUG, KPI_ROLE_STATE_CLASS_EXPECTATIONS,
+    ERZEUGER_TYP_LABELS, HEIZUNGSBRUECKE_ADDON_SLUG, KPI_ENERGY_CHANNELS,
+    KPI_ROLE_STATE_CLASS_EXPECTATIONS,
     KPI_SCALAR_ROLE_BY_CAPABILITY, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
     VERTEILSYSTEM_LABELS, kpi_energy_role,
 )
 from .supervisor_client import AddonNotFoundError, AmbiguousAddonMatchError, async_get_addon_managers
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -260,14 +264,31 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 f"component.{DOMAIN}.config.retry_push_hints.ambiguous_addon_match", ""
             )
             return self._show_retry_push_form()
-        except (AddonNotFoundError, AddonError):
+        except AddonNotFoundError:
             self._retry_error_detail = ""
+            return self._show_retry_push_form()
+        except AddonError as err:
+            # Die Supervisor-Meldung nennt typischerweise den abgelehnten Options-KEY
+            # (z.B. ein Add-on < 0.13.0 lehnt entity_flow_temperature ab). Sicherheitsnetz:
+            # Zugangsdaten werden vor der Anzeige geschwaerzt und der Text gekuerzt.
+            self._retry_error_detail = self._sanitize_addon_error(str(err))
             return self._show_retry_push_form()
 
         return self.async_create_entry(
             title=self._tenant_id,
             data={"tenant_id": self._tenant_id, "profile_id": self._profile_id},
         )
+
+    def _sanitize_addon_error(self, message: str) -> str:
+        secrets = [
+            self._provisioning.get("password"),
+            self._provisioning.get("cloudflared_service_token_secret"),
+            self._provisioning.get("cloudflared_service_token_id"),
+        ]
+        for secret in secrets:
+            if secret:
+                message = message.replace(str(secret), "***")
+        return message[:300]
 
     def _show_retry_push_form(self):
         return self.async_show_form(
@@ -325,6 +346,9 @@ def _entities_schema() -> vol.Schema:
     })
 
 
+_WARNED_UNKNOWN_CHANNELS: set[str] = set()
+
+
 def _kpi_metrics_schema_fields(telemetry_capabilities: dict | None) -> dict:
     if not telemetry_capabilities:
         return {}
@@ -333,6 +357,11 @@ def _kpi_metrics_schema_fields(telemetry_capabilities: dict | None) -> dict:
         if telemetry_capabilities.get(capability_flag):
             fields[vol.Optional(role)] = selector.selector({"entity": {"domain": ["sensor"]}})
     for channel in telemetry_capabilities.get("energy_channels") or []:
+        if channel not in KPI_ENERGY_CHANNELS:
+            if channel not in _WARNED_UNKNOWN_CHANNELS:
+                _WARNED_UNKNOWN_CHANNELS.add(channel)
+                _LOGGER.warning("Ignoring unknown energy channel %r from server profile", channel)
+            continue
         fields[vol.Optional(kpi_energy_role(channel))] = selector.selector(
             {"entity": {"domain": ["sensor"]}}
         )
@@ -357,7 +386,7 @@ def _resolve_kpi_entities(
         if role != "entity_operating_mode":
             expected = KPI_ROLE_STATE_CLASS_EXPECTATIONS.get(role, "total_increasing")
             if state.attributes.get("state_class") != expected:
-                errors[role] = "state_class_mismatch"
+                errors[role] = f"state_class_expected_{expected}"
                 continue
         resolved[role] = entity_id
     return resolved, errors

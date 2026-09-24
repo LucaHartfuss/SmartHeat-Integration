@@ -49,6 +49,14 @@ KPI_ROLE_STATE_CLASS_EXPECTATIONS: dict[str, str] = {
 }
 
 
+# Erlaubte Energie-Kanaele -- muss mit den entity_energy_*-Optionen in der config.yaml
+# des heizungsbruecke-Add-ons uebereinstimmen (Duplikation pro Repo ist das Projektmuster).
+KPI_ENERGY_CHANNELS: tuple[str, ...] = (
+    "electrical_heating", "electrical_dhw", "primary_heating",
+    "primary_dhw", "thermal_heating", "thermal_dhw",
+)
+
+
 def kpi_energy_role(channel: str) -> str:
     return f"entity_energy_{channel}"
 

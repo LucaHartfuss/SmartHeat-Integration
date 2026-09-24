@@ -72,7 +72,8 @@
       "provisioning_failed": "Provisioning fehlgeschlagen",
       "session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
       "unknown": "Unerwarteter Fehler",
-      "state_class_mismatch": "Falsche State-Class für dieses Entity"
+      "state_class_expected_measurement": "State-Class 'measurement' erwartet (Entities ganz ohne state_class werden ebenfalls abgelehnt)",
+      "state_class_expected_total_increasing": "State-Class 'total_increasing' erwartet (Entities ganz ohne state_class werden ebenfalls abgelehnt)"
     },
     "abort": {
       "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons über die Supervisor-API konfiguriert.",

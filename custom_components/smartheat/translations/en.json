@@ -47,11 +47,11 @@
           "entity_system_water_pressure": "System water pressure",
           "entity_efficiency_ratio": "Manufacturer efficiency ratio",
           "entity_energy_electrical_heating": "Energy: electrical heating",
-          "entity_energy_electrical_dhw": "Energy: electrical dhw",
+          "entity_energy_electrical_dhw": "Energy: electrical (DHW)",
           "entity_energy_primary_heating": "Energy: primary heating",
-          "entity_energy_primary_dhw": "Energy: primary dhw",
+          "entity_energy_primary_dhw": "Energy: primary (DHW)",
           "entity_energy_thermal_heating": "Energy: thermal heating",
-          "entity_energy_thermal_dhw": "Energy: thermal dhw"
+          "entity_energy_thermal_dhw": "Energy: thermal (DHW)"
         }
       },
       "retry_push": {
@@ -72,7 +72,8 @@
       "provisioning_failed": "Provisioning failed",
       "session_expired": "Your session has expired. Please sign in again.",
       "unknown": "Unexpected error",
-      "state_class_mismatch": "Wrong state class for this entity"
+      "state_class_expected_measurement": "Expected state class 'measurement' (entities without any state_class are also rejected)",
+      "state_class_expected_total_increasing": "Expected state class 'total_increasing' (entities without any state_class are also rejected)"
     },
     "abort": {
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",

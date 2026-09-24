@@ -491,8 +491,9 @@ async def test_finish_shows_retry_step_with_credentials_on_supervisor_failure(ha
     assert result["description_placeholders"]["mqtt_username"] == "wohnung1_abc"
     # Task 2b: fuer den generischen AddonError-Fall (im Gegensatz zu AmbiguousAddonMatchError
     # unten) gibt es keinen spezifischen Loesungshinweis -- Regressionsschutz, dass der
-    # generische Fall durch die 2b-Aenderung nicht ploetzlich Ambiguous-Text zeigt.
-    assert result["description_placeholders"]["error_detail"] == ""
+    # generische Fall nicht ploetzlich Ambiguous-Text zeigt. Seit dem KPI-Review-Fix zeigt
+    # er stattdessen die (bereinigte) Supervisor-Meldung.
+    assert result["description_placeholders"]["error_detail"] == "Supervisor nicht erreichbar"
 
 
 async def test_retry_push_succeeds_without_reprovisioning(hass, monkeypatch):
@@ -854,7 +855,7 @@ async def test_kpi_metrics_step_validates_state_class_for_energy_fields(hass, mo
 
     assert result["type"] == "form"
     assert result["step_id"] == "kpi_metrics"
-    assert result["errors"]["entity_energy_electrical_heating"] == "state_class_mismatch"
+    assert result["errors"]["entity_energy_electrical_heating"] == "state_class_expected_total_increasing"
 
 
 async def test_kpi_metrics_step_validates_state_class_for_temperature_fields(hass, monkeypatch):
@@ -866,7 +867,7 @@ async def test_kpi_metrics_step_validates_state_class_for_temperature_fields(has
     )
 
     assert result["type"] == "form"
-    assert result["errors"]["entity_flow_temperature"] == "state_class_mismatch"
+    assert result["errors"]["entity_flow_temperature"] == "state_class_expected_measurement"
 
 
 async def test_kpi_metrics_step_reports_missing_entity(hass, monkeypatch):
@@ -939,9 +940,46 @@ async def test_kpi_metrics_step_skipped_when_profile_has_no_usable_capabilities(
 ):
     """Fehlender Key, None, leeres Dict: kein AttributeError/KeyError, Schritt entfaellt."""
     _mock_provision(monkeypatch)
-    if capabilities is None:
-        result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=None)
-    else:
-        result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=capabilities)
+    result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=capabilities)
 
     assert result["type"] == "create_entry"
+
+
+async def test_kpi_metrics_step_ignores_unknown_energy_channels(hass, monkeypatch, caplog):
+    caps = {"energy_channels": ["thermal_heating", "bogus_channel"]}
+    result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=caps)
+
+    fields = {str(k) for k in result["data_schema"].schema}
+    assert fields == {"entity_energy_thermal_heating"}
+    assert "bogus_channel" in caplog.text
+
+
+async def test_kpi_metrics_step_skipped_when_only_unknown_energy_channels(hass, monkeypatch):
+    _mock_provision(monkeypatch)
+    result = await _reach_kpi_metrics_step(
+        hass, monkeypatch, capabilities={"energy_channels": ["bogus_a", "bogus_b"]}
+    )
+
+    assert result["type"] == "create_entry"
+
+
+async def test_finish_shows_addon_error_detail_without_secrets(hass, monkeypatch):
+    from homeassistant.components.hassio import AddonError
+
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+    hass.states.async_set("sensor.flow", "45.0", {"state_class": "measurement"})
+    _mock_provision(monkeypatch)
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options",
+        AsyncMock(side_effect=AddonError(
+            "Unknown option 'entity_flow_temperature' (pw geheim-mqtt)")),
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"entity_flow_temperature": "sensor.flow"},
+    )
+
+    assert result["step_id"] == "retry_push"
+    detail = result["description_placeholders"]["error_detail"]
+    assert "entity_flow_temperature" in detail
+    assert "geheim-mqtt" not in detail
