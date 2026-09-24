@@ -13,8 +13,9 @@ from homeassistant.helpers.hassio import is_hassio
 from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
 from .const import (
     CLIMATE_ATTRIBUTE_BY_ROLE, CLOUDFLARED_ADDON_SLUG, DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN,
-    ERZEUGER_TYP_LABELS, HEIZUNGSBRUECKE_ADDON_SLUG, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
-    VERTEILSYSTEM_LABELS,
+    ERZEUGER_TYP_LABELS, HEIZUNGSBRUECKE_ADDON_SLUG, KPI_ROLE_STATE_CLASS_EXPECTATIONS,
+    KPI_SCALAR_ROLE_BY_CAPABILITY, ROLE_DOMAINS, ROLE_UNIT_EXPECTATIONS,
+    VERTEILSYSTEM_LABELS, kpi_energy_role,
 )
 from .supervisor_client import AddonNotFoundError, AmbiguousAddonMatchError, async_get_addon_managers
 
@@ -29,6 +30,8 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._profiles: list[dict] = []
         self._profile_id: str | None = None
         self._entities: dict[str, str] = {}
+        self._telemetry_capabilities: dict | None = None
+        self._kpi_entities: dict[str, str] = {}
         self._provisioning: dict | None = None
         self._retry_error_detail: str = ""
         # Final-Review-Fix (Finding 2): gesetzt, wenn ein InvalidAuth mitten in der Flow
@@ -138,6 +141,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "profile_combination_unsupported"
             else:
                 self._profile_id = match["profile_id"]
+                self._telemetry_capabilities = match.get("telemetry_capabilities")
                 return await self.async_step_entities()
 
         herstellers = sorted({p["hersteller"] for p in verified})
@@ -159,9 +163,28 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             resolved, errors = _resolve_entities(self.hass, user_input)
             if not errors:
                 self._entities = resolved
-                return await self.async_step_finish()
+                return await self.async_step_kpi_metrics()
 
         return self.async_show_form(step_id="entities", data_schema=_entities_schema(), errors=errors)
+
+    async def async_step_kpi_metrics(self, user_input: dict | None = None):
+        """Optionaler Schritt: zeigt nur die KPI-Mappings, die das Profil unterstuetzt.
+        Ohne (oder mit leeren) telemetry_capabilities entfaellt er komplett."""
+        schema_fields = _kpi_metrics_schema_fields(self._telemetry_capabilities)
+        if not schema_fields:
+            self._kpi_entities = {}
+            return await self.async_step_finish()
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            resolved, errors = _resolve_kpi_entities(self.hass, user_input, schema_fields)
+            if not errors:
+                self._kpi_entities = resolved
+                return await self.async_step_finish()
+
+        return self.async_show_form(
+            step_id="kpi_metrics", data_schema=vol.Schema(schema_fields), errors=errors
+        )
 
     async def async_step_finish(self, user_input: dict | None = None):
         errors: dict[str, str] = {}
@@ -192,6 +215,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "mqtt_username": self._provisioning["username"],
             "mqtt_password": self._provisioning["password"],
             **self._entities,
+            **self._kpi_entities,
         }
         cloudflared_options = {
             "hostname": self._provisioning["cloudflared_hostname"],
@@ -299,6 +323,44 @@ def _entities_schema() -> vol.Schema:
         vol.Required(role): selector.selector({"entity": {"domain": domains}})
         for role, domains in ROLE_DOMAINS.items()
     })
+
+
+def _kpi_metrics_schema_fields(telemetry_capabilities: dict | None) -> dict:
+    if not telemetry_capabilities:
+        return {}
+    fields: dict = {}
+    for capability_flag, role in KPI_SCALAR_ROLE_BY_CAPABILITY.items():
+        if telemetry_capabilities.get(capability_flag):
+            fields[vol.Optional(role)] = selector.selector({"entity": {"domain": ["sensor"]}})
+    for channel in telemetry_capabilities.get("energy_channels") or []:
+        fields[vol.Optional(kpi_energy_role(channel))] = selector.selector(
+            {"entity": {"domain": ["sensor"]}}
+        )
+    return fields
+
+
+def _resolve_kpi_entities(
+    hass, user_input: dict, schema_fields: dict
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Validiert nur die neuen KPI-Rollen (state_class); die Rollen des entities-Schritts
+    und deren Einheitenpruefung bleiben unberuehrt."""
+    resolved: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    for role in (str(key) for key in schema_fields):
+        entity_id = user_input.get(role)
+        if not entity_id:
+            continue
+        state = hass.states.get(entity_id)
+        if state is None:
+            errors[role] = "entity_not_found"
+            continue
+        if role != "entity_operating_mode":
+            expected = KPI_ROLE_STATE_CLASS_EXPECTATIONS.get(role, "total_increasing")
+            if state.attributes.get("state_class") != expected:
+                errors[role] = "state_class_mismatch"
+                continue
+        resolved[role] = entity_id
+    return resolved, errors
 
 
 def _resolve_entities(hass, user_input: dict) -> tuple[dict[str, str], dict[str, str]]:

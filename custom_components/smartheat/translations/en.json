@@ -4,12 +4,17 @@
       "user": {
         "title": "SmartHeat Login",
         "description": "Sign in with your existing SmartHeat account or register on our website.",
-        "data": { "email": "Email", "password": "Password" }
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
       },
       "tenant": {
         "title": "Select installation",
         "description": "The dropdown lists every heating installation linked to your account. Which one would you like to set up?",
-        "data": { "tenant_id": "Installation" }
+        "data": {
+          "tenant_id": "Installation"
+        }
       },
       "profile": {
         "title": "Select profile",
@@ -32,6 +37,23 @@
           "entity_heat_limit": "Heat limit"
         }
       },
+      "kpi_metrics": {
+        "title": "Optional: performance metrics",
+        "description": "This step is optional and only intended for the development phase. Optionally map additional sensors for performance logging; only fields supported by your profile are shown. You can leave everything empty and continue.",
+        "data": {
+          "entity_flow_temperature": "Flow temperature",
+          "entity_return_temperature": "Return temperature",
+          "entity_operating_mode": "Operating mode",
+          "entity_system_water_pressure": "System water pressure",
+          "entity_efficiency_ratio": "Manufacturer efficiency ratio",
+          "entity_energy_electrical_heating": "Energy: electrical heating",
+          "entity_energy_electrical_dhw": "Energy: electrical dhw",
+          "entity_energy_primary_heating": "Energy: primary heating",
+          "entity_energy_primary_dhw": "Energy: primary dhw",
+          "entity_energy_thermal_heating": "Energy: thermal heating",
+          "entity_energy_thermal_dhw": "Energy: thermal dhw"
+        }
+      },
       "retry_push": {
         "title": "Could not configure add-ons",
         "description": "MQTT credentials (apply manually if this keeps failing): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
@@ -49,7 +71,8 @@
       "entity_not_found": "This entity does not exist",
       "provisioning_failed": "Provisioning failed",
       "session_expired": "Your session has expired. Please sign in again.",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "state_class_mismatch": "Wrong state class for this entity"
     },
     "abort": {
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",

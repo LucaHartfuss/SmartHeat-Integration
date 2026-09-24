@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 import voluptuous as vol
 
 from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
@@ -113,13 +114,29 @@ async def _reach_tenant_step(hass, monkeypatch):
     )
 
 
-async def _reach_profile_step(hass, monkeypatch):
+KPI_CAPABILITIES = {
+    "has_flow_temperature": True, "has_return_temperature": False,
+    "has_operating_mode": True, "has_water_pressure": True,
+    "has_manufacturer_efficiency_sensor": True,
+    "energy_channels": ["electrical_heating", "thermal_heating"],
+}
+
+
+async def _reach_profile_step(hass, monkeypatch, telemetry_capabilities=None):
+    """telemetry_capabilities wird nur bei Bedarf ins erste Profil gemischt: ohne sie
+    (Default) ueberspringt die Flow den optionalen kpi_metrics-Schritt, sodass alle
+    bestehenden Tests (entities -> finish) unveraendert bleiben."""
     result = await _reach_tenant_step(hass, monkeypatch)
+    first_profile = {
+        "hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
+        "profile_id": "vaillant_gastherme_heizkoerper", "verified": True,
+    }
+    if telemetry_capabilities is not None:
+        first_profile["telemetry_capabilities"] = telemetry_capabilities
     monkeypatch.setattr(
         "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
         AsyncMock(return_value=[
-            {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
-             "profile_id": "vaillant_gastherme_heizkoerper", "verified": True},
+            first_profile,
             {"hersteller": "Weishaupt", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
              "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
         ]),
@@ -765,3 +782,166 @@ async def test_finish_shows_generic_hint_on_addon_not_found(hass, monkeypatch):
     assert result["type"] == "form"
     assert result["step_id"] == "retry_push"
     assert result["description_placeholders"]["error_detail"] == ""
+
+
+async def _reach_kpi_metrics_step(hass, monkeypatch, capabilities=KPI_CAPABILITIES):
+    result = await _reach_profile_step(hass, monkeypatch, telemetry_capabilities=capabilities)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
+    )
+    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.curve", "0.5", {})
+    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
+            "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
+            "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+        },
+    )
+
+
+def _mock_provision(monkeypatch):
+    monkeypatch.setattr(
+        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
+        AsyncMock(return_value=_provisioning_response()),
+    )
+    # Nach provision() geht die Flow in den Add-on-Push -- hier folgenlos stubben.
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
+    )
+
+
+async def test_entities_step_proceeds_to_kpi_metrics_step(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "kpi_metrics"
+
+
+async def test_kpi_metrics_step_only_offers_fields_the_profile_supports(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+
+    schema_fields = {str(key) for key in result["data_schema"].schema}
+    assert "entity_flow_temperature" in schema_fields
+    assert "entity_return_temperature" not in schema_fields
+    assert "entity_energy_electrical_heating" in schema_fields
+    assert "entity_energy_thermal_dhw" not in schema_fields
+
+
+async def test_kpi_metrics_step_all_fields_are_optional_and_can_be_skipped(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+
+    for key in result["data_schema"].schema:
+        assert not isinstance(key, vol.Required)
+
+
+async def test_kpi_metrics_step_validates_state_class_for_energy_fields(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+    hass.states.async_set("sensor.energy", "100.0", {"state_class": "measurement"})
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"entity_energy_electrical_heating": "sensor.energy"},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "kpi_metrics"
+    assert result["errors"]["entity_energy_electrical_heating"] == "state_class_mismatch"
+
+
+async def test_kpi_metrics_step_validates_state_class_for_temperature_fields(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+    hass.states.async_set("sensor.flow", "45.0", {"state_class": "total_increasing"})
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"entity_flow_temperature": "sensor.flow"},
+    )
+
+    assert result["type"] == "form"
+    assert result["errors"]["entity_flow_temperature"] == "state_class_mismatch"
+
+
+async def test_kpi_metrics_step_reports_missing_entity(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"entity_flow_temperature": "sensor.does_not_exist"},
+    )
+
+    assert result["step_id"] == "kpi_metrics"
+    assert result["errors"]["entity_flow_temperature"] == "entity_not_found"
+
+
+async def test_kpi_metrics_step_operating_mode_needs_no_state_class(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+    hass.states.async_set("sensor.mode", "heating", {})
+    _mock_provision(monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"entity_operating_mode": "sensor.mode"},
+    )
+
+    assert result["type"] == "create_entry"
+
+
+async def test_kpi_metrics_step_submitting_empty_form_proceeds_to_finish(hass, monkeypatch):
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+    _mock_provision(monkeypatch)
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] == "create_entry"
+
+
+async def test_kpi_metrics_entities_are_merged_into_heizungsbruecke_options(hass, monkeypatch):
+    pushed = []
+
+    async def _record_options(self, config):
+        pushed.append((self.addon_slug, config))
+
+    async def _noop_restart(self):
+        return None
+
+    result = await _reach_kpi_metrics_step(hass, monkeypatch)
+    hass.states.async_set("sensor.flow", "45.0", {"state_class": "measurement"})
+    hass.states.async_set("sensor.energy", "100.0", {"state_class": "total_increasing"})
+    _mock_provision(monkeypatch)
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_set_addon_options", _record_options
+    )
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_restart_addon", _noop_restart
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"entity_flow_temperature": "sensor.flow", "entity_energy_thermal_heating": "sensor.energy"},
+    )
+
+    assert result["type"] == "create_entry"
+    options = next(o for slug, o in pushed if slug == "heizungsbruecke")
+    assert options["entity_flow_temperature"] == "sensor.flow"
+    assert options["entity_energy_thermal_heating"] == "sensor.energy"
+    assert options["entity_room_actual"] == "sensor.rt"
+
+
+@pytest.mark.parametrize("capabilities", [None, {}, {"energy_channels": []}, {"has_flow_temperature": False}])
+async def test_kpi_metrics_step_skipped_when_profile_has_no_usable_capabilities(
+    hass, monkeypatch, capabilities
+):
+    """Fehlender Key, None, leeres Dict: kein AttributeError/KeyError, Schritt entfaellt."""
+    _mock_provision(monkeypatch)
+    if capabilities is None:
+        result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=None)
+    else:
+        result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=capabilities)
+
+    assert result["type"] == "create_entry"

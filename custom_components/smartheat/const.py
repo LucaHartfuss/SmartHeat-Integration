@@ -27,6 +27,32 @@ ROLE_UNIT_EXPECTATIONS: dict[str, str] = {
     "entity_heat_limit": "°C",
 }
 
+# Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
+# Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt
+# (aus /profiles) als unterstuetzt ausweist -- siehe config_flow.py::async_step_kpi_metrics.
+KPI_SCALAR_ROLE_BY_CAPABILITY: dict[str, str] = {
+    "has_flow_temperature": "entity_flow_temperature",
+    "has_return_temperature": "entity_return_temperature",
+    "has_operating_mode": "entity_operating_mode",
+    "has_water_pressure": "entity_system_water_pressure",
+    "has_manufacturer_efficiency_sensor": "entity_efficiency_ratio",
+}
+
+# state_class, das HA fuer den jeweiligen Feldtyp erwartet -- operating_mode hat
+# bewusst keinen Eintrag (Text-Sensor ohne state_class). Energie-Rollen
+# (entity_energy_<channel>) erwarten total_increasing, siehe config_flow.py.
+KPI_ROLE_STATE_CLASS_EXPECTATIONS: dict[str, str] = {
+    "entity_flow_temperature": "measurement",
+    "entity_return_temperature": "measurement",
+    "entity_system_water_pressure": "measurement",
+    "entity_efficiency_ratio": "measurement",
+}
+
+
+def kpi_energy_role(channel: str) -> str:
+    return f"entity_energy_{channel}"
+
+
 # Beide Add-ons kommen aus diesem einen Custom-Repository. Ein Supervisor praefigiert den
 # Slug eines von einem Custom-Repository installierten Add-ons mit einem Repository-Hash
 # (verifiziert gegen einen echten Supervisor, z.B. "f5f6325b_heizungsbruecke" statt nur

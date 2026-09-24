@@ -4,12 +4,17 @@
       "user": {
         "title": "SmartHeat Login",
         "description": "Melden Sie sich mit Ihrem bestehenden SmartHeat-Account an oder registrieren Sie sich auf unserer Webseite.",
-        "data": { "email": "E-Mail", "password": "Passwort" }
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort"
+        }
       },
       "tenant": {
         "title": "Anlage auswählen",
         "description": "Das Dropdown-Menü listet alle Heizungen, die mit Ihrem Account verbunden sind. Welche möchten Sie einrichten?",
-        "data": { "tenant_id": "Anlage" }
+        "data": {
+          "tenant_id": "Anlage"
+        }
       },
       "profile": {
         "title": "Profil auswählen",
@@ -32,6 +37,23 @@
           "entity_heat_limit": "Heizgrenze"
         }
       },
+      "kpi_metrics": {
+        "title": "Optional: Leistungskennzahlen",
+        "description": "Dieser Schritt ist optional und nur für die Entwicklungsphase gedacht. Ordnen Sie optional zusätzliche Sensoren für die Leistungsprotokollierung zu; es werden nur Felder angezeigt, die Ihr Profil unterstützt. Sie können alles leer lassen und fortfahren.",
+        "data": {
+          "entity_flow_temperature": "Vorlauftemperatur",
+          "entity_return_temperature": "Rücklauftemperatur",
+          "entity_operating_mode": "Betriebsart",
+          "entity_system_water_pressure": "Systemwasserdruck",
+          "entity_efficiency_ratio": "Wirkungsgrad (Hersteller)",
+          "entity_energy_electrical_heating": "Energie: elektrisch, Heizen",
+          "entity_energy_electrical_dhw": "Energie: elektrisch, Warmwasser",
+          "entity_energy_primary_heating": "Energie: primär, Heizen",
+          "entity_energy_primary_dhw": "Energie: primär, Warmwasser",
+          "entity_energy_thermal_heating": "Energie: thermisch, Heizen",
+          "entity_energy_thermal_dhw": "Energie: thermisch, Warmwasser"
+        }
+      },
       "retry_push": {
         "title": "Add-ons konnten nicht konfiguriert werden",
         "description": "MQTT-Zugangsdaten (bei anhaltendem Fehler manuell anwenden): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
@@ -49,7 +71,8 @@
       "entity_not_found": "Dieses Entity existiert nicht",
       "provisioning_failed": "Provisioning fehlgeschlagen",
       "session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
-      "unknown": "Unerwarteter Fehler"
+      "unknown": "Unerwarteter Fehler",
+      "state_class_mismatch": "Falsche State-Class für dieses Entity"
     },
     "abort": {
       "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons über die Supervisor-API konfiguriert.",
