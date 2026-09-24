@@ -12,3 +12,11 @@ Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
    ausfuellen.
 
 Die Integration schreibt die Konfiguration in beide Add-ons und startet sie automatisch.
+
+## Änderungen
+
+### 0.3.0
+
+Optionaler letzter Onboarding-Schritt für KPI-Entwicklungs-Metriken (Vorlauf/Rücklauf/Betriebsmodus/Wasserdruck/Effizienz/Energie pro Kanal), profilabhängig, komplett übersprungen wenn das Server-Profil keine telemetry_capabilities ausweist.
+
+Voraussetzung: Diese Integrationsversion darf nur zusammen mit bzw. nach dem Add-on `heizungsbruecke` ab Version 0.13.0 eingesetzt werden — ältere Add-on-Versionen lehnen die neuen optionalen KPI-Optionen ab und das Onboarding schlägt beim Schreiben der Add-on-Konfiguration fehl.
