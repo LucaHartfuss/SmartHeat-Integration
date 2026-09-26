@@ -39,22 +39,46 @@ async def test_login_raises_invalid_auth_on_401(aiohttp_client):
         await HeizungsserverClient(client, "").login("a@b.de", "falsch")
 
 
-async def test_list_profiles_returns_catalog(aiohttp_client):
+async def test_get_catalog_returns_catalog(aiohttp_client):
+    catalog = {
+        "catalog_version": 1,
+        "profiles": [{"hersteller": "Vaillant", "erzeuger_typ": "Gastherme",
+                      "verteilsystem": "Heizkoerper", "profile_id": "vaillant_gastherme_heizkoerper",
+                      "verified": True}],
+        "integrations": [],
+    }
+
     async def handler(request):
         assert request.headers["Authorization"] == "Bearer tok123"
-        return web.json_response([
-            {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme",
-             "verteilsystem": "Heizkoerper", "profile_id": "vaillant_gastherme_heizkoerper",
-             "verified": True},
-        ])
+        return web.json_response(catalog)
 
     app = web.Application()
-    app.router.add_get("/profiles", handler)
+    app.router.add_get("/catalog", handler)
     client = await aiohttp_client(app)
 
-    result = await HeizungsserverClient(client, "").list_profiles("tok123")
+    assert await HeizungsserverClient(client, "").get_catalog("tok123") == catalog
 
-    assert result[0]["profile_id"] == "vaillant_gastherme_heizkoerper"
+
+async def test_get_catalog_raises_api_error_on_404(aiohttp_client):
+    # Alter Server ohne /catalog (Rollout-Reihenfolge verletzt): Fehler statt Absturz.
+    app = web.Application()
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").get_catalog("tok123")
+
+
+@pytest.mark.parametrize("body", [[], {"catalog_version": 1}, {"profiles": "x"}])
+async def test_get_catalog_rejects_body_without_profiles_list(aiohttp_client, body):
+    async def handler(request):
+        return web.json_response(body)
+
+    app = web.Application()
+    app.router.add_get("/catalog", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").get_catalog("tok123")
 
 
 async def test_provision_raises_api_error_on_failure(aiohttp_client):

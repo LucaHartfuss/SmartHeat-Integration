@@ -111,7 +111,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(self._tenant_id)
             self._abort_if_unique_id_configured()
             try:
-                self._profiles = await self._client().list_profiles(self._token)
+                self._profiles = (await self._client().get_catalog(self._token))["profiles"]
             except InvalidAuth:
                 self._token = None
                 self._session_expired = True

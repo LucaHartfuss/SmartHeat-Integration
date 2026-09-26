@@ -29,7 +29,7 @@ ROLE_UNIT_EXPECTATIONS: dict[str, str] = {
 
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt
-# (aus /profiles) als unterstuetzt ausweist -- siehe config_flow.py::async_step_kpi_metrics.
+# (aus /catalog) als unterstuetzt ausweist -- siehe config_flow.py::async_step_kpi_metrics.
 KPI_SCALAR_ROLE_BY_CAPABILITY: dict[str, str] = {
     "has_flow_temperature": "entity_flow_temperature",
     "has_return_temperature": "entity_return_temperature",

@@ -1,8 +1,10 @@
-"""Async HTTP-Client fuer die heizungsserver-Accounts-API (Login, Tenants, Profile,
+"""Async HTTP-Client fuer die heizungsserver-Accounts-API (Login, Tenants, Katalog,
 Provisioning). Ersetzt die synchronen requests.post()-Aufrufe aus dem alten
 heizungsbruecke/web.py-Wizard -- dieselbe API, nur async und ohne Flask-Session.
 """
 from __future__ import annotations
+
+from typing import Any
 
 import aiohttp
 
@@ -41,8 +43,11 @@ class HeizungsserverClient:
     async def list_tenants(self, token: str) -> list[dict]:
         return await self._get_authenticated("/accounts/me/tenants", token)
 
-    async def list_profiles(self, token: str) -> list[dict]:
-        return await self._get_authenticated("/profiles", token)
+    async def get_catalog(self, token: str) -> dict:
+        catalog = await self._get_authenticated("/catalog", token)
+        if not isinstance(catalog, dict) or not isinstance(catalog.get("profiles"), list):
+            raise ApiError("Katalog-Antwort ohne 'profiles'-Liste")
+        return catalog
 
     async def provision(self, token: str, tenant_id: str, profile_id: str) -> dict:
         try:
@@ -59,7 +64,7 @@ class HeizungsserverClient:
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
 
-    async def _get_authenticated(self, path: str, token: str) -> list[dict]:
+    async def _get_authenticated(self, path: str, token: str) -> Any:
         try:
             async with self._session.get(
                 f"{self._base_url}{path}", headers={"Authorization": f"Bearer {token}"}

@@ -8,6 +8,10 @@ from custom_components.smartheat.api_client import ApiError, CannotConnect, Inva
 from custom_components.smartheat.const import DOMAIN
 
 
+def _catalog(*profiles):
+    return {"catalog_version": 1, "profiles": list(profiles), "integrations": []}
+
+
 def _enable_supervisor(hass, monkeypatch):
     """Simuliert eine Supervisor-Installation (HA OS/Supervised).
 
@@ -134,12 +138,12 @@ async def _reach_profile_step(hass, monkeypatch, telemetry_capabilities=None):
     if telemetry_capabilities is not None:
         first_profile["telemetry_capabilities"] = telemetry_capabilities
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
-        AsyncMock(return_value=[
+        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
+        AsyncMock(return_value=_catalog(
             first_profile,
             {"hersteller": "Weishaupt", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
              "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
-        ]),
+        )),
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"tenant_id": "wohnung1"},
@@ -154,13 +158,13 @@ async def _reach_profile_step_with_two_verified_profiles(hass, monkeypatch):
     (z.B. Vaillant+Waermepumpe, fuer das es kein Profil gibt)."""
     result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
-        AsyncMock(return_value=[
+        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
+        AsyncMock(return_value=_catalog(
             {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
              "profile_id": "vaillant_gastherme_heizkoerper", "verified": True},
             {"hersteller": "Vaillant", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
              "profile_id": "vaillant_waermepumpe_fussbodenheizung", "verified": True},
-        ]),
+        )),
     )
     return await hass.config_entries.flow.async_configure(
         result["flow_id"], {"tenant_id": "wohnung1"},
@@ -170,7 +174,7 @@ async def _reach_profile_step_with_two_verified_profiles(hass, monkeypatch):
 async def test_tenant_step_shows_cannot_connect_error(hass, monkeypatch):
     result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
         AsyncMock(side_effect=CannotConnect("nicht erreichbar")),
     )
 
@@ -186,7 +190,7 @@ async def test_tenant_step_shows_cannot_connect_error(hass, monkeypatch):
 async def test_tenant_step_shows_unknown_error_on_api_error(hass, monkeypatch):
     result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
         AsyncMock(side_effect=ApiError("kaputt")),
     )
 
@@ -223,11 +227,11 @@ async def test_second_flow_with_same_tenant_aborts_as_already_configured(hass, m
 async def test_profile_step_aborts_when_no_verified_profiles(hass, monkeypatch):
     result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
-        AsyncMock(return_value=[
+        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
+        AsyncMock(return_value=_catalog(
             {"hersteller": "Weishaupt", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
              "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
-        ]),
+        )),
     )
 
     result = await hass.config_entries.flow.async_configure(
@@ -248,7 +252,7 @@ async def test_tenant_step_proceeds_to_profile_step(hass, monkeypatch):
 async def test_tenant_step_routes_back_to_user_step_on_invalid_auth(hass, monkeypatch):
     result = await _reach_tenant_step(hass, monkeypatch)
     monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_profiles",
+        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
         AsyncMock(side_effect=InvalidAuth("Sitzung abgelaufen")),
     )
 
@@ -576,7 +580,7 @@ async def test_finish_step_routes_back_to_user_step_on_real_401_from_provision(
     hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
     hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
 
-    # login/list_tenants/list_profiles bleiben wie ueberall sonst gemockt (_reach_profile_step) --
+    # login/list_tenants/get_catalog bleiben wie ueberall sonst gemockt (_reach_profile_step) --
     # nur provision() selbst laeuft tatsaechlich gegen den obigen Fake-Server, der ein reales
     # HTTP-401 liefert.
     result = await _reach_profile_step(hass, monkeypatch)
