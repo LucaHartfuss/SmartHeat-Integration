@@ -206,6 +206,11 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="entities", data_schema=_entities_schema(), errors=errors
             )
 
+        if not isinstance(self._provisioning.get("profile_params"), dict):
+            # Keine Rueckfallwerte: ohne profile_params startet das Add-on nicht (Spec TP3, 4).
+            _LOGGER.error("Provisionierungs-Antwort ohne gueltiges 'profile_params'")
+            return self.async_abort(reason="invalid_provisioning_response")
+
         return await self._push_config_and_finish()
 
     async def _push_config_and_finish(self):
@@ -214,10 +219,13 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # erreicht werden kann -- AddonManager holt sich seinen eigenen Supervisor-Client
         # (get_supervisor_client(hass)) intern, kein manueller Token-Zugriff mehr hier.
         heizungsbruecke_options = {
+            # profile_params zuerst: feste Schluessel unten koennen vom Server nicht
+            # ueberschrieben werden.
+            **self._provisioning["profile_params"],
             "tenant_id": self._tenant_id,
-            "profile": self._profile_id,
             "mqtt_username": self._provisioning["username"],
             "mqtt_password": self._provisioning["password"],
+            "accounts_api_base_url": DEFAULT_HEIZUNGSSERVER_BASE_URL,
             **self._entities,
             **self._kpi_entities,
         }
@@ -269,8 +277,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self._show_retry_push_form()
         except AddonError as err:
             # Die Supervisor-Meldung nennt typischerweise den abgelehnten Options-KEY
-            # (z.B. ein Add-on < 0.13.0 lehnt entity_flow_temperature ab). Sicherheitsnetz:
-            # Zugangsdaten werden vor der Anzeige geschwaerzt und der Text gekuerzt.
+            # (z.B. ein Add-on < 0.13.0 lehnt entity_flow_temperature ab, bzw. ein
+            # Add-on < 0.18.0 lehnt verteilsystem ab). Sicherheitsnetz: Zugangsdaten
+            # werden vor der Anzeige geschwaerzt und der Text gekuerzt.
             self._retry_error_detail = self._sanitize_addon_error(str(err))
             return self._show_retry_push_form()
 

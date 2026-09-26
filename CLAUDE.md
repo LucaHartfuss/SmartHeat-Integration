@@ -4,8 +4,8 @@ HACS-Integration "SmartHeat" (Domain `smartheat`). **Achtung:** das GitHub-Repo 
 
 ## Struktur
 
-- `custom_components/smartheat/config_flow.py` — der Wizard: Login → Tenant → Profil → Entity-Mapping → `provision()` → Add-on-Push (`retry_push` als Fallback-Schritt).
-- `api_client.py` — async HTTP-Client gegen `heizungsserver`s Accounts-API (`https://accounts.hartfussha.org`).
+- `custom_components/smartheat/config_flow.py` — der Wizard: Login → Tenant → Profil → Entity-Mapping → `provision()` → Add-on-Push (`retry_push` als Fallback-Schritt); schreibt `profile_params` aus der Provisionierung unverändert plus `accounts_api_base_url` in die `heizungsbruecke`-Optionen.
+- `api_client.py` — async HTTP-Client gegen `heizungsserver`s Accounts-API (`https://accounts.hartfussha.org`): Login, Tenants, `GET /catalog`, `provision`.
 - `supervisor_client.py` — schreibt/startet die beiden Add-ons über HA-Core `AddonManager`.
 - `const.py` — Rollen-/Label-Mappings (`ROLE_DOMAINS`, `ERZEUGER_TYP_LABELS`, …), Add-on-Repository-URL/Slugs.
 - `translations/{de,en}.json`, `strings.json` — vollständige UI-Strings je Wizard-Schritt.
@@ -13,10 +13,10 @@ HACS-Integration "SmartHeat" (Domain `smartheat`). **Achtung:** das GitHub-Repo 
 ## Tests
 
 ```
-pip install -r requirements_test.txt
-pytest
+python3.14 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
+.venv/bin/python -m pytest -q
 ```
-(`pytest.ini`: `asyncio_mode = auto`, `testpaths = tests`.) 29 Tests über 3 Dateien (`test_config_flow.py`, `test_supervisor_client.py`, `test_api_client.py`).
+(`pytest-homeassistant-custom-component` braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup.) (`pytest.ini`: `asyncio_mode = auto`, `testpaths = tests`.) 66 Tests über 3 Dateien (`test_config_flow.py`, `test_supervisor_client.py`, `test_api_client.py`).
 
 ## Besonderheiten
 
@@ -24,3 +24,4 @@ pytest
 - Add-on-Slug-Auflösung ist nicht trivial: Supervisor prefixt Custom-Repo-Slugs mit einem Repo-Hash (z. B. `f5f6325b_heizungsbruecke`) — siehe `supervisor_client.py`/`async_resolve_addon_slug()`.
 - `manifest.json`-Repo-URL muss zum tatsächlichen Namen des veröffentlichten GitHub-Repos passen (`SmartHeat-Integration`), nicht zum lokalen Ordnernamen dieses Checkouts.
 - `async_step_user` bricht früh ab, wenn keine Supervisor-Installation erkannt wird (`is_hassio`/`SUPERVISOR_TOKEN`) — verhindert Provisioning auf Nicht-Supervisor-Installationen.
+- `const.py` (`DEFAULT_HEIZUNGSSERVER_BASE_URL`, `KPI_ENERGY_CHANNELS`, `ROLE_DOMAINS`, Slugs) wird von `python3 ../tools/contract_check.py` gegen Server und Add-on geprüft.

@@ -5,7 +5,7 @@ DEFAULT_HEIZUNGSSERVER_BASE_URL = "https://accounts.hartfussha.org"
 
 # Muss mit ROLE_DOMAINS aus heizungsbruecke/src/heizungsbruecke/static/wizard.js
 # (jetzt entfernt) inhaltlich uebereinstimmen -- kein geteilter Code zwischen den
-# Repos, siehe bestehendes Muster in heizungsbruecke/profiles.py.
+# Repos; Cross-Repo-Gleichheit prueft tools/contract_check.py im Dev-Root.
 ROLE_DOMAINS: dict[str, list[str]] = {
     "entity_room_actual": ["sensor"],
     "entity_room_target": ["sensor", "climate"],

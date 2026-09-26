@@ -397,21 +397,32 @@ async def test_entities_step_flattens_climate_room_target():
     assert resolved["entity_room_target"] == "climate.wohnzimmer::temperature"
 
 
+PROFILE_PARAMS = {
+    "verteilsystem": "Heizkoerper",
+    "daily_trigger_time": "12:00",
+    "day_avg_window_start": "14:00", "day_avg_window_end": "17:00",
+    "night_avg_window_start": "04:00", "night_avg_window_end": "07:00",
+}
+
+
 def _provisioning_response():
     return {
         "username": "wohnung1_abc", "password": "geheim-mqtt", "acl_snippet": "...",
         "cloudflared_hostname": "mqtt-verify.hartfussha.org", "cloudflared_local_port": 18830,
         "cloudflared_service_token_id": "cf-id", "cloudflared_service_token_secret": "cf-secret",
+        "profile_params": dict(PROFILE_PARAMS),
     }
 
 
-async def _reach_finish(hass, monkeypatch, provision_exception=None):
+async def _reach_finish(hass, monkeypatch, provision_exception=None, provisioning_response=None):
     """Durchlaeuft die Flow bis (und ueber) den finish-Schritt.
 
     provision_exception erlaubt es Tests, provision() statt eines erfolgreichen
     Ergebnisses eine Exception werfen zu lassen (siehe
     test_finish_step_routes_back_to_entities_on_provisioning_failure), ohne die
-    gesamte Setup-Logik hier zu duplizieren.
+    gesamte Setup-Logik hier zu duplizieren. provisioning_response erlaubt es
+    Tests, eine abweichende (z.B. kaputte) Provisionierungs-Antwort statt der
+    Standard-_provisioning_response() einzuschleusen.
     """
     hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
     hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
@@ -422,7 +433,9 @@ async def _reach_finish(hass, monkeypatch, provision_exception=None):
     if provision_exception is not None:
         provision_mock = AsyncMock(side_effect=provision_exception)
     else:
-        provision_mock = AsyncMock(return_value=_provisioning_response())
+        provision_mock = AsyncMock(
+            return_value=provisioning_response if provisioning_response is not None else _provisioning_response()
+        )
     monkeypatch.setattr(
         "custom_components.smartheat.config_flow.HeizungsserverClient.provision", provision_mock
     )
@@ -468,7 +481,10 @@ async def test_finish_pushes_options_to_both_addons_and_creates_entry(hass, monk
     assert pushed_slugs == {"heizungsbruecke", "cloudflared_access_mqtt"}
     heizungsbruecke_options = next(o for slug, o in pushed if slug == "heizungsbruecke")
     assert heizungsbruecke_options["tenant_id"] == "wohnung1"
-    assert heizungsbruecke_options["profile"] == "vaillant_gastherme_heizkoerper"
+    assert "profile" not in heizungsbruecke_options
+    for key, value in PROFILE_PARAMS.items():
+        assert heizungsbruecke_options[key] == value
+    assert heizungsbruecke_options["accounts_api_base_url"] == "https://accounts.hartfussha.org"
     assert heizungsbruecke_options["mqtt_username"] == "wohnung1_abc"
     assert heizungsbruecke_options["mqtt_password"] == "geheim-mqtt"
     assert heizungsbruecke_options["entity_room_actual"] == "sensor.rt"
@@ -478,6 +494,31 @@ async def test_finish_pushes_options_to_both_addons_and_creates_entry(hass, monk
         "service_token_id": "cf-id", "service_token_secret": "cf-secret",
     }
     assert set(restarted) == {"heizungsbruecke", "cloudflared_access_mqtt"}
+
+
+@pytest.mark.parametrize("profile_params", [None, "Heizkoerper", ["x"]])
+async def test_finish_aborts_on_invalid_profile_params(hass, monkeypatch, profile_params):
+    set_options = AsyncMock()
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options)
+    response = _provisioning_response()
+    if profile_params is None:
+        del response["profile_params"]
+    else:
+        response["profile_params"] = profile_params
+
+    result = await _reach_finish(hass, monkeypatch, provisioning_response=response)
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "invalid_provisioning_response"
+    set_options.assert_not_called()
+
+
+def test_invalid_provisioning_response_has_translations():
+    import json
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "custom_components" / "smartheat"
+    for path in (base / "strings.json", base / "translations" / "en.json", base / "translations" / "de.json"):
+        assert json.loads(path.read_text())["config"]["abort"]["invalid_provisioning_response"], path
 
 
 async def test_finish_shows_retry_step_with_credentials_on_supervisor_failure(hass, monkeypatch):

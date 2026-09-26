@@ -78,7 +78,8 @@
     "abort": {
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",
       "already_configured": "This installation is already configured. Remove the existing SmartHeat config entry first if you want to reconfigure it.",
-      "no_verified_profiles": "No verified profile is currently available on the SmartHeat server for this installation. Please try again later or contact support."
+      "no_verified_profiles": "No verified profile is currently available on the SmartHeat server for this installation. Please try again later or contact support.",
+      "invalid_provisioning_response": "The SmartHeat server returned an incomplete setup response (profile parameters missing). Please try again later or contact support."
     }
   }
 }
