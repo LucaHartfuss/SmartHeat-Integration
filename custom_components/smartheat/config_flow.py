@@ -278,7 +278,8 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except AddonError as err:
             # Die Supervisor-Meldung nennt typischerweise den abgelehnten Options-KEY
             # (z.B. ein Add-on < 0.13.0 lehnt entity_flow_temperature ab, bzw. ein
-            # Add-on < 0.18.0 lehnt verteilsystem ab). Sicherheitsnetz: Zugangsdaten
+            # Add-on < 0.18.0 lehnt die Optionen ab, weil dort `profile` Pflicht ist).
+            # Sicherheitsnetz: Zugangsdaten
             # werden vor der Anzeige geschwaerzt und der Text gekuerzt.
             self._retry_error_detail = self._sanitize_addon_error(str(err))
             return self._show_retry_push_form()
