@@ -107,3 +107,44 @@ async def test_provision_raises_invalid_auth_on_401(aiohttp_client):
 
     with pytest.raises(InvalidAuth):
         await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+
+@pytest.mark.parametrize("status", [200, 204])
+async def test_logout_posts_bearer_token(aiohttp_client, status):
+    seen = {}
+
+    async def handler(request):
+        seen["auth"] = request.headers.get("Authorization")
+        return web.Response(status=status)
+
+    app = web.Application()
+    app.router.add_post("/auth/logout", handler)
+    client = await aiohttp_client(app)
+
+    await HeizungsserverClient(client, "").logout("tok123")
+
+    assert seen["auth"] == "Bearer tok123"
+
+
+async def test_logout_raises_invalid_auth_on_401(aiohttp_client):
+    async def handler(request):
+        return web.json_response({"error": "x"}, status=401)
+
+    app = web.Application()
+    app.router.add_post("/auth/logout", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(InvalidAuth):
+        await HeizungsserverClient(client, "").logout("tok123")
+
+
+async def test_logout_raises_api_error_on_500(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=500)
+
+    app = web.Application()
+    app.router.add_post("/auth/logout", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").logout("tok123")

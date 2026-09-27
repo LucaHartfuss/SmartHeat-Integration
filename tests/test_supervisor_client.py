@@ -2,160 +2,112 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from aiohasupervisor.exceptions import SupervisorError
+from homeassistant.components.hassio import AddonError
 
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
+    AddonOutdatedError,
     AmbiguousAddonMatchError,
-    async_get_addon_manager,
+    ResolvedAddon,
     async_get_addon_managers,
-    async_resolve_addon_slug,
-    async_resolve_addon_slugs,
+    async_resolve_addons,
 )
 
 REPO_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
+MIN = {"heizungsbruecke": "0.19.0", "cloudflared_access_mqtt": "1.0.0"}
 
 
-def _installed_addon(slug: str, url: str) -> SimpleNamespace:
-    # Nur die Felder, die async_resolve_addon_slug tatsaechlich liest -- ein echtes
-    # aiohasupervisor.models.InstalledAddon hat viele weitere Pflichtfelder, die hier
-    # nicht gebraucht werden.
-    return SimpleNamespace(slug=slug, url=url)
+def _installed_addon(slug: str, url: str, version: str | None = "9.9.9") -> SimpleNamespace:
+    # Nur die Felder, die async_resolve_addons liest (ein echtes InstalledAddon hat viele mehr).
+    return SimpleNamespace(slug=slug, url=url, version=version)
 
 
-def _patch_supervisor_client(monkeypatch, installed):
-    fake_client = SimpleNamespace(
-        addons=SimpleNamespace(list=AsyncMock(return_value=installed))
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.get_supervisor_client",
-        lambda hass: fake_client,
-    )
-    # AddonManager.__init__ resolves its own supervisor client via a SEPARATE import of
-    # get_supervisor_client (homeassistant.components.hassio.addon_manager's, not ours) --
-    # needs patching too whenever a test actually constructs an AddonManager (see
-    # test_get_addon_manager_returns_manager_for_resolved_slug), otherwise it would try to
-    # read hass.data[...] off the `hass=None` used throughout this test file.
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.addon_manager.get_supervisor_client",
-        lambda hass: fake_client,
-    )
+def _patch_supervisor_client(monkeypatch, installed=None, error=None):
+    list_mock = AsyncMock(side_effect=error) if error else AsyncMock(return_value=installed)
+    fake_client = SimpleNamespace(addons=SimpleNamespace(list=list_mock))
+    monkeypatch.setattr("custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: fake_client)
+    # AddonManager.__init__ holt sich seinen Client ueber einen eigenen Import.
+    monkeypatch.setattr("homeassistant.components.hassio.addon_manager.get_supervisor_client", lambda hass: fake_client)
+    return list_mock
 
 
-async def test_resolves_repo_hash_prefixed_slug(monkeypatch):
-    # Der reale, gegen einen echten Supervisor verifizierte Fall (siehe Task 14 in
-    # .superpowers/sdd/2026-09-14-smartheat-config-integration/progress.md): ein von
-    # einem Custom-Repository installiertes Add-on bekommt einen Repository-Hash-Praefix,
-    # nicht den bare config.yaml-Slug.
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),
+def _both(hb_version="0.19.0", cf_version="1.0.0"):
+    return [
+        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL, hb_version),
+        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL, cf_version),
         _installed_addon("core_matter_server", "https://github.com/home-assistant/addons"),
-    ])
-
-    slug = await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
-
-    assert slug == "f5f6325b_heizungsbruecke"
+    ]
 
 
-async def test_disambiguates_addons_sharing_the_same_repository_url(monkeypatch):
-    # Beide SmartHeat-Add-ons teilen dieselbe Repository-URL -- url-Filterung allein
-    # wuerde beide treffen, das Slug-Suffix muss zusaetzlich unterscheiden.
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),
-    ])
+async def test_resolves_repo_hash_prefixed_slugs_with_versions(monkeypatch):
+    list_mock = _patch_supervisor_client(monkeypatch, _both())
 
-    slug = await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="cloudflared_access_mqtt")
+    result = await async_resolve_addons(None, REPO_URL, MIN)
 
-    assert slug == "f5f6325b_cloudflared_access_mqtt"
-
-
-async def test_raises_when_no_addon_matches(monkeypatch):
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("core_matter_server", "https://github.com/home-assistant/addons"),
-    ])
-
-    with pytest.raises(AddonNotFoundError):
-        await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
+    assert result == {
+        "heizungsbruecke": ResolvedAddon("f5f6325b_heizungsbruecke", "0.19.0"),
+        "cloudflared_access_mqtt": ResolvedAddon("f5f6325b_cloudflared_access_mqtt", "1.0.0"),
+    }
+    list_mock.assert_awaited_once()
 
 
-async def test_does_not_match_on_url_alone_without_suffix(monkeypatch):
-    # Ein Add-on aus demselben Repo, aber mit einem anderen config.yaml-Slug, darf nicht
-    # faelschlich als Treffer fuer einen ganz anderen gesuchten Slug durchgehen.
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("f5f6325b_some_other_addon", REPO_URL),
-    ])
+async def test_missing_addon_names_the_slug(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both()[1:])
 
-    with pytest.raises(AddonNotFoundError):
-        await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
+    with pytest.raises(AddonNotFoundError) as info:
+        await async_resolve_addons(None, REPO_URL, MIN)
+
+    assert info.value.config_slug == "heizungsbruecke"
 
 
-async def test_get_addon_manager_returns_manager_for_resolved_slug(monkeypatch):
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
-    ])
+async def test_ambiguous_match_names_the_slug(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both() + [_installed_addon("abcd1234_heizungsbruecke", REPO_URL)])
 
-    manager = await async_get_addon_manager(hass=None, addon_name="Heizungsbruecke", config_slug="heizungsbruecke")
+    with pytest.raises(AmbiguousAddonMatchError) as info:
+        await async_resolve_addons(None, REPO_URL, MIN)
 
-    assert manager.addon_slug == "f5f6325b_heizungsbruecke"
-    assert manager.addon_name == "Heizungsbruecke"
+    assert info.value.config_slug == "heizungsbruecke"
 
 
-async def test_translates_raw_supervisor_error_into_addon_error(monkeypatch):
-    from aiohasupervisor.exceptions import SupervisorError
-    from homeassistant.components.hassio import AddonError
+@pytest.mark.parametrize("installed", ["0.18.0", "0.18.9", None])
+async def test_outdated_addon_reports_installed_and_required(monkeypatch, installed):
+    _patch_supervisor_client(monkeypatch, _both(hb_version=installed))
 
-    fake_client = SimpleNamespace(
-        addons=SimpleNamespace(list=AsyncMock(side_effect=SupervisorError("Supervisor down")))
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: fake_client,
-    )
+    with pytest.raises(AddonOutdatedError) as info:
+        await async_resolve_addons(None, REPO_URL, MIN)
+
+    assert (info.value.config_slug, info.value.required) == ("heizungsbruecke", "0.19.0")
+    assert info.value.installed == (installed or "unbekannt")
+
+
+async def test_newer_addon_is_accepted(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both(hb_version="0.20.1"))
+
+    result = await async_resolve_addons(None, REPO_URL, MIN)
+
+    assert result["heizungsbruecke"].version == "0.20.1"
+
+
+async def test_supervisor_error_becomes_addon_error(monkeypatch):
+    _patch_supervisor_client(monkeypatch, error=SupervisorError("weg"))
 
     with pytest.raises(AddonError):
-        await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
+        await async_resolve_addons(None, REPO_URL, MIN)
 
 
-async def test_raises_ambiguous_when_two_addons_share_url_and_suffix(monkeypatch):
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
-        _installed_addon("aabbccdd_heizungsbruecke", REPO_URL),
-    ])
-
-    with pytest.raises(AmbiguousAddonMatchError):
-        await async_resolve_addon_slug(hass=None, repository_url=REPO_URL, config_slug="heizungsbruecke")
-
-
-async def test_resolve_addon_slugs_resolves_multiple_slugs_from_one_list_call(monkeypatch):
-    installed = [
-        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),
-    ]
-    fake_client = SimpleNamespace(addons=SimpleNamespace(list=AsyncMock(return_value=installed)))
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: fake_client,
-    )
-
-    slugs = await async_resolve_addon_slugs(
-        hass=None, repository_url=REPO_URL, config_slugs=["heizungsbruecke", "cloudflared_access_mqtt"],
-    )
-
-    assert slugs == {
-        "heizungsbruecke": "f5f6325b_heizungsbruecke",
-        "cloudflared_access_mqtt": "f5f6325b_cloudflared_access_mqtt",
-    }
-    assert fake_client.addons.list.call_count == 1
-
-
-async def test_get_addon_managers_resolves_both_from_one_supervisor_call(monkeypatch):
-    _patch_supervisor_client(monkeypatch, [
-        _installed_addon("f5f6325b_heizungsbruecke", REPO_URL),
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),
-    ])
+async def test_get_addon_managers_keeps_order_and_uses_resolved_slugs(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both())
 
     managers = await async_get_addon_managers(
-        hass=None,
-        addon_specs=[("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared Access TCP-Bridge", "cloudflared_access_mqtt")],
+        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
     )
 
     assert [m.addon_slug for m in managers] == ["f5f6325b_heizungsbruecke", "f5f6325b_cloudflared_access_mqtt"]
+
+
+async def test_get_addon_managers_refuses_outdated_addons(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both(hb_version="0.18.0"))
+
+    with pytest.raises(AddonOutdatedError):
+        await async_get_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])

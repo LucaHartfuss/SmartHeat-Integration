@@ -1,5 +1,5 @@
 """Async HTTP-Client fuer die heizungsserver-Accounts-API (Login, Tenants, Katalog,
-Provisioning). Ersetzt die synchronen requests.post()-Aufrufe aus dem alten
+Provisioning, Logout). Ersetzt die synchronen requests.post()-Aufrufe aus dem alten
 heizungsbruecke/web.py-Wizard -- dieselbe API, nur async und ohne Flask-Session.
 """
 from __future__ import annotations
@@ -61,6 +61,20 @@ class HeizungsserverClient:
                 if response.status != 200:
                     raise ApiError(f"Provisioning fehlgeschlagen (HTTP {response.status})")
                 return await response.json()
+        except aiohttp.ClientError as error:
+            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
+    async def logout(self, token: str) -> None:
+        """Beendet die Login-Sitzung (I5). Der Wizard ruft das nach erfolgreicher Einrichtung;
+        ein Fehler dort wird nur geloggt."""
+        try:
+            async with self._session.post(
+                f"{self._base_url}/auth/logout", headers={"Authorization": f"Bearer {token}"},
+            ) as response:
+                if response.status == 401:
+                    raise InvalidAuth("Sitzung abgelaufen")
+                if response.status not in (200, 204):
+                    raise ApiError(f"Logout fehlgeschlagen (HTTP {response.status})")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
 

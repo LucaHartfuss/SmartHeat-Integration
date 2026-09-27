@@ -6,6 +6,7 @@ import voluptuous as vol
 
 from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
 from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.supervisor_client import ResolvedAddon
 
 
 def _catalog(*profiles):
@@ -24,7 +25,7 @@ def _enable_supervisor(hass, monkeypatch):
     hass.config.components.add("hassio")
     monkeypatch.setenv("SUPERVISOR_TOKEN", "test-supervisor-token")
 
-    # AddonManager.__init__ (siehe supervisor_client.async_get_addon_manager) resolved
+    # AddonManager.__init__ (siehe supervisor_client.async_get_addon_managers) resolved
     # sich selbst einen echten Supervisor-Client -- das schluege in diesem leichtgewichtigen
     # hass ohne echt geladene hassio-Integration mit einem KeyError fehl (hass.data[...]).
     # Der Platzhalter wird nie tatsaechlich benutzt: jeder Test, der bis _push_config_and_finish
@@ -38,8 +39,10 @@ def _enable_supervisor(hass, monkeypatch):
     # Aufloesungslogik ab, hier soll nur die Config-Flow-Seite (welche Optionen/Restarts an
     # welchen -- unveraendert bare -- Slug gehen) getestet werden.
     monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
-        AsyncMock(side_effect=lambda hass, repository_url, config_slugs: {slug: slug for slug in config_slugs}),
+        "custom_components.smartheat.supervisor_client.async_resolve_addons",
+        AsyncMock(side_effect=lambda hass, repository_url, min_versions: {
+            slug: ResolvedAddon(slug, version) for slug, version in min_versions.items()
+        }),
     )
 
 
@@ -662,7 +665,7 @@ async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
 
 async def test_finish_resolves_both_addons_from_a_single_supervisor_call(hass, monkeypatch):
     # _enable_supervisor (invoked internally via _reach_tenant_step, which every
-    # _reach_finish call goes through) already patches async_resolve_addon_slugs to an
+    # _reach_finish call goes through) already patches async_resolve_addons to an
     # AsyncMock identity function -- rather than pre-patching our own (which
     # _enable_supervisor's later call would silently clobber, since it runs *after* any
     # patch a test applies before awaiting _reach_finish), inspect that same installed
@@ -681,7 +684,7 @@ async def test_finish_resolves_both_addons_from_a_single_supervisor_call(hass, m
 
     assert result["type"] == "create_entry"
     from custom_components.smartheat import supervisor_client
-    assert supervisor_client.async_resolve_addon_slugs.call_count == 1
+    assert supervisor_client.async_resolve_addons.call_count == 1
 
 
 async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatch):
@@ -689,7 +692,7 @@ async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatc
 
     # Reimplements _reach_finish's tail instead of calling it directly: _enable_supervisor
     # (via _reach_tenant_step, reached inside _reach_profile_step below) installs its own
-    # identity AsyncMock for async_resolve_addon_slugs -- a patch applied *before* that call
+    # identity AsyncMock for async_resolve_addons -- a patch applied *before* that call
     # would just be overwritten by it. Patching the raising mock in *after* _reach_profile_step
     # returns (i.e. after _enable_supervisor has already run) makes it stick through the
     # remaining profile/entities steps and into _push_config_and_finish.
@@ -709,8 +712,8 @@ async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatc
         {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
-        AsyncMock(side_effect=AmbiguousAddonMatchError("mehrdeutig")),
+        "custom_components.smartheat.supervisor_client.async_resolve_addons",
+        AsyncMock(side_effect=AmbiguousAddonMatchError("heizungsbruecke", ["a", "b"])),
     )
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {
@@ -774,8 +777,8 @@ async def test_finish_shows_retry_step_on_ambiguous_addon_match_localized_to_ger
         {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
-        AsyncMock(side_effect=AmbiguousAddonMatchError("mehrdeutig")),
+        "custom_components.smartheat.supervisor_client.async_resolve_addons",
+        AsyncMock(side_effect=AmbiguousAddonMatchError("heizungsbruecke", ["a", "b"])),
     )
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {
@@ -815,8 +818,8 @@ async def test_finish_shows_generic_hint_on_addon_not_found(hass, monkeypatch):
         {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
     )
     monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addon_slugs",
-        AsyncMock(side_effect=AddonNotFoundError("nicht gefunden")),
+        "custom_components.smartheat.supervisor_client.async_resolve_addons",
+        AsyncMock(side_effect=AddonNotFoundError("heizungsbruecke")),
     )
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {

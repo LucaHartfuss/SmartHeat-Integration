@@ -12,20 +12,23 @@ einen von dort installierten Add-on-Slug mit einem Repository-Hash (verifiziert 
 echten Supervisor, siehe Task 14 in .superpowers/sdd/2026-09-14-smartheat-config-integration/
 progress.md: "heizungsbruecke" wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst
 loest das nicht auf -- sein addon_slug muss bereits der echte, installationsspezifische Slug
-sein. async_resolve_addon_slug() schliesst genau diese Luecke: sie fragt den Supervisor nach
+sein. async_resolve_addons() schliesst genau diese Luecke: sie fragt den Supervisor nach
 allen installierten Add-ons und findet den passenden Eintrag anhand von Repository-URL +
 Slug-Suffix (beide SmartHeat-Add-ons teilen dieselbe Repository-URL, daher reicht die URL
-allein nicht zur Unterscheidung).
+allein nicht zur Unterscheidung), und prueft zusaetzlich die Mindestversion (TP6 I4) --
+ein zu altes Add-on wird nicht als Treffer akzeptiert.
 """
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from aiohasupervisor.exceptions import SupervisorError
+from awesomeversion import AwesomeVersion
 from homeassistant.components.hassio import AddonError, AddonManager, get_supervisor_client
 from homeassistant.core import HomeAssistant
 
-from .const import ADDON_REPOSITORY_URL
+from .const import ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,76 +36,71 @@ _LOGGER = logging.getLogger(__name__)
 class AddonNotFoundError(Exception):
     """Kein installiertes Add-on mit passender Repository-URL und Slug-Suffix gefunden."""
 
+    def __init__(self, config_slug: str) -> None:
+        super().__init__(f"Add-on '{config_slug}' ist nicht installiert")
+        self.config_slug = config_slug
+
 
 class AmbiguousAddonMatchError(Exception):
     """Mehrere installierte Add-ons passen auf dieselbe Repository-URL und dasselbe
-    Slug-Suffix -- welches gemeint ist, ist echt mehrdeutig (z.B. eine uebrig
-    gebliebene Dev-Installation neben der Produktivinstallation), und wird nicht per
-    Listenreihenfolge geraten (Korrektheit-Review-Fund si-4)."""
+    Slug-Suffix -- welches gemeint ist, ist echt mehrdeutig (z.B. eine uebrig gebliebene
+    Dev-Installation) und wird nicht per Listenreihenfolge geraten (Review-Fund si-4)."""
+
+    def __init__(self, config_slug: str, matches: list[str]) -> None:
+        super().__init__(f"Add-on '{config_slug}' ist mehrfach installiert: {matches}")
+        self.config_slug = config_slug
+        self.matches = matches
 
 
-async def async_resolve_addon_slugs(
-    hass: HomeAssistant, repository_url: str, config_slugs: list[str],
-) -> dict[str, str]:
-    """Loest mehrere config_slugs aus EINEM addons.list()-Aufruf auf (Effizienz-Review-
-    Fund si-3: _push_config_and_finish rief bisher async_get_addon_manager fuer beide
-    SmartHeat-Add-ons sequenziell auf, was zwei volle Supervisor-Roundtrips ausloeste,
-    obwohl beide Slugs aus demselben Ergebnis aufloesbar sind). Uebersetzt eine rohe
-    aiohasupervisor.SupervisorError in AddonError (Korrektheit-Review-Fund si-1): ein
-    transienter Supervisor-Hickup fiel bisher als unbehandelte Exception durch den
-    `except (AddonNotFoundError, AddonError)`-Block in config_flow.py, statt in den
-    dafuer gebauten retry_push-Schritt zu fallen.
-    """
+class AddonOutdatedError(Exception):
+    """Installierte Add-on-Version ist aelter als die Mindestversion dieses Wizards (I4)."""
+
+    def __init__(self, config_slug: str, installed: str, required: str) -> None:
+        super().__init__(f"Add-on '{config_slug}' {installed} ist aelter als {required}")
+        self.config_slug = config_slug
+        self.installed = installed
+        self.required = required
+
+
+@dataclass(frozen=True)
+class ResolvedAddon:
+    slug: str
+    version: str | None
+
+
+async def async_resolve_addons(
+    hass: HomeAssistant, repository_url: str, min_versions: dict[str, str],
+) -> dict[str, ResolvedAddon]:
+    """Loest alle `min_versions`-Schluessel (bare config.yaml-Slugs) aus EINEM addons.list()
+    auf (Review-Fund si-3) und prueft die Mindestversion. Eine rohe SupervisorError wird
+    AddonError (Review-Fund si-1)."""
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
         raise AddonError(f"Supervisor nicht erreichbar bei der Add-on-Aufloesung: {error}") from error
 
-    result: dict[str, str] = {}
-    for config_slug in config_slugs:
+    result: dict[str, ResolvedAddon] = {}
+    for config_slug, required in min_versions.items():
         matches = [
-            addon.slug
-            for addon in installed
+            addon for addon in installed
             if addon.url == repository_url and addon.slug.endswith(f"_{config_slug}")
         ]
         if not matches:
-            raise AddonNotFoundError(
-                f"Kein installiertes Add-on mit Repository-URL '{repository_url}' und "
-                f"Slug-Suffix '_{config_slug}' gefunden -- ist das Add-on installiert?"
-            )
+            raise AddonNotFoundError(config_slug)
         if len(matches) > 1:
-            raise AmbiguousAddonMatchError(
-                f"Mehrere installierte Add-ons passen auf Repository-URL '{repository_url}' und "
-                f"Slug-Suffix '_{config_slug}': {matches}. Bitte doppelte/veraltete Installation "
-                f"entfernen, bevor die Einrichtung fortgesetzt wird."
-            )
-        result[config_slug] = matches[0]
+            raise AmbiguousAddonMatchError(config_slug, [addon.slug for addon in matches])
+        addon = matches[0]
+        if addon.version is None or AwesomeVersion(addon.version) < AwesomeVersion(required):
+            raise AddonOutdatedError(config_slug, addon.version or "unbekannt", required)
+        result[config_slug] = ResolvedAddon(addon.slug, addon.version)
     return result
-
-
-async def async_resolve_addon_slug(
-    hass: HomeAssistant, repository_url: str, config_slug: str
-) -> str:
-    """Einzel-Slug-Variante -- delegiert an async_resolve_addon_slugs fuer den
-    Ein-Slug-Fall (z.B. Tests, oder ein zukuenftiger Caller, der nur ein Add-on braucht).
-    """
-    return (await async_resolve_addon_slugs(hass, repository_url, [config_slug]))[config_slug]
-
-
-async def async_get_addon_manager(
-    hass: HomeAssistant, addon_name: str, config_slug: str
-) -> AddonManager:
-    """Loest den echten Slug auf und liefert einen dafuer konfigurierten AddonManager."""
-    slug = await async_resolve_addon_slug(hass, ADDON_REPOSITORY_URL, config_slug)
-    return AddonManager(hass, _LOGGER, addon_name, slug)
 
 
 async def async_get_addon_managers(
     hass: HomeAssistant, addon_specs: list[tuple[str, str]],
 ) -> list[AddonManager]:
-    """Loest mehrere Add-on-Manager aus EINEM addons.list()-Aufruf auf. addon_specs:
-    Liste aus (addon_name, config_slug)-Paaren, Reihenfolge wird in der Rueckgabe
-    beibehalten (Effizienz-Review-Fund si-3).
-    """
-    slugs = await async_resolve_addon_slugs(hass, ADDON_REPOSITORY_URL, [slug for _, slug in addon_specs])
-    return [AddonManager(hass, _LOGGER, name, slugs[slug]) for name, slug in addon_specs]
+    """AddonManager je (Anzeigename, config_slug), Reihenfolge wie uebergeben."""
+    resolved = await async_resolve_addons(
+        hass, ADDON_REPOSITORY_URL, {slug: MIN_ADDON_VERSIONS[slug] for _, slug in addon_specs},
+    )
+    return [AddonManager(hass, _LOGGER, name, resolved[slug].slug) for name, slug in addon_specs]

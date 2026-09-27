@@ -1,7 +1,51 @@
 """Gemeinsame Konstanten fuer die SmartHeat-Integration."""
+import re
 
 DOMAIN = "smartheat"
 DEFAULT_HEIZUNGSSERVER_BASE_URL = "https://accounts.hartfussha.org"
+
+# Add-on-Optionen, die der Wizard 2.0 als Listen bzw. Laufkennung schreibt (Spec TP6 3.1).
+OPTION_ROOM_SENSORS = "room_sensors"
+OPTION_NOTIFY_SERVICES = "notify_services"
+OPTION_BATTERY_ENTITIES = "battery_entities"
+OPTION_SETUP_ID = "setup_id"
+LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
+# Vom Wizard nicht verwaltet: bleiben beim erneuten Einrichten aus den bestehenden Optionen
+# erhalten (I3). Alles andere setzt der Wizard vollstaendig neu.
+UNMANAGED_ADDON_OPTIONS = ("local_check_interval_seconds", "telemetry_interval_seconds")
+
+ROOM_SENSOR_DOMAINS = ["sensor", "climate"]
+# climate/weather liefern die Temperatur als Attribut; das Add-on liest `entity::attribut`.
+CLIMATE_ATTRIBUTE_ROOM_SENSOR = "current_temperature"
+CLIMATE_ATTRIBUTE_ROOM_TARGET = "temperature"
+WEATHER_TEMPERATURE_ATTRIBUTE = "temperature"
+WEATHER_UNIT_ATTRIBUTE = "temperature_unit"
+TEMPERATURE_UNIT = "°C"
+
+# Physikalische Grenzen (Spec TP6 4 und 8): gleich Server-R4 (generic/messages.py::
+# PLAUSIBLE_RANGES) und Add-on (plausibility.py); tools/contract_check.py prueft das.
+PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
+    "room": (5.0, 35.0),
+    "outdoor": (-40.0, 45.0),
+    "heat_limit": (5.0, 25.0),
+}
+STALE_AFTER_HOURS = 6
+ROOM_SENSOR_DEVIATION_K = 3.0
+
+# Status-Entity des Add-ons (Spec TP6 3.6), gleiche Regel wie heizungsbruecke/status.py.
+STATUS_STARTET = "startet"
+STATUS_BEREIT = "bereit"
+STATUS_KONFIGURATIONSFEHLER = "konfigurationsfehler"
+STATUS_WAIT_SECONDS = 180
+STATUS_POLL_SECONDS = 2
+# Namen der Status-Entity-Attribute (das Add-on definiert dieselben Konstanten in
+# status.py; tools/contract_check.py vergleicht sie).
+STATUS_ATTR_SETUP_ID = "setup_id"
+STATUS_ATTR_GRUND = "grund"
+
+
+def status_entity_id(tenant_id: str) -> str:
+    return f"sensor.smartheat_{re.sub(r'[^a-z0-9_]', '_', tenant_id.lower())}_status"
 
 # Muss mit ROLE_DOMAINS aus heizungsbruecke/src/heizungsbruecke/static/wizard.js
 # (jetzt entfernt) inhaltlich uebereinstimmen -- kein geteilter Code zwischen den
@@ -71,6 +115,12 @@ def kpi_energy_role(channel: str) -> str:
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
 CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
+
+# Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
+MIN_ADDON_VERSIONS: dict[str, str] = {
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.19.0",
+    CLOUDFLARED_ADDON_SLUG: "1.0.0",
+}
 
 # Server-seitige Profil-Werte (heizungsserver/generic/profiles.py) sind reines ASCII
 # (siehe dortige hersteller/erzeuger_typ/verteilsystem-Felder) -- diese Mappings liefern
