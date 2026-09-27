@@ -1,0 +1,112 @@
+{
+  "catalog_version": 1,
+  "profiles": [
+    {
+      "profile_id": "weishaupt_waermepumpe_fussbodenheizung",
+      "hersteller": "Weishaupt",
+      "erzeuger_typ": "Waermepumpe",
+      "verteilsystem": "Fussbodenheizung",
+      "verified": false,
+      "telemetry_capabilities": null
+    },
+    {
+      "profile_id": "vaillant_gastherme_heizkoerper",
+      "hersteller": "Vaillant",
+      "erzeuger_typ": "Gastherme",
+      "verteilsystem": "Heizkoerper",
+      "verified": true,
+      "telemetry_capabilities": {
+        "has_flow_temperature": true,
+        "has_return_temperature": false,
+        "has_operating_mode": true,
+        "has_water_pressure": true,
+        "has_manufacturer_efficiency_sensor": true,
+        "energy_channels": [
+          "electrical_heating",
+          "electrical_dhw",
+          "primary_heating",
+          "primary_dhw",
+          "thermal_heating",
+          "thermal_dhw"
+        ]
+      }
+    }
+  ],
+  "integrations": [
+    {
+      "domain": "mypyllant",
+      "label": "myVAILLANT",
+      "hersteller": "Vaillant",
+      "circuit_scoped_roles": {
+        "curve_current": {
+          "entity_domain": "number",
+          "unique_id_suffix": "_circuit_{circuit}_heating_curve"
+        },
+        "offset_current": {
+          "entity_domain": "number",
+          "unique_id_suffix": "_circuit_{circuit}_min_flow_temperature_setpoint"
+        },
+        "heat_limit": {
+          "entity_domain": "number",
+          "unique_id_suffix": "_circuit_{circuit}_heat_demand_limited_by_outside_temperature"
+        },
+        "flow_temperature": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "_circuit_{circuit}_flow_temperature"
+        }
+      },
+      "system_roles": {
+        "outdoor_temp": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "_home_outdoor_temperature"
+        },
+        "system_water_pressure": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "_home_water_pressure"
+        },
+        "energy_electrical_heating": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Consumed Electrical Energy Heating"
+        },
+        "energy_electrical_dhw": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Consumed Electrical Energy Domestic Hot Water"
+        },
+        "energy_primary_heating": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Consumed Primary Energy Heating"
+        },
+        "energy_primary_dhw": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Consumed Primary Energy Domestic Hot Water"
+        },
+        "energy_thermal_heating": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Heat Generated Heating"
+        },
+        "energy_thermal_dhw": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Heat Generated Domestic Hot Water"
+        }
+      },
+      "erzeuger_typ_hints": [
+        {
+          "model_contains": "aroTHERM",
+          "erzeuger_typ": "Waermepumpe"
+        },
+        {
+          "model_contains": "flexoTHERM",
+          "erzeuger_typ": "Waermepumpe"
+        },
+        {
+          "model_contains": "ecoTEC",
+          "erzeuger_typ": "Gastherme"
+        },
+        {
+          "model_contains": "ecoCOMPACT",
+          "erzeuger_typ": "Gastherme"
+        }
+      ]
+    }
+  ]
+}

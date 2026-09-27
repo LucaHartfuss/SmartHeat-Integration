@@ -1,0 +1,296 @@
+[
+  {
+    "entity_id": "binary_sensor.zuhause_circuit_0_cooling_allowed",
+    "unique_id": "mypyllant SYSTEM_circuit_0_cooling_allowed",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Cooling Allowed"
+  },
+  {
+    "entity_id": "number.zuhause_circuit_0_heat_demand_limited_by_outside_temperature",
+    "unique_id": "mypyllant SYSTEM_circuit_0_heat_demand_limited_by_outside_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Heat Demand Limited by Outside Temperature"
+  },
+  {
+    "entity_id": "number.zuhause_circuit_0_heating_curve",
+    "unique_id": "mypyllant SYSTEM_circuit_0_heating_curve",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Heating Curve"
+  },
+  {
+    "entity_id": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
+    "unique_id": "mypyllant SYSTEM_circuit_0_min_flow_temperature_setpoint",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Min Flow Temperature Setpoint"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_consumed_electrical_energy_domestic_hot_water",
+    "unique_id": "mypyllant_SYSTEM_DEVICE1_0_0",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Consumed Electrical Energy Domestic Hot Water"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_consumed_electrical_energy_heating",
+    "unique_id": "mypyllant_SYSTEM_DEVICE1_1_0",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Consumed Electrical Energy Heating"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_consumed_primary_energy_domestic_hot_water",
+    "unique_id": "mypyllant_SYSTEM_DEVICE1_2_0",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Consumed Primary Energy Domestic Hot Water"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_consumed_primary_energy_heating",
+    "unique_id": "mypyllant_SYSTEM_DEVICE1_3_0",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Consumed Primary Energy Heating"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_heat_generated_domestic_hot_water",
+    "unique_id": "mypyllant_SYSTEM_DEVICE1_4_0",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Heat Generated Domestic Hot Water"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_heat_generated_heating",
+    "unique_id": "mypyllant_SYSTEM_DEVICE1_5_0",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Heat Generated Heating"
+  },
+  {
+    "entity_id": "sensor.zuhause_circuit_0_current_flow_temperature",
+    "unique_id": "mypyllant_SYSTEM_circuit_0_flow_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Current Flow Temperature"
+  },
+  {
+    "entity_id": "sensor.heizraum_zuhause_circuit_0_flow_temperature_setpoint",
+    "unique_id": "mypyllant_SYSTEM_circuit_0_flow_temperature_setpoint",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Flow Temperature Setpoint"
+  },
+  {
+    "entity_id": "sensor.zuhause_circuit_0_heating_curve",
+    "unique_id": "mypyllant_SYSTEM_circuit_0_heating_curve",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 Heating Curve"
+  },
+  {
+    "entity_id": "sensor.zuhause_circuit_0_state",
+    "unique_id": "mypyllant_SYSTEM_circuit_0_state",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Circuit 0 State"
+  },
+  {
+    "entity_id": "sensor.zuhause_device_0_ecotec_plus_heating_energy_efficiency",
+    "unique_id": "mypyllant_SYSTEM_device_DEVICE1_heating_energy_efficiency",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Device 0 ecoTEC plus Heating Energy Efficiency"
+  },
+  {
+    "entity_id": "water_heater.zuhause_domestic_hot_water_0",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_base",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0"
+  },
+  {
+    "entity_id": "switch.zuhause_domestic_hot_water_0_boost",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_boost_switch",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0 Boost"
+  },
+  {
+    "entity_id": "calendar.circulating_water_in_zuhause_domestic_hot_water_0",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_circulation_calendar",
+    "platform": "mypyllant",
+    "original_name": "Circulating Water in Zuhause Domestic Hot Water 0"
+  },
+  {
+    "entity_id": "sensor.zuhause_domestic_hot_water_0_current_special_function",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_current_special_function",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0 Current Special Function"
+  },
+  {
+    "entity_id": "calendar.zuhause_domestic_hot_water_0",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_heating_calendar",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0"
+  },
+  {
+    "entity_id": "datetime.zuhause_domestic_hot_water_0_legionella_protection_temperature_reached",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_legionella_protection_datetime",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0 Legionella Protection Temperature Reached"
+  },
+  {
+    "entity_id": "sensor.zuhause_domestic_hot_water_0_operation_mode",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_operation_mode",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0 Operation Mode"
+  },
+  {
+    "entity_id": "sensor.zuhause_domestic_hot_water_0_setpoint",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_set_point",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0 Setpoint"
+  },
+  {
+    "entity_id": "sensor.zuhause_domestic_hot_water_0_tank_temperature",
+    "unique_id": "mypyllant_SYSTEM_domestic_hot_water_0_tank_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Domestic Hot Water 0 Tank Temperature"
+  },
+  {
+    "entity_id": "sensor.zuhause_heating_energy_efficiency",
+    "unique_id": "mypyllant_SYSTEM_heating_energy_efficiency",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Heating Energy Efficiency"
+  },
+  {
+    "entity_id": "sensor.zuhause_firmware_version",
+    "unique_id": "mypyllant_SYSTEM_home_base",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Firmware Version"
+  },
+  {
+    "entity_id": "binary_sensor.zuhause_trouble_codes",
+    "unique_id": "mypyllant_SYSTEM_home_control_error",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Trouble Codes"
+  },
+  {
+    "entity_id": "binary_sensor.zuhause_online_status",
+    "unique_id": "mypyllant_SYSTEM_home_control_online",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Online Status"
+  },
+  {
+    "entity_id": "sensor.zuhause_energy_manager_state",
+    "unique_id": "mypyllant_SYSTEM_home_energy_manager_state",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Energy Manager State"
+  },
+  {
+    "entity_id": "binary_sensor.zuhause_firmware_update_enabled",
+    "unique_id": "mypyllant_SYSTEM_home_firmware_update_enabled",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Firmware Update Enabled"
+  },
+  {
+    "entity_id": "binary_sensor.zuhause_firmware_update_required",
+    "unique_id": "mypyllant_SYSTEM_home_firmware_update_required",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Firmware Update Required"
+  },
+  {
+    "entity_id": "number.zuhause_holiday_duration_remaining",
+    "unique_id": "mypyllant_SYSTEM_home_holiday_duration_remaining",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Holiday Duration Remaining"
+  },
+  {
+    "entity_id": "datetime.zuhause_away_mode_end_date",
+    "unique_id": "mypyllant_SYSTEM_home_holiday_end_date_time",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Away Mode End Date"
+  },
+  {
+    "entity_id": "datetime.zuhause_away_mode_start_date",
+    "unique_id": "mypyllant_SYSTEM_home_holiday_start_date_time",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Away Mode Start Date"
+  },
+  {
+    "entity_id": "switch.zuhause_away_mode",
+    "unique_id": "mypyllant_SYSTEM_home_holiday_switch",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Away Mode"
+  },
+  {
+    "entity_id": "sensor.zuhause_outdoor_temperature",
+    "unique_id": "mypyllant_SYSTEM_home_outdoor_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Outdoor Temperature"
+  },
+  {
+    "entity_id": "sensor.zuhause_system_water_pressure",
+    "unique_id": "mypyllant_SYSTEM_home_water_pressure",
+    "platform": "mypyllant",
+    "original_name": "Zuhause System Water Pressure"
+  },
+  {
+    "entity_id": "climate.zuhause_zone_1_circuit_0_climate",
+    "unique_id": "mypyllant_SYSTEM_zone_0_climate",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Climate"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_current_special_function",
+    "unique_id": "mypyllant_SYSTEM_zone_0_current_special_function",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Current Special Function"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_current_temperature",
+    "unique_id": "mypyllant_SYSTEM_zone_0_current_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Current Temperature"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_desired_cooling_temperature",
+    "unique_id": "mypyllant_SYSTEM_zone_0_desired_cooling_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Desired Cooling Temperature"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_desired_heating_temperature",
+    "unique_id": "mypyllant_SYSTEM_zone_0_desired_heating_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Desired Heating Temperature"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_desired_temperature",
+    "unique_id": "mypyllant_SYSTEM_zone_0_desired_temperature",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Desired Temperature"
+  },
+  {
+    "entity_id": "calendar.zuhause_zone_1_circuit_0",
+    "unique_id": "mypyllant_SYSTEM_zone_0_heating_calendar",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0)"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_heating_operating_mode",
+    "unique_id": "mypyllant_SYSTEM_zone_0_heating_operating_mode",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Heating Operating Mode"
+  },
+  {
+    "entity_id": "sensor.zuhause_zone_1_circuit_0_humidity",
+    "unique_id": "mypyllant_SYSTEM_zone_0_humidity",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Humidity"
+  },
+  {
+    "entity_id": "number.zuhause_zone_1_circuit_0_quick_veto_duration",
+    "unique_id": "mypyllant_SYSTEM_zone_0_quick_veto_duration",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Quick Veto Duration"
+  },
+  {
+    "entity_id": "switch.zuhause_zone_1_circuit_0_ventilation_boost",
+    "unique_id": "mypyllant_SYSTEM_zone_0_ventilation_boost_switch",
+    "platform": "mypyllant",
+    "original_name": "Zuhause Zone 1 (Circuit 0) Ventilation Boost"
+  },
+  {
+    "entity_id": "sensor.vaillant_api_request_count",
+    "unique_id": "mypyllant_api_request_count",
+    "platform": "mypyllant",
+    "original_name": "Vaillant API Request Count"
+  }
+]
