@@ -1,0 +1,201 @@
+"""Hilfen fuer die Config-Flow-Tests (Wizard 2.0): Supervisor, Server, Registry, Add-ons."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import voluptuous as vol
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.smartheat.const import DOMAIN, STATUS_ATTR_GRUND, STATUS_ATTR_SETUP_ID, status_entity_id
+from custom_components.smartheat.supervisor_client import ResolvedAddon
+
+FLOW = "custom_components.smartheat.config_flow"
+CATALOG = json.loads((Path(__file__).parent / "fixtures" / "catalog.json").read_text())
+TENANT = "wohnung1"
+MQTT_PASSWORD = "mqtt-geheim-123"
+CF_SECRET = "cf-secret-789"
+PROFILE_PARAMS = {
+    "verteilsystem": "Heizkoerper", "daily_trigger_time": "12:00",
+    "day_avg_window_start": "14:00", "day_avg_window_end": "17:00",
+    "night_avg_window_start": "04:00", "night_avg_window_end": "07:00",
+}
+PROVISIONING = {
+    "username": "wohnung1_a1b2c3d4", "password": MQTT_PASSWORD,
+    "cloudflared_hostname": "mqtt.example.org", "cloudflared_local_port": 18830,
+    "cloudflared_service_token_id": "cf-id-456", "cloudflared_service_token_secret": CF_SECRET,
+    "profile_params": PROFILE_PARAMS,
+}
+CURVE = "number.zuhause_circuit_0_heating_curve"
+OFFSET = "number.zuhause_circuit_0_min_flow_temperature_setpoint"
+HEAT_LIMIT = "number.zuhause_circuit_0_heat_limit"
+OUTDOOR = "sensor.zuhause_outdoor_temperature"
+SYSTEM_INPUT = {"verteilsystem": "heizkoerper", "erzeuger_typ": "gastherme"}
+ROOMS_INPUT = {"room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz"}
+PLANT_INPUT = {
+    "entity_curve_current": CURVE, "entity_offset_current": OFFSET,
+    "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR, "advanced": {},
+}
+
+
+def enable_supervisor(hass, monkeypatch, versions: dict[str, str] | None = None) -> AsyncMock:
+    """Supervisor-Installation mit beiden Add-ons (bare Slugs) in der Mindestversion."""
+    hass.config.components.add("hassio")
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "test-supervisor-token")
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.addon_manager.get_supervisor_client", lambda hass: SimpleNamespace(),
+    )
+    resolve = AsyncMock(side_effect=lambda hass, url, min_versions: {
+        slug: ResolvedAddon(slug, (versions or {}).get(slug, version)) for slug, version in min_versions.items()
+    })
+    monkeypatch.setattr("custom_components.smartheat.supervisor_client.async_resolve_addons", resolve)
+    monkeypatch.setattr(f"{FLOW}.async_resolve_addons", resolve)
+    return resolve
+
+
+def mock_server(monkeypatch, *, tenants=(TENANT,), catalog=CATALOG, provisioning=PROVISIONING) -> SimpleNamespace:
+    mocks = SimpleNamespace(
+        login=AsyncMock(return_value="tok123"),
+        list_tenants=AsyncMock(return_value=[{"tenant_id": tenant} for tenant in tenants]),
+        get_catalog=AsyncMock(return_value=catalog),
+        provision=AsyncMock(return_value=provisioning),
+        logout=AsyncMock(return_value=None),
+    )
+    for name in ("login", "list_tenants", "get_catalog", "provision", "logout"):
+        monkeypatch.setattr(f"{FLOW}.HeizungsserverClient.{name}", getattr(mocks, name))
+    return mocks
+
+
+def setup_mypyllant(hass, *, circuits=("0",), model="ecoTEC plus VC 206/5-5", outdoor=True) -> MockConfigEntry:
+    """Heizungs-Integration wie bei client1 (unique_ids wie im Registry-Auszug)."""
+    entry = MockConfigEntry(domain="mypyllant", title="myVAILLANT")
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("mypyllant", "SYSTEM")}, name="Zuhause", model=model,
+    )
+    ent_reg = er.async_get(hass)
+    for circuit in circuits:
+        for suffix, object_id, value, unit in (
+            ("heating_curve", f"zuhause_circuit_{circuit}_heating_curve", "1.1", None),
+            ("min_flow_temperature_setpoint", f"zuhause_circuit_{circuit}_min_flow_temperature_setpoint", "22", "°C"),
+            ("heat_demand_limited_by_outside_temperature", f"zuhause_circuit_{circuit}_heat_limit", "16", "°C"),
+        ):
+            ent_reg.async_get_or_create(
+                "number", "mypyllant", f"mypyllant SYSTEM_circuit_{circuit}_{suffix}",
+                config_entry=entry, device_id=device.id, suggested_object_id=object_id,
+            )
+            hass.states.async_set(f"number.{object_id}", value, {"unit_of_measurement": unit} if unit else {})
+    if outdoor:
+        ent_reg.async_get_or_create(
+            "sensor", "mypyllant", "mypyllant_SYSTEM_home_outdoor_temperature",
+            config_entry=entry, device_id=device.id, suggested_object_id="zuhause_outdoor_temperature",
+        )
+        hass.states.async_set(OUTDOOR, "7.5", {"unit_of_measurement": "°C"})
+    return entry
+
+
+def setup_rooms(hass) -> None:
+    """Wohnzimmer: Fuehler + Batterie + Thermostat an einem Geraet; Kinderzimmer: Fuehler ohne Geraet."""
+    entry = MockConfigEntry(domain="zha")
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("zha", "wz")}, name="Wohnzimmer",
+    )
+    ent_reg = er.async_get(hass)
+    for domain, unique_id, object_id, device_class in (
+        ("sensor", "wz_temp", "wz_temperatur", None),
+        ("sensor", "wz_bat", "wz_batterie", "battery"),
+        ("climate", "wz_climate", "wz", None),
+    ):
+        ent_reg.async_get_or_create(
+            domain, "zha", unique_id, config_entry=entry, device_id=device.id,
+            suggested_object_id=object_id, original_device_class=device_class,
+        )
+    hass.states.async_set("sensor.wz_temperatur", "21.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("sensor.wz_batterie", "80", {"unit_of_measurement": "%", "device_class": "battery"})
+    hass.states.async_set("climate.wz", "heat", {"current_temperature": 21.2, "temperature": 21.5})
+    hass.states.async_set("sensor.kz_temperatur", "20.5", {"unit_of_measurement": "°C"})
+
+
+def register_phones(hass, *names: str) -> None:
+    for name in names:
+        hass.services.async_register("notify", name, AsyncMock())
+
+
+def mock_addons(hass, monkeypatch, *, status="bereit", grund=None, existing_options=None, set_error=None,
+                status_setup_id=None) -> SimpleNamespace:
+    """AddonManager-Aufrufe aufzeichnen. Der Neustart der heizungsbruecke setzt die Status-Entity
+    wie das echte Add-on (mit der setup_id aus den gesetzten Optionen, ausser status_setup_id)."""
+    calls = SimpleNamespace(options={}, restarts=[])
+
+    async def set_options(manager, config):
+        if set_error is not None:
+            raise set_error
+        calls.options[manager.addon_slug] = config
+
+    async def restart(manager):
+        calls.restarts.append(manager.addon_slug)
+        if manager.addon_slug == "heizungsbruecke" and status is not None:
+            attributes = {
+                STATUS_ATTR_SETUP_ID: status_setup_id or calls.options["heizungsbruecke"]["setup_id"],
+                "addon_version": "0.19.0",
+            }
+            if grund:
+                attributes[STATUS_ATTR_GRUND] = grund
+            hass.states.async_set(status_entity_id(TENANT), status, attributes)
+
+    async def info(manager):
+        return SimpleNamespace(options=dict(existing_options or {}))
+
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options)
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_restart_addon", restart)
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_get_addon_info", info)
+    return calls
+
+
+def fast_status_wait(monkeypatch, wait_seconds: float = 0.2) -> None:
+    monkeypatch.setattr(f"{FLOW}.STATUS_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(f"{FLOW}.STATUS_WAIT_SECONDS", wait_seconds)
+
+
+async def start(hass):
+    return await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+
+
+async def configure(hass, result, data=None):
+    return await hass.config_entries.flow.async_configure(result["flow_id"], data)
+
+
+async def login(hass, result):
+    return await configure(hass, result, {"email": "a@b.de", "password": "geheim"})
+
+
+async def finish_progress(hass, result):
+    """Fortschrittsschritt abwarten und das Folgeergebnis holen."""
+    assert result["type"] == "progress"
+    await hass.async_block_till_done()
+    return await configure(hass, result)
+
+
+def marker(result, field: str, section: str | None = None):
+    schema = result["data_schema"].schema
+    if section is not None:
+        schema = schema[section].schema.schema
+    return next(key for key in schema if key == field)
+
+
+def suggested(result, field: str, section: str | None = None):
+    description = marker(result, field, section).description or {}
+    return description.get("suggested_value")
+
+
+def has_default(result, field: str) -> bool:
+    return marker(result, field).default is not vol.UNDEFINED
+
+
+def select_values(result, field: str) -> list:
+    config = result["data_schema"].schema[marker(result, field)].config
+    return [option["value"] if isinstance(option, dict) else option for option in config["options"]]

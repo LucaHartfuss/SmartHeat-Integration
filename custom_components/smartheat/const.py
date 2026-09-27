@@ -47,33 +47,21 @@ STATUS_ATTR_GRUND = "grund"
 def status_entity_id(tenant_id: str) -> str:
     return f"sensor.smartheat_{re.sub(r'[^a-z0-9_]', '_', tenant_id.lower())}_status"
 
-# Muss mit ROLE_DOMAINS aus heizungsbruecke/src/heizungsbruecke/static/wizard.js
-# (jetzt entfernt) inhaltlich uebereinstimmen -- kein geteilter Code zwischen den
+# Einzel-Entity-Rollen, die als entity_<rolle> ins Add-on gehen (ohne KPI-Rollen). Die
+# Raumfuehler gehen als Liste room_sensors (Spec TP6 3.1). Kein geteilter Code zwischen den
 # Repos; Cross-Repo-Gleichheit prueft tools/contract_check.py im Dev-Root.
 ROLE_DOMAINS: dict[str, list[str]] = {
-    "entity_room_actual": ["sensor"],
     "entity_room_target": ["sensor", "climate"],
-    "entity_outdoor_temp": ["sensor"],
+    "entity_outdoor_temp": ["sensor", "weather"],
     "entity_curve_current": ["number"],
     "entity_offset_current": ["number"],
     "entity_heat_limit": ["number", "sensor"],
 }
 
-CLIMATE_ATTRIBUTE_BY_ROLE: dict[str, str] = {
-    "entity_room_target": "temperature",
-}
-
-ROLE_UNIT_EXPECTATIONS: dict[str, str] = {
-    "entity_room_actual": "°C",
-    "entity_room_target": "°C",
-    "entity_outdoor_temp": "°C",
-    "entity_offset_current": "°C",
-    "entity_heat_limit": "°C",
-}
-
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt
-# (aus /catalog) als unterstuetzt ausweist -- siehe config_flow.py::async_step_kpi_metrics.
+# (aus /catalog) als unterstuetzt ausweist -- siehe config_flow.py::async_step_plant_values
+# (Sektion advanced).
 KPI_SCALAR_ROLE_BY_CAPABILITY: dict[str, str] = {
     "has_flow_temperature": "entity_flow_temperature",
     "has_return_temperature": "entity_return_temperature",
@@ -120,18 +108,4 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 MIN_ADDON_VERSIONS: dict[str, str] = {
     HEIZUNGSBRUECKE_ADDON_SLUG: "0.19.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
-}
-
-# Server-seitige Profil-Werte (heizungsserver/generic/profiles.py) sind reines ASCII
-# (siehe dortige hersteller/erzeuger_typ/verteilsystem-Felder) -- diese Mappings liefern
-# nur die Umlaut-Anzeige im Wizard-Dropdown, der uebermittelte Wert bleibt unveraendert
-# der rohe Server-Wert. Unbekannte (kuenftige) Werte fallen auf sich selbst zurueck.
-ERZEUGER_TYP_LABELS: dict[str, str] = {
-    "Gastherme": "Gastherme",
-    "Waermepumpe": "Wärmepumpe",
-}
-
-VERTEILSYSTEM_LABELS: dict[str, str] = {
-    "Heizkoerper": "Heizkörper",
-    "Fussbodenheizung": "Fußbodenheizung",
 }

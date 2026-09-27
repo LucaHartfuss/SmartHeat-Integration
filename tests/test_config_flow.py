@@ -1,1033 +1,711 @@
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+"""Config-Flow 2.0 (Spec TP6, Tests laut Spec 6)."""
+import logging
+from datetime import timedelta
+
+import json
+from pathlib import Path
 
 import pytest
-import voluptuous as vol
+from homeassistant.components.hassio import AddonError
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
-from custom_components.smartheat.const import DOMAIN
-from custom_components.smartheat.supervisor_client import ResolvedAddon
+from custom_components.smartheat.const import DOMAIN, status_entity_id
+from custom_components.smartheat.supervisor_client import (
+    AddonNotFoundError, AddonOutdatedError, AmbiguousAddonMatchError,
+)
+
+from .flow_helpers import (
+    CATALOG, CF_SECRET, CURVE, HEAT_LIMIT, MQTT_PASSWORD, OFFSET, OUTDOOR, PLANT_INPUT, PROFILE_PARAMS,
+    ROOMS_INPUT, SYSTEM_INPUT, TENANT, configure, enable_supervisor, fast_status_wait, finish_progress,
+    has_default, login, marker, mock_addons, mock_server, register_phones, select_values, setup_mypyllant,
+    setup_rooms, start, suggested,
+)
 
 
-def _catalog(*profiles):
-    return {"catalog_version": 1, "profiles": list(profiles), "integrations": []}
+async def _reach(hass, monkeypatch, step: str, *, phones=("mobile_app_pixel",), **server):
+    """Normalfall bis zum genannten Schritt. Liefert (result, server_mocks)."""
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, **server)
+    setup_mypyllant(hass)
+    setup_rooms(hass)
+    register_phones(hass, *phones)
+    fast_status_wait(monkeypatch)
+    result = await login(hass, await start(hass))
+    order = [("system", SYSTEM_INPUT), ("rooms", ROOMS_INPUT), ("plant_values", PLANT_INPUT),
+             ("notifications", None), ("summary", None)]
+    for step_id, data in order:
+        assert result["step_id"] == step_id, result
+        if step_id == step:
+            return result, mocks
+        result = await configure(hass, result, data if data is not None else {})
+    raise AssertionError(f"Schritt {step} nicht erreicht")
 
 
-def _enable_supervisor(hass, monkeypatch):
-    """Simuliert eine Supervisor-Installation (HA OS/Supervised).
+# --- A: Vorabpruefung und Login ---
 
-    Der Guard am Anfang von async_step_user (Critical 1: unhandled KeyError auf
-    SUPERVISOR_TOKEN) prueft sowohl is_hassio(hass) (hass.config.components) als
-    auch os.environ["SUPERVISOR_TOKEN"] -- beides muss fuer jeden Test gesetzt sein,
-    der ueber den user-Schritt hinauskommen soll. Siehe auch
-    test_user_step_aborts_when_not_supervisor fuer den Gegenfall.
-    """
-    hass.config.components.add("hassio")
-    monkeypatch.setenv("SUPERVISOR_TOKEN", "test-supervisor-token")
-
-    # AddonManager.__init__ (siehe supervisor_client.async_get_addon_managers) resolved
-    # sich selbst einen echten Supervisor-Client -- das schluege in diesem leichtgewichtigen
-    # hass ohne echt geladene hassio-Integration mit einem KeyError fehl (hass.data[...]).
-    # Der Platzhalter wird nie tatsaechlich benutzt: jeder Test, der bis _push_config_and_finish
-    # kommt, patcht async_set_addon_options/async_restart_addon direkt auf der Klasse.
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.addon_manager.get_supervisor_client",
-        lambda hass: SimpleNamespace(),
-    )
-    # Slug-Aufloesung (Repository-Hash-Praefix, siehe Task 14) ist hier bewusst eine
-    # Identitaetsfunktion -- die Tests in test_supervisor_client.py decken die eigentliche
-    # Aufloesungslogik ab, hier soll nur die Config-Flow-Seite (welche Optionen/Restarts an
-    # welchen -- unveraendert bare -- Slug gehen) getestet werden.
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addons",
-        AsyncMock(side_effect=lambda hass, repository_url, min_versions: {
-            slug: ResolvedAddon(slug, version) for slug, version in min_versions.items()
-        }),
-    )
-
-
-async def test_user_step_aborts_when_not_supervisor(hass, monkeypatch):
+async def test_aborts_when_not_supervisor(hass, monkeypatch):
     monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await start(hass)
 
-    assert result["type"] == "abort"
-    assert result["reason"] == "not_supervisor"
-
-
-async def test_user_step_shows_form_initially(hass, monkeypatch):
-    _enable_supervisor(hass, monkeypatch)
-
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "user"
-    # Final-Review-Fix (Finding 2) Regressionsschutz: ein ganz normaler Erststart darf
-    # keinen "session_expired"-Hinweis zeigen -- das Flag darf also nicht versehentlich
-    # von Anfang an gesetzt sein.
-    assert result["errors"] == {}
+    assert (result["type"], result["reason"]) == ("abort", "not_supervisor")
 
 
-async def test_user_step_shows_invalid_auth_error(hass, monkeypatch):
-    _enable_supervisor(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.login",
-        AsyncMock(side_effect=InvalidAuth("nope")),
-    )
+@pytest.mark.parametrize("error,reason,placeholders", [
+    (AddonNotFoundError("heizungsbruecke"), "addon_missing", {"addon": "heizungsbruecke"}),
+    (AmbiguousAddonMatchError("heizungsbruecke", ["a_heizungsbruecke", "b_heizungsbruecke"]), "addon_ambiguous",
+     {"addon": "heizungsbruecke"}),
+    (AddonOutdatedError("heizungsbruecke", "0.18.0", "0.19.0"), "addon_outdated",
+     {"addon": "heizungsbruecke", "installed": "0.18.0", "required": "0.19.0"}),
+    (AddonError("Supervisor weg"), "supervisor_unavailable", {}),
+])
+async def test_addon_precheck_aborts_before_login(hass, monkeypatch, error, reason, placeholders):
+    resolve = enable_supervisor(hass, monkeypatch)
+    resolve.side_effect = error
+    mocks = mock_server(monkeypatch)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"email": "a@b.de", "password": "falsch"},
-    )
+    result = await start(hass)
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "user"
-    assert result["errors"] == {"base": "invalid_auth"}
+    assert (result["type"], result["reason"]) == ("abort", reason)
+    assert result["description_placeholders"] == placeholders
+    mocks.login.assert_not_awaited()
 
 
-async def test_user_step_proceeds_to_tenant_step_on_success(hass, monkeypatch):
-    _enable_supervisor(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.login",
-        AsyncMock(return_value="tok123"),
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_tenants",
-        AsyncMock(return_value=[{"tenant_id": "wohnung1", "profile_id": "vaillant_gastherme_heizkoerper"}]),
-    )
+async def test_login_form_after_a_clean_precheck(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
 
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"email": "a@b.de", "password": "geheim"},
-    )
+    result = await start(hass)
 
-    assert result["type"] == "form"
+    assert (result["type"], result["step_id"], result["errors"]) == ("form", "user", {})
+
+
+@pytest.mark.parametrize("error,key", [(InvalidAuth("x"), "invalid_auth"), (CannotConnect("x"), "cannot_connect"),
+                                       (ApiError("x"), "unknown")])
+async def test_login_errors(hass, monkeypatch, error, key):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch).login.side_effect = error
+
+    result = await login(hass, await start(hass))
+
+    assert (result["step_id"], result["errors"]) == ("user", {"base": key})
+
+
+async def test_account_without_tenants(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, tenants=())
+
+    result = await login(hass, await start(hass))
+
+    assert result["errors"] == {"base": "no_tenants"}
+
+
+# --- B: Tenant ---
+
+async def test_single_tenant_and_single_integration_go_straight_to_system(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "system")
+
+    assert result["step_id"] == "system"
+
+
+async def test_two_tenants_show_the_tenant_form(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, tenants=("wohnung1", "wohnung2"))
+    setup_mypyllant(hass)
+
+    result = await login(hass, await start(hass))
     assert result["step_id"] == "tenant"
+    result = await configure(hass, result, {"tenant_id": "wohnung2"})
 
+    assert result["step_id"] == "system"
 
-async def _reach_tenant_step(hass, monkeypatch):
-    _enable_supervisor(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.login",
-        AsyncMock(return_value="tok123"),
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.list_tenants",
-        AsyncMock(return_value=[{"tenant_id": "wohnung1", "profile_id": "vaillant_gastherme_heizkoerper"}]),
-    )
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    return await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"email": "a@b.de", "password": "geheim"},
-    )
-
-
-KPI_CAPABILITIES = {
-    "has_flow_temperature": True, "has_return_temperature": False,
-    "has_operating_mode": True, "has_water_pressure": True,
-    "has_manufacturer_efficiency_sensor": True,
-    "energy_channels": ["electrical_heating", "thermal_heating"],
-}
-
-
-async def _reach_profile_step(hass, monkeypatch, telemetry_capabilities=None):
-    """telemetry_capabilities wird nur bei Bedarf ins erste Profil gemischt: ohne sie
-    (Default) ueberspringt die Flow den optionalen kpi_metrics-Schritt, sodass alle
-    bestehenden Tests (entities -> finish) unveraendert bleiben."""
-    result = await _reach_tenant_step(hass, monkeypatch)
-    first_profile = {
-        "hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
-        "profile_id": "vaillant_gastherme_heizkoerper", "verified": True,
-    }
-    if telemetry_capabilities is not None:
-        first_profile["telemetry_capabilities"] = telemetry_capabilities
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
-        AsyncMock(return_value=_catalog(
-            first_profile,
-            {"hersteller": "Weishaupt", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
-             "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
-        )),
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"tenant_id": "wohnung1"},
-    )
-    return result
-
-
-async def _reach_profile_step_with_two_verified_profiles(hass, monkeypatch):
-    """Zwei VERIFIZIERTE Profile, die sich in genau einer Dimension unterscheiden --
-    noetig um zu testen, dass eine Kombination aus (fuer sich genommen) gueltigen
-    Einzel-Choices trotzdem als serverseitig unbekannte Kombination abgelehnt wird
-    (z.B. Vaillant+Waermepumpe, fuer das es kein Profil gibt)."""
-    result = await _reach_tenant_step(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
-        AsyncMock(return_value=_catalog(
-            {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper",
-             "profile_id": "vaillant_gastherme_heizkoerper", "verified": True},
-            {"hersteller": "Vaillant", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
-             "profile_id": "vaillant_waermepumpe_fussbodenheizung", "verified": True},
-        )),
-    )
-    return await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"tenant_id": "wohnung1"},
-    )
-
-
-async def test_tenant_step_shows_cannot_connect_error(hass, monkeypatch):
-    result = await _reach_tenant_step(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
-        AsyncMock(side_effect=CannotConnect("nicht erreichbar")),
-    )
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"tenant_id": "wohnung1"},
-    )
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "tenant"
-    assert result["errors"]["base"] == "cannot_connect"
-
-
-async def test_tenant_step_shows_unknown_error_on_api_error(hass, monkeypatch):
-    result = await _reach_tenant_step(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
-        AsyncMock(side_effect=ApiError("kaputt")),
-    )
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"tenant_id": "wohnung1"},
-    )
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "tenant"
-    assert result["errors"]["base"] == "unknown"
 
+async def test_already_configured_tenant_aborts(hass, monkeypatch):
+    MockConfigEntry(domain=DOMAIN, unique_id=TENANT, data={"tenant_id": TENANT}).add_to_hass(hass)
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
 
-async def test_second_flow_with_same_tenant_aborts_as_already_configured(hass, monkeypatch):
-    """I5: Single-Instance-Guard -- verhindert zwei Config-Entries fuer dieselbe Anlage
-    (siehe async_set_unique_id/_abort_if_unique_id_configured in async_step_tenant)."""
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
-    )
-    first = await _reach_finish(hass, monkeypatch)
-    assert first["type"] == "create_entry"
+    result = await login(hass, await start(hass))
 
-    second = await _reach_tenant_step(hass, monkeypatch)
-    second = await hass.config_entries.flow.async_configure(
-        second["flow_id"], {"tenant_id": "wohnung1"},
-    )
+    assert (result["type"], result["reason"]) == ("abort", "already_configured")
 
-    assert second["type"] == "abort"
-    assert second["reason"] == "already_configured"
 
+# --- C: Heizungs-Integration ---
 
-async def test_profile_step_aborts_when_no_verified_profiles(hass, monkeypatch):
-    result = await _reach_tenant_step(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
-        AsyncMock(return_value=_catalog(
-            {"hersteller": "Weishaupt", "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung",
-             "profile_id": "weishaupt_waermepumpe_fussbodenheizung", "verified": False},
-        )),
-    )
+async def test_catalog_unreachable_shows_cannot_connect_and_retry_works(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    mocks.get_catalog.side_effect = [CannotConnect("weg"), CATALOG]
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"tenant_id": "wohnung1"},
-    )
+    result = await login(hass, await start(hass))
+    assert (result["step_id"], result["errors"]) == ("heating", {"base": "cannot_connect"})
+    result = await configure(hass, result, {})
 
-    assert result["type"] == "abort"
-    assert result["reason"] == "no_verified_profiles"
+    assert result["step_id"] == "system"
 
 
-async def test_tenant_step_proceeds_to_profile_step(hass, monkeypatch):
-    result = await _reach_profile_step(hass, monkeypatch)
+async def test_session_expired_while_loading_the_catalog(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch).get_catalog.side_effect = InvalidAuth("abgelaufen")
+    setup_mypyllant(hass)
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "profile"
+    result = await login(hass, await start(hass))
 
+    assert (result["step_id"], result["errors"]) == ("user", {"base": "session_expired"})
 
-async def test_tenant_step_routes_back_to_user_step_on_invalid_auth(hass, monkeypatch):
-    result = await _reach_tenant_step(hass, monkeypatch)
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.get_catalog",
-        AsyncMock(side_effect=InvalidAuth("Sitzung abgelaufen")),
-    )
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"tenant_id": "wohnung1"},
-    )
+async def test_no_supported_integration_lists_the_supported_ones(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "user"
-    # Final-Review-Fix (Finding 2): der Reset zurueck auf den Login-Schritt darf nicht
-    # stillschweigend passieren -- der Nutzer hat bis hierhin schon Login+Tenant-Auswahl
-    # investiert und braucht eine Erklaerung, warum er wieder am Anfang steht, statt es
-    # mit einem Absturz zu verwechseln.
-    assert result["errors"] == {"base": "session_expired"}
+    result = await login(hass, await start(hass))
 
+    assert (result["type"], result["reason"]) == ("abort", "no_supported_integration")
+    assert result["description_placeholders"] == {"supported": "myVAILLANT"}
 
-def _schema_validator(schema: vol.Schema, field_name: str):
-    (validator,) = [v for k, v in schema.schema.items() if str(k) == field_name]
-    return validator
 
+async def test_two_installed_integrations_show_the_heating_form(hass, monkeypatch):
+    catalog = {**CATALOG, "integrations": CATALOG["integrations"] + [
+        {**CATALOG["integrations"][0], "domain": "andere", "label": "Andere Heizung"},
+    ]}
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
+    MockConfigEntry(domain="andere").add_to_hass(hass)
 
-def _select_options(select_selector) -> list:
-    return select_selector.config["options"]
+    result = await login(hass, await start(hass))
 
+    assert result["step_id"] == "heating"
+    assert set(select_values(result, "integration")) == {"mypyllant", "andere"}
+    result = await configure(hass, result, {"integration": "mypyllant"})
+    assert result["step_id"] == "system"
 
-def _select_values(select_selector) -> set:
-    return {o["value"] if isinstance(o, dict) else o for o in _select_options(select_selector)}
 
+async def test_no_verified_profile_for_the_manufacturer(hass, monkeypatch):
+    catalog = {**CATALOG, "profiles": [p for p in CATALOG["profiles"] if p["hersteller"] != "Vaillant"]}
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
 
-async def test_profile_step_uses_real_select_dropdowns(hass, monkeypatch):
-    """I3: hersteller/erzeuger_typ/verteilsystem muessen dieselbe SelectSelector-
-    Komponente nutzen wie die Sensorauswahl im entities-Schritt (kein rohes vol.In)."""
-    from homeassistant.helpers.selector import SelectSelector
+    result = await login(hass, await start(hass))
 
-    result = await _reach_profile_step(hass, monkeypatch)
+    assert (result["type"], result["reason"]) == ("abort", "no_verified_profiles")
 
-    schema = result["data_schema"]
-    for field in ("hersteller", "erzeuger_typ", "verteilsystem"):
-        validator = _schema_validator(schema, field)
-        assert isinstance(validator, SelectSelector)
-        assert validator.config["mode"] == "dropdown"
-
-
-async def test_profile_step_only_offers_verified_profile_dimensions(hass, monkeypatch):
-    result = await _reach_profile_step(hass, monkeypatch)
 
-    schema = result["data_schema"]
-    # Direkter Beweis, dass nur die Dimensionen des verifizierten Profils (nicht auch
-    # Weishaupt/Waermepumpe/Fussbodenheizung, verified=False) im Formular waehlbar sind.
-    assert _select_values(_schema_validator(schema, "hersteller")) == {"Vaillant"}
-    assert _select_values(_schema_validator(schema, "erzeuger_typ")) == {"Gastherme"}
-    assert _select_values(_schema_validator(schema, "verteilsystem")) == {"Heizkoerper"}
+# --- D: System ---
 
+async def test_verteilsystem_has_no_default_and_erzeuger_typ_is_suggested(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "system")
 
-async def test_profile_step_dropdown_options_have_umlaut_labels(hass, monkeypatch):
-    result = await _reach_profile_step_with_two_verified_profiles(hass, monkeypatch)
-
-    schema = result["data_schema"]
-    erzeuger_typ_labels = {o["value"]: o["label"] for o in _select_options(_schema_validator(schema, "erzeuger_typ"))}
-    assert erzeuger_typ_labels["Waermepumpe"] == "Wärmepumpe"
-    verteilsystem_labels = {
-        o["value"]: o["label"] for o in _select_options(_schema_validator(schema, "verteilsystem"))
-    }
-    assert verteilsystem_labels["Fussbodenheizung"] == "Fußbodenheizung"
-
-
-async def test_profile_step_proceeds_to_entities_step(hass, monkeypatch):
-    result = await _reach_profile_step(hass, monkeypatch)
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "entities"
-
-
-async def test_profile_step_rejects_unsupported_combination(hass, monkeypatch):
-    result = await _reach_profile_step_with_two_verified_profiles(hass, monkeypatch)
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        # Gastherme und Fussbodenheizung sind je fuer sich gueltige (verifizierte)
-        # Choices, aber "Vaillant+Gastherme+Fussbodenheizung" existiert als Profil nicht.
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Fussbodenheizung"},
-    )
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "profile"
-    assert result["errors"]["base"] == "profile_combination_unsupported"
-
-
-async def test_entities_step_rejects_unit_mismatch(hass, monkeypatch):
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "K"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-    result = await _reach_profile_step(hass, monkeypatch)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
-        "entity_room_actual": "sensor.rt",
-        "entity_room_target": "sensor.target_rt",
-        "entity_outdoor_temp": "sensor.outdoor",
-        "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset",
-        "entity_heat_limit": "number.heat_limit",
-    })
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "entities"
-    assert result["errors"]["entity_room_actual"] == "unit_mismatch"
-
-
-async def test_entities_step_flattens_climate_room_target():
-    from custom_components.smartheat.config_flow import _resolve_entities
-    from unittest.mock import MagicMock
-
-    hass = MagicMock()
-    def _get(entity_id):
-        if entity_id == "climate.wohnzimmer":
-            return MagicMock(attributes={})
-        return MagicMock(attributes={"unit_of_measurement": "°C"})
-    hass.states.get.side_effect = _get
-
-    resolved, errors = _resolve_entities(hass, {
-        "entity_room_actual": "sensor.rt",
-        "entity_room_target": "climate.wohnzimmer",
-        "entity_outdoor_temp": "sensor.outdoor",
-        "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset",
-        "entity_heat_limit": "number.heat_limit",
-    })
-
-    assert errors == {}
-    assert resolved["entity_room_target"] == "climate.wohnzimmer::temperature"
-
-
-PROFILE_PARAMS = {
-    "verteilsystem": "Heizkoerper",
-    "daily_trigger_time": "12:00",
-    "day_avg_window_start": "14:00", "day_avg_window_end": "17:00",
-    "night_avg_window_start": "04:00", "night_avg_window_end": "07:00",
-}
-
-
-def _provisioning_response():
-    return {
-        "username": "wohnung1_abc", "password": "geheim-mqtt", "acl_snippet": "...",
-        "cloudflared_hostname": "mqtt-verify.hartfussha.org", "cloudflared_local_port": 18830,
-        "cloudflared_service_token_id": "cf-id", "cloudflared_service_token_secret": "cf-secret",
-        "profile_params": dict(PROFILE_PARAMS),
+    assert has_default(result, "verteilsystem") is False
+    assert marker(result, "erzeuger_typ").default() == "gastherme"
+    # Sicherheitsfrage: immer beide Karten, unabhaengig davon, welche Profile es gibt.
+    assert select_values(result, "verteilsystem") == ["fussbodenheizung", "heizkoerper"]
+    # Erzeugertypen aus allen Katalog-Profilen (hier auch das nicht verifizierte Weishaupt-Profil).
+    assert select_values(result, "erzeuger_typ") == ["gastherme", "waermepumpe"]
+    assert "circuit" not in [str(key) for key in result["data_schema"].schema]
+
+
+@pytest.mark.parametrize("model", ["VRC 720", "aroTHERM und ecoTEC"])
+async def test_erzeuger_typ_without_clear_hint_has_no_default(hass, monkeypatch, model):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, model=model)
+
+    result = await login(hass, await start(hass))
+
+    assert has_default(result, "erzeuger_typ") is False
+
+
+async def test_two_circuits_offer_a_choice(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, circuits=("0", "1"))
+    setup_rooms(hass)
+
+    result = await login(hass, await start(hass))
+    values = select_values(result, "circuit")
+    result = await configure(hass, result, {**SYSTEM_INPUT, "circuit": values[1]})
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert suggested(result, "entity_curve_current") == "number.zuhause_circuit_1_heating_curve"
+
+
+async def test_fussbodenheizung_without_a_verified_profile_is_an_error(hass, monkeypatch):
+    # Der Katalog hat fuer Vaillant nur Gastherme + Heizkoerper; die Karte Fussbodenheizung wird
+    # trotzdem angeboten und fuehrt zum Fehler statt zu einem geratenen Profil.
+    result, _ = await _reach(hass, monkeypatch, "system")
+
+    result = await configure(hass, result, {"verteilsystem": "fussbodenheizung", "erzeuger_typ": "gastherme"})
+
+    assert (result["step_id"], result["errors"]) == ("system", {"base": "profile_combination_unsupported"})
+
+
+async def test_unsupported_combination_is_an_error(hass, monkeypatch):
+    # Zweites verifiziertes Vaillant-Profil: beide Werte sind einzeln waehlbar, die Kombination
+    # Heizkoerper + Waermepumpe gibt es trotzdem nicht.
+    catalog = {**CATALOG, "profiles": CATALOG["profiles"] + [{
+        "profile_id": "vaillant_waermepumpe_fussbodenheizung", "hersteller": "Vaillant",
+        "erzeuger_typ": "Waermepumpe", "verteilsystem": "Fussbodenheizung", "verified": True,
+        "telemetry_capabilities": None,
+    }]}
+    result, _ = await _reach(hass, monkeypatch, "system", catalog=catalog)
+
+    result = await configure(hass, result, {"verteilsystem": "heizkoerper", "erzeuger_typ": "waermepumpe"})
+
+    assert (result["step_id"], result["errors"]) == ("system", {"base": "profile_combination_unsupported"})
+
+
+async def test_integration_without_complete_circuit_aborts(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, circuits=())
+
+    result = await login(hass, await start(hass))
+
+    assert (result["type"], result["reason"]) == ("abort", "no_heating_circuit")
+    assert result["description_placeholders"] == {"integration": "myVAILLANT"}
+
+
+# --- E: Raeume ---
+
+async def test_rooms_accept_a_thermostat_as_sensor_and_target(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+
+    result = await configure(hass, result, {"room_sensors": ["climate.wz"], "entity_room_target": "climate.wz"})
+
+    assert result["step_id"] == "plant_values"
+
+
+@pytest.mark.parametrize("state,attributes,error", [
+    ("unavailable", {}, "entity_unavailable"),
+    ("warm", {"unit_of_measurement": "°C"}, "not_numeric"),
+    ("70", {"unit_of_measurement": "°F"}, "unit_mismatch"),
+    ("40", {"unit_of_measurement": "°C"}, "out_of_range"),
+])
+async def test_room_sensor_hard_checks(hass, monkeypatch, state, attributes, error):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    hass.states.async_set("sensor.kz_temperatur", state, attributes)
+
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert (result["step_id"], result["errors"]) == ("rooms", {"room_sensors": error})
+
+
+async def test_room_target_out_of_range(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    hass.states.async_set("climate.wz", "heat", {"current_temperature": 21.2, "temperature": 4})
+
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert result["errors"] == {"entity_room_target": "out_of_range"}
+
+
+async def test_empty_room_sensor_list(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+
+    result = await configure(hass, result, {"room_sensors": [], "entity_room_target": "climate.wz"})
+
+    assert result["errors"] == {"room_sensors": "room_sensors_required"}
+
+
+async def test_same_sensor_as_room_sensor_and_target_is_a_duplicate(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+
+    result = await configure(hass, result, {"room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "sensor.wz_temperatur"})
+
+    assert result["errors"] == {"room_sensors": "duplicate_entity", "entity_room_target": "duplicate_entity"}
+
+
+# --- F: Anlagenwerte ---
+
+async def test_plant_values_are_prefilled_with_origin(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+
+    assert [suggested(result, field) for field in (
+        "entity_curve_current", "entity_offset_current", "entity_heat_limit", "entity_outdoor_temp",
+    )] == [CURVE, OFFSET, HEAT_LIMIT, OUTDOOR]
+    assert "myVAILLANT" in result["description_placeholders"]["origins"]
+    assert result["data_schema"].schema["advanced"].options["collapsed"] is True
+    assert suggested(result, "entity_operating_mode", section="advanced") is None
+
+
+async def test_weather_replaces_a_missing_outdoor_sensor(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, outdoor=False)
+    setup_rooms(hass)
+    hass.states.async_set("weather.forecast_home", "sunny", {"temperature": 3.2, "temperature_unit": "°C"})
+
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert suggested(result, "entity_outdoor_temp") == "weather.forecast_home"
+    assert "weather.forecast_home" in result["description_placeholders"]["origins"]
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_outdoor_temp": "weather.forecast_home"})
+    assert result["step_id"] == "notifications"
+    result = await configure(hass, result, {})
+    assert result["step_id"] == "summary"
+    assert result["description_placeholders"]["outdoor_temperature"] == "3.2"
+
+
+async def test_no_outdoor_source_at_all_leaves_the_field_empty(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, outdoor=False)
+    setup_rooms(hass)
+
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert suggested(result, "entity_outdoor_temp") is None
+
+
+async def test_heat_limit_out_of_range(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set(HEAT_LIMIT, "30", {"unit_of_measurement": "°C"})
+
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert result["errors"] == {"entity_heat_limit": "out_of_range"}
+
+
+async def test_outdoor_equal_to_a_room_sensor_is_a_duplicate(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_outdoor_temp": "sensor.kz_temperatur"})
+
+    assert result["errors"] == {"entity_outdoor_temp": "duplicate_entity"}
+
+
+async def test_energy_role_needs_total_increasing(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set("sensor.gas", "123", {"state_class": "total"})
+
+    result = await configure(hass, result, {**PLANT_INPUT, "advanced": {"entity_energy_primary_heating": "sensor.gas"}})
+
+    assert result["errors"] == {
+        "entity_energy_primary_heating": "state_class_expected_total_increasing", "base": "advanced_invalid",
     }
 
 
-async def _reach_finish(hass, monkeypatch, provision_exception=None, provisioning_response=None):
-    """Durchlaeuft die Flow bis (und ueber) den finish-Schritt.
+async def test_kpi_suggestions_from_the_catalog_land_in_the_advanced_section(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    entry = setup_mypyllant(hass)
+    setup_rooms(hass)
+    er.async_get(hass).async_get_or_create(
+        "sensor", "mypyllant", "mypyllant_SYSTEM_home_water_pressure", config_entry=entry,
+        suggested_object_id="zuhause_system_water_pressure",
+    )
 
-    provision_exception erlaubt es Tests, provision() statt eines erfolgreichen
-    Ergebnisses eine Exception werfen zu lassen (siehe
-    test_finish_step_routes_back_to_entities_on_provisioning_failure), ohne die
-    gesamte Setup-Logik hier zu duplizieren. provisioning_response erlaubt es
-    Tests, eine abweichende (z.B. kaputte) Provisionierungs-Antwort statt der
-    Standard-_provisioning_response() einzuschleusen.
-    """
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-    if provision_exception is not None:
-        provision_mock = AsyncMock(side_effect=provision_exception)
-    else:
-        provision_mock = AsyncMock(
-            return_value=provisioning_response if provisioning_response is not None else _provisioning_response()
-        )
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.provision", provision_mock
-    )
-    result = await _reach_profile_step(hass, monkeypatch)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-    return await hass.config_entries.flow.async_configure(result["flow_id"], {
-        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
-        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert suggested(result, "entity_system_water_pressure", section="advanced") == "sensor.zuhause_system_water_pressure"
+
+
+# --- G: Benachrichtigungen ---
+
+async def test_all_phones_preselected_and_batteries_listed(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "notifications", phones=("mobile_app_pixel", "mobile_app_iphone"))
+
+    assert marker(result, "notify_services").default() == ["notify.mobile_app_iphone", "notify.mobile_app_pixel"]
+    assert "sensor.wz_batterie" in result["description_placeholders"]["batteries"]
+
+
+async def test_notifications_step_without_phones_explains_and_lists_batteries(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    setup_rooms(hass)
+
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert result["step_id"] == "notifications"
+    assert list(result["data_schema"].schema) == []
+    assert "companion app" in result["description_placeholders"]["phones_note"]
+    assert "sensor.wz_batterie" in result["description_placeholders"]["batteries"]
+    result = await configure(hass, result, {})
+    assert result["step_id"] == "summary"
+    assert result["description_placeholders"]["recipients"] == "0"
+
+
+# --- H: Zusammenfassung ---
+
+async def test_summary_without_warnings_has_no_checkboxes_and_shows_values(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "summary")
+
+    assert list(result["data_schema"].schema) == []
+    placeholders = result["description_placeholders"]
+    assert placeholders["room_temperature"] == "20.8"  # (21.0 + 20.5) / 2
+    assert placeholders["room_sensor_count"] == "2"
+    assert placeholders["outdoor_source"] == OUTDOOR
+    assert placeholders["recipients"] == "1"
+    assert "sensor.wz_batterie" in placeholders["batteries"]
+
+
+async def test_deviating_room_sensor_needs_confirmation(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    hass.states.async_set("sensor.kz_temperatur", "25.0", {"unit_of_measurement": "°C"})
+    for data in (ROOMS_INPUT, PLANT_INPUT, {}):
+        result = await configure(hass, result, data)
+
+    assert result["step_id"] == "summary"
+    assert "sensor.kz_temperatur" in result["description_placeholders"]["warnings"]
+    result = await configure(hass, result, {"confirm_deviation": False})
+    assert result["errors"] == {"base": "warnings_not_confirmed"}
+
+
+async def test_stale_source_needs_confirmation(hass, monkeypatch, freezer):
+    result, _ = await _reach(hass, monkeypatch, "notifications")
+    freezer.tick(timedelta(hours=7))
+
+    result = await configure(hass, result, {})
+
+    assert "confirm_stale" in [str(key) for key in result["data_schema"].schema]
+    result = await configure(hass, result, {"confirm_stale": False})
+    assert result["errors"] == {"base": "warnings_not_confirmed"}
+
+
+# --- I: Einrichten (Fortschritt, Status, Fehler) ---
+
+async def _to_setup(hass, monkeypatch, **addons):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    calls = mock_addons(hass, monkeypatch, **addons)
+    result = await configure(hass, result, {})
+    assert result["step_id"] == "setup"
+    return result, mocks, calls
+
+
+async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(hass, monkeypatch):
+    result, mocks, calls = await _to_setup(hass, monkeypatch, existing_options={
+        "local_check_interval_seconds": 120, "entity_room_actual": "sensor.alt", "notify_service": "notify.alt",
+        "profile": "vaillant_gastherme_heizkoerper", "mqtt_password": "alt",
     })
 
-
-async def test_finish_pushes_options_to_both_addons_and_creates_entry(hass, monkeypatch):
-    pushed = []
-    restarted = []
-
-    # Plain async functions statt AsyncMock: eine AsyncMock-Instanz als Klassenattribut ist
-    # kein Descriptor, "self" wird beim Aufruf ueber eine Instanz NICHT automatisch gebunden
-    # (siehe .superpowers/sdd/.../progress.md, Task 12) -- hier wird self.addon_slug aber
-    # gebraucht, um pro Add-on-Instanz zuzuordnen, welcher (bare, dank der oben in
-    # _enable_supervisor gepatchten Identitaets-Slug-Aufloesung unveraenderte) Slug betroffen war.
-    async def _record_options(self, config):
-        pushed.append((self.addon_slug, config))
-
-    async def _record_restart(self):
-        restarted.append(self.addon_slug)
-
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", _record_options
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", _record_restart
-    )
-
-    result = await _reach_finish(hass, monkeypatch)
+    result = await finish_progress(hass, result)
 
     assert result["type"] == "create_entry"
-    assert result["data"] == {"tenant_id": "wohnung1", "profile_id": "vaillant_gastherme_heizkoerper"}
-    pushed_slugs = {slug for slug, _ in pushed}
-    assert pushed_slugs == {"heizungsbruecke", "cloudflared_access_mqtt"}
-    heizungsbruecke_options = next(o for slug, o in pushed if slug == "heizungsbruecke")
-    assert heizungsbruecke_options["tenant_id"] == "wohnung1"
-    assert "profile" not in heizungsbruecke_options
-    for key, value in PROFILE_PARAMS.items():
-        assert heizungsbruecke_options[key] == value
-    assert heizungsbruecke_options["accounts_api_base_url"] == "https://accounts.hartfussha.org"
-    assert heizungsbruecke_options["mqtt_username"] == "wohnung1_abc"
-    assert heizungsbruecke_options["mqtt_password"] == "geheim-mqtt"
-    assert heizungsbruecke_options["entity_room_actual"] == "sensor.rt"
-    cloudflared_options = next(o for slug, o in pushed if slug == "cloudflared_access_mqtt")
-    assert cloudflared_options == {
-        "hostname": "mqtt-verify.hartfussha.org", "local_port": 18830,
-        "service_token_id": "cf-id", "service_token_secret": "cf-secret",
+    assert result["data"] == {
+        "tenant_id": TENANT, "profile_id": "vaillant_gastherme_heizkoerper", "integration_domain": "mypyllant",
+        "circuit": {"config_entry_id": result["data"]["circuit"]["config_entry_id"], "system_key": "SYSTEM", "circuit": "0"},
+        "entities": {
+            "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
+            "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR,
+        },
+        "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"],
+        "notify_services": ["notify.mobile_app_pixel"],
+        "battery_entities": ["sensor.wz_batterie"],
     }
-    assert set(restarted) == {"heizungsbruecke", "cloudflared_access_mqtt"}
+    assert MQTT_PASSWORD not in str(result["data"]) and CF_SECRET not in str(result["data"])
+    mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.logout.assert_awaited_once_with("tok123")
+    assert calls.restarts == ["cloudflared_access_mqtt", "heizungsbruecke"]
+    options = calls.options["heizungsbruecke"]
+    assert options == {
+        "local_check_interval_seconds": 120, **PROFILE_PARAMS,
+        "tenant_id": TENANT, "mqtt_username": "wohnung1_a1b2c3d4", "mqtt_password": MQTT_PASSWORD,
+        "accounts_api_base_url": "https://accounts.hartfussha.org", "setup_id": options["setup_id"],
+        "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"],
+        "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.wz_batterie"],
+        "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
+        "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR,
+    }
+    assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
+
+
+async def test_logout_failure_is_only_logged(hass, monkeypatch, caplog):
+    result, mocks, _ = await _to_setup(hass, monkeypatch)
+    mocks.logout.side_effect = CannotConnect("weg")
+
+    with caplog.at_level(logging.WARNING):
+        result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    assert "Logout" in caplog.text
+
+
+async def test_configuration_error_offers_back_without_second_provision(hass, monkeypatch):
+    result, mocks, calls = await _to_setup(hass, monkeypatch, status="konfigurationsfehler",
+                                           grund="Entity fehlt in Home Assistant: sensor.kz_temperatur")
+
+    result = await finish_progress(hass, result)
+    assert (result["type"], result["step_id"]) == ("menu", "setup_failed")
+    assert result["description_placeholders"]["grund"] == "Entity fehlt in Home Assistant: sensor.kz_temperatur"
+    first_setup_id = calls.options["heizungsbruecke"]["setup_id"]
+
+    result = await configure(hass, result, {"next_step_id": "rooms"})
+    assert result["step_id"] == "rooms"
+    assert suggested(result, "room_sensors") == ROOMS_INPUT["room_sensors"]
+    calls = mock_addons(hass, monkeypatch, status="bereit")
+    for data in ({"room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz"}, PLANT_INPUT, {}, {}):
+        result = await configure(hass, result, data)
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    mocks.provision.assert_awaited_once()
+    assert calls.options["heizungsbruecke"]["setup_id"] != first_setup_id
+    assert calls.options["heizungsbruecke"]["room_sensors"] == ["sensor.wz_temperatur"]
+
+
+async def test_timeout_offers_to_check_again(hass, monkeypatch):
+    result, _, calls = await _to_setup(hass, monkeypatch, status=None)
+
+    result = await finish_progress(hass, result)
+    assert (result["type"], result["step_id"]) == ("menu", "setup_timeout")
+
+    hass.states.async_set(status_entity_id(TENANT), "bereit", {"setup_id": calls.options["heizungsbruecke"]["setup_id"]})
+    result = await configure(hass, result, {"next_step_id": "wait_status"})
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+
+
+async def test_setup_ignores_status_with_foreign_setup_id(hass, monkeypatch):
+    """Review Focus 2."""
+    result, _, _ = await _to_setup(hass, monkeypatch, status="bereit", status_setup_id="vom-letzten-lauf")
+
+    result = await finish_progress(hass, result)
+
+    assert result["step_id"] == "setup_timeout"
+
+
+async def test_session_expired_during_provision_goes_back_to_login(hass, monkeypatch):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    mocks.provision.side_effect = InvalidAuth("abgelaufen")
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert (result["step_id"], result["errors"]) == ("user", {"base": "session_expired"})
+
+
+async def test_provision_failure_is_a_setup_failure(hass, monkeypatch):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    mocks.provision.side_effect = ApiError("500")
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"]
 
 
 @pytest.mark.parametrize("profile_params", [None, "Heizkoerper", ["x"]])
-async def test_finish_aborts_on_invalid_profile_params(hass, monkeypatch, profile_params):
-    set_options = AsyncMock()
-    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options)
-    response = _provisioning_response()
-    if profile_params is None:
-        del response["profile_params"]
-    else:
-        response["profile_params"] = profile_params
+async def test_invalid_provisioning_response_is_a_setup_failure(hass, monkeypatch, profile_params):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    calls = mock_addons(hass, monkeypatch)
+    mocks.provision.return_value = {**mocks.provision.return_value, "profile_params": profile_params}
 
-    result = await _reach_finish(hass, monkeypatch, provisioning_response=response)
+    result = await finish_progress(hass, await configure(hass, result, {}))
 
-    assert result["type"] == "abort"
-    assert result["reason"] == "invalid_provisioning_response"
-    set_options.assert_not_called()
+    assert result["step_id"] == "setup_failed"
+    assert calls.options == {}
 
 
-def test_invalid_provisioning_response_has_translations():
-    import json
-    from pathlib import Path
-    base = Path(__file__).resolve().parents[1] / "custom_components" / "smartheat"
-    for path in (base / "strings.json", base / "translations" / "en.json", base / "translations" / "de.json"):
-        assert json.loads(path.read_text())["config"]["abort"]["invalid_provisioning_response"], path
+async def test_supervisor_error_is_shown_without_secrets(hass, monkeypatch):
+    error = AddonError(f"invalid option mqtt_password={MQTT_PASSWORD} token={CF_SECRET}")
+    result, _, _ = await _to_setup(hass, monkeypatch, set_error=error)
+
+    result = await finish_progress(hass, result)
+
+    grund = result["description_placeholders"]["grund"]
+    assert result["step_id"] == "setup_failed"
+    assert MQTT_PASSWORD not in grund and CF_SECRET not in grund and "***" in grund
 
 
-async def test_finish_shows_retry_step_with_credentials_on_supervisor_failure(hass, monkeypatch):
-    from homeassistant.components.hassio import AddonError
-
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options",
-        AsyncMock(side_effect=AddonError("Supervisor nicht erreichbar")),
+async def test_outdated_addon_found_again_at_setup(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    enable_supervisor(hass, monkeypatch, versions={"heizungsbruecke": "0.18.0"}).side_effect = (
+        AddonOutdatedError("heizungsbruecke", "0.18.0", "0.19.0")
     )
 
-    result = await _reach_finish(hass, monkeypatch)
+    result = await finish_progress(hass, await configure(hass, result, {}))
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "retry_push"
-    assert result["description_placeholders"]["mqtt_username"] == "wohnung1_abc"
-    # Task 2b: fuer den generischen AddonError-Fall (im Gegensatz zu AmbiguousAddonMatchError
-    # unten) gibt es keinen spezifischen Loesungshinweis -- Regressionsschutz, dass der
-    # generische Fall nicht ploetzlich Ambiguous-Text zeigt. Seit dem KPI-Review-Fix zeigt
-    # er stattdessen die (bereinigte) Supervisor-Meldung.
-    assert result["description_placeholders"]["error_detail"] == "Supervisor nicht erreichbar"
+    assert result["step_id"] == "setup_failed"
+    assert "0.18.0" in result["description_placeholders"]["grund"]
 
 
-async def test_retry_push_succeeds_without_reprovisioning(hass, monkeypatch):
-    from homeassistant.components.hassio import AddonError
+async def test_cancel_after_a_failure(hass, monkeypatch):
+    result, _, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+    result = await finish_progress(hass, result)
 
-    from custom_components.smartheat.config_flow import HeizungsserverClient
+    result = await configure(hass, result, {"next_step_id": "cancel"})
 
-    set_options_mock = AsyncMock(side_effect=AddonError("kaputt"))
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options_mock
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
-    )
-
-    result = await _reach_finish(hass, monkeypatch)
-    assert result["step_id"] == "retry_push"
-
-    # _reach_finish patcht HeizungsserverClient.provision bereits selbst (mit
-    # AsyncMock(return_value=_provisioning_response())) -- die tatsaechlich installierte
-    # Mock-Instanz hier abgreifen statt sie vorher redundant (und wirkungslos, da
-    # monkeypatch.setattr "last wins" ist) selbst zu patchen.
-    provision_mock = HeizungsserverClient.provision
-
-    set_options_mock.side_effect = None
-    set_options_mock.return_value = None
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-
-    assert result["type"] == "create_entry"
-    assert provision_mock.call_count == 1  # nicht erneut aufgerufen beim Retry
+    assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
 
 
-async def test_finish_step_routes_back_to_entities_on_provisioning_failure(hass, monkeypatch):
-    result = await _reach_finish(hass, monkeypatch, provision_exception=ApiError("Provisioning kaputt"))
+# --- J: Eintraege und Texte ---
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "entities"
-    assert result["errors"]["base"] == "provisioning_failed"
+async def test_created_entry_blocks_a_second_flow_for_the_tenant(hass, monkeypatch):
+    result, _, _ = await _to_setup(hass, monkeypatch)
+    await finish_progress(hass, result)
 
+    second = await login(hass, await start(hass))
 
-async def test_finish_step_routes_back_to_user_step_on_invalid_auth(hass, monkeypatch):
-    result = await _reach_finish(hass, monkeypatch, provision_exception=InvalidAuth("Sitzung abgelaufen"))
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "user"
-    # Final-Review-Fix (Finding 2): an dieser Stelle im Flow hat der Nutzer bereits
-    # Login, Tenant, Profil UND alle sechs Entity-Zuordnungen gemacht -- ein
-    # kommentarloser Reset waere hier am schlimmsten. Muss denselben Hinweis zeigen wie
-    # der Tenant-Schritt oben.
-    assert result["errors"] == {"base": "session_expired"}
+    assert (second["type"], second["reason"]) == ("abort", "already_configured")
 
 
-async def test_finish_step_routes_back_to_user_step_on_real_401_from_provision(
-    hass, monkeypatch, aiohttp_client, socket_enabled
-):
-    """Task 2a: der Vorgaenger-Test oben mockt provision() direkt auf InvalidAuth --
-    das haette auch dann gruen gezeigt, wenn provision() selbst nie InvalidAuth wirft
-    (nur ApiError, siehe api_client.py), weil hier gar nicht provision()s eigene
-    401-Behandlung durchlaufen wird. Dieser Test laesst provision() unangetastet und
-    schickt einen echten HTTP-401 durch die tatsaechliche Implementierung, um genau
-    diese Luecke (die den Re-Login-Branch in async_step_finish tot liegen liess) zu
-    schliessen."""
-    from aiohttp import web
-
-    async def handler(request):
-        return web.json_response({"error": "Sitzung abgelaufen"}, status=401)
-
-    app = web.Application()
-    app.router.add_post("/tenants/wohnung1/provision", handler)
-    fake_server = await aiohttp_client(app)
-    fake_base_url = str(fake_server.make_url("")).rstrip("/")
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.DEFAULT_HEIZUNGSSERVER_BASE_URL", fake_base_url
-    )
-
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-
-    # login/list_tenants/get_catalog bleiben wie ueberall sonst gemockt (_reach_profile_step) --
-    # nur provision() selbst laeuft tatsaechlich gegen den obigen Fake-Server, der ein reales
-    # HTTP-401 liefert.
-    result = await _reach_profile_step(hass, monkeypatch)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
-        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
-        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
-    })
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "user"
-    assert result["errors"] == {"base": "session_expired"}
+_COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
+_EXPECTED_ERRORS = {
+    "invalid_auth", "cannot_connect", "no_tenants", "profile_combination_unsupported", "unit_mismatch",
+    "entity_not_found", "entity_unavailable", "not_numeric", "out_of_range", "duplicate_entity",
+    "room_sensors_required", "advanced_invalid", "warnings_not_confirmed", "session_expired", "unknown",
+    "state_class_expected_measurement", "state_class_expected_total_increasing",
+}
+_EXPECTED_ABORTS = {
+    "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",
+    "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
+}
 
 
-async def test_successful_flow_creates_a_loaded_config_entry(hass, monkeypatch):
-    from homeassistant.config_entries import ConfigEntryState
+@pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_every_error_and_abort_has_a_text(path):
+    config = json.loads((_COMPONENT / path).read_text())["config"]
 
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
-    )
-
-    result = await _reach_finish(hass, monkeypatch)
-    assert result["type"] == "create_entry"
-
-    await hass.async_block_till_done()
-
-    entries = hass.config_entries.async_entries(DOMAIN)
-    assert len(entries) == 1
-    assert entries[0].state == ConfigEntryState.LOADED
+    assert _EXPECTED_ERRORS <= set(config["error"])
+    assert _EXPECTED_ABORTS <= set(config["abort"])
+    assert {"user", "tenant", "heating", "system", "rooms", "plant_values", "notifications", "summary",
+            "setup_failed", "setup_timeout"} <= set(config["step"])
+    assert "setup" in config["progress"]
 
 
-async def test_finish_resolves_both_addons_from_a_single_supervisor_call(hass, monkeypatch):
-    # _enable_supervisor (invoked internally via _reach_tenant_step, which every
-    # _reach_finish call goes through) already patches async_resolve_addons to an
-    # AsyncMock identity function -- rather than pre-patching our own (which
-    # _enable_supervisor's later call would silently clobber, since it runs *after* any
-    # patch a test applies before awaiting _reach_finish), inspect that same installed
-    # mock's call_count afterwards. It's the exact function _push_config_and_finish now
-    # calls via async_get_addon_managers, so this still verifies si-3: one resolution
-    # call for both add-ons, not two (previously async_get_addon_manager was called
-    # once per add-on).
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
-    )
-
-    result = await _reach_finish(hass, monkeypatch)
-
-    assert result["type"] == "create_entry"
-    from custom_components.smartheat import supervisor_client
-    assert supervisor_client.async_resolve_addons.call_count == 1
+def test_strings_json_equals_the_english_translation():
+    assert json.loads((_COMPONENT / "strings.json").read_text()) == json.loads((_COMPONENT / "translations/en.json").read_text())
 
 
-async def test_finish_shows_retry_step_on_ambiguous_addon_match(hass, monkeypatch):
-    from custom_components.smartheat.supervisor_client import AmbiguousAddonMatchError
+def test_translations_have_the_same_keys():
+    def keys(node, prefix=""):
+        if not isinstance(node, dict):
+            return {prefix}
+        return set().union(*(keys(value, f"{prefix}.{key}") for key, value in node.items()))
 
-    # Reimplements _reach_finish's tail instead of calling it directly: _enable_supervisor
-    # (via _reach_tenant_step, reached inside _reach_profile_step below) installs its own
-    # identity AsyncMock for async_resolve_addons -- a patch applied *before* that call
-    # would just be overwritten by it. Patching the raising mock in *after* _reach_profile_step
-    # returns (i.e. after _enable_supervisor has already run) makes it stick through the
-    # remaining profile/entities steps and into _push_config_and_finish.
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
-        AsyncMock(return_value=_provisioning_response()),
-    )
-    result = await _reach_profile_step(hass, monkeypatch)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addons",
-        AsyncMock(side_effect=AmbiguousAddonMatchError("heizungsbruecke", ["a", "b"])),
-    )
+    english = json.loads((_COMPONENT / "translations/en.json").read_text())
+    german = json.loads((_COMPONENT / "translations/de.json").read_text())
 
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
-        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
-        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
-    })
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "retry_push"
-    # Task 2b: im Gegensatz zu AddonError/AddonNotFoundError (siehe die generischen Tests
-    # oben, test_finish_shows_retry_step_with_credentials_on_supervisor_failure und
-    # test_finish_shows_generic_hint_on_addon_not_found) braucht AmbiguousAddonMatchError
-    # einen konkreten Loesungshinweis in der UI, weil der Nutzer hier tatsaechlich etwas
-    # Bestimmtes tun muss (doppelte Add-on-Installation im Supervisor entfernen), statt es
-    # nur erneut zu versuchen.
-    #
-    # Final-Review-Fix (Finding 1): "Supervisor" allein war kein taugliches Kriterium --
-    # das Wort ist in beiden Sprachen identisch, ein Regressions-auf-hartcodiertes-Deutsch
-    # waere hier nie aufgefallen. Stattdessen exakt gegen den lokalisierten Text aus
-    # translations/en.json pruefen (hass.config.language ist im Test-Harness per Default
-    # "en") und zusaetzlich sicherstellen, dass der deutsche Text NICHT drin ist.
-    error_detail = result["description_placeholders"]["error_detail"]
-    assert error_detail != ""
-    assert error_detail == (
-        "Multiple matching add-on installations were found. Please remove the "
-        "duplicate/outdated installation in the Supervisor, then try again."
-    )
-    assert "doppelte" not in error_detail
-
-    # Konsistenz-Check aus dem Brief: der Fehlertyp muss auch beim erneuten Anzeigen des
-    # Formulars (async_step_retry_push mit user_input=None, z.B. nach einem Reload) erhalten
-    # bleiben, nicht nur direkt nach dem ersten Fehlschlag.
-    flow = hass.config_entries.flow._progress[result["flow_id"]]
-    redisplayed = await flow.async_step_retry_push(None)
-    assert redisplayed["description_placeholders"]["error_detail"] == error_detail
+    assert keys(english) == keys(german)
 
 
-async def test_finish_shows_retry_step_on_ambiguous_addon_match_localized_to_german(hass, monkeypatch):
-    """Final-Review-Fix (Finding 1): derselbe Ablauf wie oben, aber mit
-    hass.config.language == "de" -- beweist, dass der Hinweistext tatsaechlich aus den
-    Uebersetzungsdateien nachgeschlagen wird (translation.async_get_translations),
-    nicht ein hartcodierter deutscher Python-String ist, der zufaellig auch fuer
-    Deutsch passt."""
-    from custom_components.smartheat.supervisor_client import AmbiguousAddonMatchError
-
+async def test_hints_follow_the_ui_language(hass, monkeypatch):
     hass.config.language = "de"
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
-        AsyncMock(return_value=_provisioning_response()),
-    )
-    result = await _reach_profile_step(hass, monkeypatch)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addons",
-        AsyncMock(side_effect=AmbiguousAddonMatchError("heizungsbruecke", ["a", "b"])),
-    )
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    setup_rooms(hass)
 
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
-        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
-        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
-    })
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "retry_push"
-    error_detail = result["description_placeholders"]["error_detail"]
-    assert error_detail == (
-        "Mehrere passende Add-on-Installationen gefunden. Bitte die doppelte/"
-        "veraltete Installation im Supervisor entfernen, dann erneut versuchen."
-    )
-
-
-async def test_finish_shows_generic_hint_on_addon_not_found(hass, monkeypatch):
-    # Task 2b Regressionsschutz: AddonNotFoundError (wie AddonError) bekommt weiterhin den
-    # bisherigen generischen Text (leeres error_detail), keinen der Ambiguous-spezifischen
-    # Hinweistexte.
-    from custom_components.smartheat.supervisor_client import AddonNotFoundError
-
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
-        AsyncMock(return_value=_provisioning_response()),
-    )
-    result = await _reach_profile_step(hass, monkeypatch)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-    monkeypatch.setattr(
-        "custom_components.smartheat.supervisor_client.async_resolve_addons",
-        AsyncMock(side_effect=AddonNotFoundError("heizungsbruecke")),
-    )
-
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {
-        "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
-        "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
-        "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
-    })
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "retry_push"
-    assert result["description_placeholders"]["error_detail"] == ""
-
-
-async def _reach_kpi_metrics_step(hass, monkeypatch, capabilities=KPI_CAPABILITIES):
-    result = await _reach_profile_step(hass, monkeypatch, telemetry_capabilities=capabilities)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"hersteller": "Vaillant", "erzeuger_typ": "Gastherme", "verteilsystem": "Heizkoerper"},
-    )
-    hass.states.async_set("sensor.rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.target_rt", "20.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("sensor.outdoor", "5.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.curve", "0.5", {})
-    hass.states.async_set("number.offset", "25.0", {"unit_of_measurement": "°C"})
-    hass.states.async_set("number.heat_limit", "15.0", {"unit_of_measurement": "°C"})
-    return await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            "entity_room_actual": "sensor.rt", "entity_room_target": "sensor.target_rt",
-            "entity_outdoor_temp": "sensor.outdoor", "entity_curve_current": "number.curve",
-            "entity_offset_current": "number.offset", "entity_heat_limit": "number.heat_limit",
-        },
-    )
-
-
-def _mock_provision(monkeypatch):
-    monkeypatch.setattr(
-        "custom_components.smartheat.config_flow.HeizungsserverClient.provision",
-        AsyncMock(return_value=_provisioning_response()),
-    )
-    # Nach provision() geht die Flow in den Add-on-Push -- hier folgenlos stubben.
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", AsyncMock()
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", AsyncMock()
-    )
-
-
-async def test_entities_step_proceeds_to_kpi_metrics_step(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "kpi_metrics"
-
-
-async def test_kpi_metrics_step_only_offers_fields_the_profile_supports(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-
-    schema_fields = {str(key) for key in result["data_schema"].schema}
-    assert "entity_flow_temperature" in schema_fields
-    assert "entity_return_temperature" not in schema_fields
-    assert "entity_energy_electrical_heating" in schema_fields
-    assert "entity_energy_thermal_dhw" not in schema_fields
-
-
-async def test_kpi_metrics_step_all_fields_are_optional_and_can_be_skipped(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-
-    for key in result["data_schema"].schema:
-        assert not isinstance(key, vol.Required)
-
-
-async def test_kpi_metrics_step_validates_state_class_for_energy_fields(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-    hass.states.async_set("sensor.energy", "100.0", {"state_class": "measurement"})
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"entity_energy_electrical_heating": "sensor.energy"},
-    )
-
-    assert result["type"] == "form"
-    assert result["step_id"] == "kpi_metrics"
-    assert result["errors"]["entity_energy_electrical_heating"] == "state_class_expected_total_increasing"
-
-
-async def test_kpi_metrics_step_validates_state_class_for_temperature_fields(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-    hass.states.async_set("sensor.flow", "45.0", {"state_class": "total_increasing"})
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"entity_flow_temperature": "sensor.flow"},
-    )
-
-    assert result["type"] == "form"
-    assert result["errors"]["entity_flow_temperature"] == "state_class_expected_measurement"
-
-
-async def test_kpi_metrics_step_reports_missing_entity(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"entity_flow_temperature": "sensor.does_not_exist"},
-    )
-
-    assert result["step_id"] == "kpi_metrics"
-    assert result["errors"]["entity_flow_temperature"] == "entity_not_found"
-
-
-async def test_kpi_metrics_step_operating_mode_needs_no_state_class(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-    hass.states.async_set("sensor.mode", "heating", {})
-    _mock_provision(monkeypatch)
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"entity_operating_mode": "sensor.mode"},
-    )
-
-    assert result["type"] == "create_entry"
-
-
-async def test_kpi_metrics_step_submitting_empty_form_proceeds_to_finish(hass, monkeypatch):
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-    _mock_provision(monkeypatch)
-
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-
-    assert result["type"] == "create_entry"
-
-
-async def test_kpi_metrics_entities_are_merged_into_heizungsbruecke_options(hass, monkeypatch):
-    pushed = []
-
-    async def _record_options(self, config):
-        pushed.append((self.addon_slug, config))
-
-    async def _noop_restart(self):
-        return None
-
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-    hass.states.async_set("sensor.flow", "45.0", {"state_class": "measurement"})
-    hass.states.async_set("sensor.energy", "100.0", {"state_class": "total_increasing"})
-    _mock_provision(monkeypatch)
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options", _record_options
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_restart_addon", _noop_restart
-    )
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"entity_flow_temperature": "sensor.flow", "entity_energy_thermal_heating": "sensor.energy"},
-    )
-
-    assert result["type"] == "create_entry"
-    options = next(o for slug, o in pushed if slug == "heizungsbruecke")
-    assert options["entity_flow_temperature"] == "sensor.flow"
-    assert options["entity_energy_thermal_heating"] == "sensor.energy"
-    assert options["entity_room_actual"] == "sensor.rt"
-
-
-@pytest.mark.parametrize("capabilities", [None, {}, {"energy_channels": []}, {"has_flow_temperature": False}])
-async def test_kpi_metrics_step_skipped_when_profile_has_no_usable_capabilities(
-    hass, monkeypatch, capabilities
-):
-    """Fehlender Key, None, leeres Dict: kein AttributeError/KeyError, Schritt entfaellt."""
-    _mock_provision(monkeypatch)
-    result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=capabilities)
-
-    assert result["type"] == "create_entry"
-
-
-async def test_kpi_metrics_step_ignores_unknown_energy_channels(hass, monkeypatch, caplog):
-    caps = {"energy_channels": ["thermal_heating", "bogus_channel"]}
-    result = await _reach_kpi_metrics_step(hass, monkeypatch, capabilities=caps)
-
-    fields = {str(k) for k in result["data_schema"].schema}
-    assert fields == {"entity_energy_thermal_heating"}
-    assert "bogus_channel" in caplog.text
-
-
-async def test_kpi_metrics_step_skipped_when_only_unknown_energy_channels(hass, monkeypatch):
-    _mock_provision(monkeypatch)
-    result = await _reach_kpi_metrics_step(
-        hass, monkeypatch, capabilities={"energy_channels": ["bogus_a", "bogus_b"]}
-    )
-
-    assert result["type"] == "create_entry"
-
-
-async def test_finish_shows_addon_error_detail_without_secrets(hass, monkeypatch):
-    from homeassistant.components.hassio import AddonError
-
-    result = await _reach_kpi_metrics_step(hass, monkeypatch)
-    hass.states.async_set("sensor.flow", "45.0", {"state_class": "measurement"})
-    _mock_provision(monkeypatch)
-    monkeypatch.setattr(
-        "homeassistant.components.hassio.AddonManager.async_set_addon_options",
-        AsyncMock(side_effect=AddonError(
-            "Unknown option 'entity_flow_temperature' (pw geheim-mqtt)")),
-    )
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"entity_flow_temperature": "sensor.flow"},
-    )
-
-    assert result["step_id"] == "retry_push"
-    detail = result["description_placeholders"]["error_detail"]
-    assert "entity_flow_temperature" in detail
-    assert "geheim-mqtt" not in detail
+    assert "erkannt aus myVAILLANT" in result["description_placeholders"]["origins"]

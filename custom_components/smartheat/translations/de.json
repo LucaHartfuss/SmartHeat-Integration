@@ -2,84 +2,152 @@
   "config": {
     "step": {
       "user": {
-        "title": "SmartHeat Login",
-        "description": "Melden Sie sich mit Ihrem bestehenden SmartHeat-Account an oder registrieren Sie sich auf unserer Webseite.",
-        "data": {
-          "email": "E-Mail",
-          "password": "Passwort"
-        }
+        "title": "SmartHeat-Anmeldung",
+        "description": "Melde dich mit deinem SmartHeat-Konto an. Danach erkennt die Einrichtung deine Heizung; du bestätigst nur und wählst deine Räume.",
+        "data": {"email": "E-Mail", "password": "Passwort"}
       },
       "tenant": {
-        "title": "Anlage auswählen",
-        "description": "Das Dropdown-Menü listet alle Heizungen, die mit Ihrem Account verbunden sind. Welche möchten Sie einrichten?",
+        "title": "Anlage wählen",
+        "description": "Dein Konto hat mehrere Heizungsanlagen. Welche möchtest du einrichten?",
+        "data": {"tenant_id": "Anlage"}
+      },
+      "heating": {
+        "title": "Heizungs-Integration",
+        "description": "Es sind mehrere unterstützte Heizungs-Integrationen eingerichtet. Über welche wird die Heizung gesteuert?",
+        "data": {"integration": "Heizungs-Integration"}
+      },
+      "system": {
+        "title": "Deine Heizung",
+        "description": "Heizung über {integration} gefunden. Wie kommt die Wärme in deine Räume? Davon hängen die lokalen Sicherheitsgrenzen ab, bitte sorgfältig wählen.",
+        "data": {"verteilsystem": "Wärmeverteilung", "erzeuger_typ": "Wärmeerzeuger", "circuit": "Heizkreis"}
+      },
+      "rooms": {
+        "title": "Räume",
+        "description": "Wähle die Raumtemperaturfühler (mehrere werden gemittelt) und die Entity mit deiner Wunschtemperatur. Ein Thermostat kann beides sein.",
+        "data": {"room_sensors": "Raumtemperaturfühler", "entity_room_target": "Wunschtemperatur"}
+      },
+      "plant_values": {
+        "title": "Anlagenwerte",
+        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}",
         "data": {
-          "tenant_id": "Anlage"
+          "entity_curve_current": "Heizkurve",
+          "entity_offset_current": "Mindestvorlauftemperatur (Offset)",
+          "entity_heat_limit": "Heizgrenze",
+          "entity_outdoor_temp": "Außentemperatur"
+        },
+        "sections": {
+          "advanced": {
+            "name": "Erweitert: Messwerte für Auswertungen",
+            "description": "Optional. Wo erkannt, vorbelegt. Energiezähler brauchen die State-Class 'total_increasing'.",
+            "data": {
+              "entity_flow_temperature": "Vorlauftemperatur",
+              "entity_return_temperature": "Rücklauftemperatur",
+              "entity_operating_mode": "Betriebsart",
+              "entity_system_water_pressure": "Anlagendruck",
+              "entity_efficiency_ratio": "Hersteller-Effizienzwert",
+              "entity_energy_electrical_heating": "Energie: Strom Heizen",
+              "entity_energy_electrical_dhw": "Energie: Strom Warmwasser",
+              "entity_energy_primary_heating": "Energie: Primärenergie Heizen",
+              "entity_energy_primary_dhw": "Energie: Primärenergie Warmwasser",
+              "entity_energy_thermal_heating": "Energie: Wärme Heizen",
+              "entity_energy_thermal_dhw": "Energie: Wärme Warmwasser"
+            }
+          }
         }
       },
-      "profile": {
-        "title": "Profil auswählen",
-        "description": "Wählen Sie die drei Eigenschaften Ihrer Heizungsanlage aus: Hersteller, Erzeugertyp und Wärmeabgabe. Aus dieser Kombination wird automatisch das passende Profil ermittelt.",
+      "notifications": {
+        "title": "Benachrichtigungen",
+        "description": "{phones_note}\n\nÜberwachte Batterien: {batteries}",
+        "data": {"notify_services": "Handys"}
+      },
+      "summary": {
+        "title": "Zusammenfassung",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}",
         "data": {
-          "hersteller": "Hersteller",
-          "erzeuger_typ": "Erzeugertyp",
-          "verteilsystem": "Wärmeabgabe"
+          "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
+          "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
         }
       },
-      "entities": {
-        "title": "Entities zuordnen",
-        "description": "Ordnen Sie jeder Rolle das passende Home-Assistant-Entity zu, damit die Heizkurven-Regelung auf die richtigen Sensoren und Aktoren zugreifen kann.",
-        "data": {
-          "entity_room_actual": "Raumtemperatur (Ist)",
-          "entity_room_target": "Raumtemperatur (Soll)",
-          "entity_outdoor_temp": "Außentemperatur",
-          "entity_curve_current": "Aktuelle Heizkurve",
-          "entity_offset_current": "Aktueller Fußpunkt",
-          "entity_heat_limit": "Heizgrenze"
-        }
+      "setup_failed": {
+        "title": "Einrichtung fehlgeschlagen",
+        "description": "{grund}",
+        "menu_options": {"rooms": "Zurück zur Auswahl", "cancel": "Abbrechen"}
       },
-      "kpi_metrics": {
-        "title": "Optional: Leistungskennzahlen",
-        "description": "Dieser Schritt ist optional und nur für die Entwicklungsphase gedacht. Ordnen Sie optional zusätzliche Sensoren für die Leistungsprotokollierung zu; es werden nur Felder angezeigt, die Ihr Profil unterstützt. Sie können alles leer lassen und fortfahren.",
-        "data": {
-          "entity_flow_temperature": "Vorlauftemperatur",
-          "entity_return_temperature": "Rücklauftemperatur",
-          "entity_operating_mode": "Betriebsart",
-          "entity_system_water_pressure": "Systemwasserdruck",
-          "entity_efficiency_ratio": "Wirkungsgrad (Hersteller)",
-          "entity_energy_electrical_heating": "Energie: elektrisch, Heizen",
-          "entity_energy_electrical_dhw": "Energie: elektrisch, Warmwasser",
-          "entity_energy_primary_heating": "Energie: primär, Heizen",
-          "entity_energy_primary_dhw": "Energie: primär, Warmwasser",
-          "entity_energy_thermal_heating": "Energie: thermisch, Heizen",
-          "entity_energy_thermal_dhw": "Energie: thermisch, Warmwasser"
-        }
-      },
-      "retry_push": {
-        "title": "Add-ons konnten nicht konfiguriert werden",
-        "description": "MQTT-Zugangsdaten (bei anhaltendem Fehler manuell anwenden): {mqtt_username} / {mqtt_password}\n\n{error_detail}"
+      "setup_timeout": {
+        "title": "Keine Rückmeldung vom Add-on",
+        "description": "Das Add-on Heizungsbruecke hat sich nicht innerhalb von 3 Minuten bereit gemeldet. Bitte das Add-on-Log prüfen (Einstellungen → Add-ons → Heizungsbruecke → Protokoll).",
+        "menu_options": {"wait_status": "Erneut prüfen", "cancel": "Abbrechen"}
       }
     },
-    "retry_push_hints": {
-      "ambiguous_addon_match": "Mehrere passende Add-on-Installationen gefunden. Bitte die doppelte/veraltete Installation im Supervisor entfernen, dann erneut versuchen."
+    "progress": {
+      "setup": "SmartHeat wird eingerichtet: Zugang anfordern, Add-ons konfigurieren und starten, auf die Bereit-Meldung des Add-ons warten (bis zu 3 Minuten)."
+    },
+    "hints": {
+      "role_entity_curve_current": "Heizkurve",
+      "role_entity_offset_current": "Mindestvorlauf",
+      "role_entity_heat_limit": "Heizgrenze",
+      "role_entity_outdoor_temp": "Außentemperatur",
+      "origin_integration": "{role}: {entity} (erkannt aus {integration})",
+      "origin_weather": "{role}: {entity} (Wetterdienst, deine Heizung hat keinen Außenfühler)",
+      "origin_none": "{role}: nicht erkannt, bitte wählen",
+      "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
+      "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
+      "none": "keine",
+      "notifications_phones": "SmartHeat benachrichtigt die ausgewählten Handys, wenn die Regelung stoppt, ein Raumfühler ausfällt oder eine Batterie schwach wird.",
+      "notifications_no_phones": "Es wurde keine Home-Assistant-Companion-App gefunden. SmartHeat kann wichtige Meldungen (z. B. wenn die Regelung stoppt) deshalb nur als Benachrichtigung in Home Assistant anzeigen. Mit der Companion-App auf einem Handy kommen zusätzlich Push-Nachrichten, z. B. bei ausgefallenem Raumfühler oder schwacher Batterie.",
+      "erzeuger_typ_gastherme": "Gastherme",
+      "erzeuger_typ_waermepumpe": "Wärmepumpe",
+      "verteilsystem_heizkoerper": "Heizkörper",
+      "verteilsystem_fussbodenheizung": "Fußbodenheizung",
+      "addon_missing": "Das Add-on {addon} ist nicht installiert.",
+      "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen.",
+      "addon_outdated": "Das Add-on {addon} ist veraltet (installiert {installed}, benötigt {required}). Bitte aktualisieren.",
+      "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte erneut versuchen.",
+      "provisioning_failed": "Der SmartHeat-Server konnte keine Zugangsdaten ausstellen. Bitte später erneut versuchen.",
+      "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Antwort geliefert. Bitte später erneut versuchen oder den Support kontaktieren.",
+      "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll."
     },
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
-      "cannot_connect": "SmartHeat-Service nicht erreichbar",
-      "no_tenants": "Schließen Sie auf unserer Webseite ein Abo ab, um für den Zugriff auf unseren Heizungssteuerungs-Server berechtigt zu werden.",
-      "profile_combination_unsupported": "Diese Kombination wird aktuell nicht unterstützt",
-      "unit_mismatch": "Falsche Einheit für dieses Entity",
-      "entity_not_found": "Dieses Entity existiert nicht",
-      "provisioning_failed": "Provisioning fehlgeschlagen",
-      "session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+      "cannot_connect": "SmartHeat-Dienst nicht erreichbar",
+      "no_tenants": "Schließe auf unserer Website ein Abo ab, um Zugang zum Heizungsserver zu erhalten.",
+      "profile_combination_unsupported": "Diese Kombination wird noch nicht unterstützt",
+      "unit_mismatch": "Falsche Einheit, benötigt wird °C",
+      "entity_not_found": "Diese Entity existiert nicht",
+      "entity_unavailable": "Diese Entity hat gerade keinen Wert",
+      "not_numeric": "Diese Entity liefert keine Zahl",
+      "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
+      "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
+      "room_sensors_required": "Mindestens einen Raumtemperaturfühler wählen",
+      "advanced_invalid": "Bitte die Felder unter „Erweitert“ prüfen",
+      "warnings_not_confirmed": "Bitte alle Hinweise bestätigen",
+      "session_expired": "Deine Sitzung ist abgelaufen. Bitte erneut anmelden.",
       "unknown": "Unerwarteter Fehler",
-      "state_class_expected_measurement": "State-Class 'measurement' erwartet (Entities ganz ohne state_class werden ebenfalls abgelehnt)",
-      "state_class_expected_total_increasing": "State-Class 'total_increasing' erwartet (Entities ganz ohne state_class werden ebenfalls abgelehnt)"
+      "state_class_expected_measurement": "State-Class 'measurement' erwartet (Entities ohne State-Class werden ebenfalls abgelehnt)",
+      "state_class_expected_total_increasing": "State-Class 'total_increasing' erwartet. Zähler mit 'total' sind nicht möglich."
     },
     "abort": {
-      "not_supervisor": "Diese Integration funktioniert nur auf einer Home-Assistant-Installation mit Supervisor (Home Assistant OS oder Home Assistant Supervised), da sie echte MQTT-Zugangsdaten provisioniert und Begleit-Add-ons über die Supervisor-API konfiguriert.",
-      "already_configured": "Diese Anlage ist bereits konfiguriert. Entferne zuerst den bestehenden SmartHeat-Konfigurationseintrag, um sie neu einzurichten.",
-      "no_verified_profiles": "Aktuell ist auf dem SmartHeat-Server kein verifiziertes Profil fuer diese Anlage verfuegbar. Bitte spaeter erneut versuchen oder den Support kontaktieren.",
-      "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Einrichtungsantwort geliefert (Profilparameter fehlen). Bitte später erneut versuchen oder den Support kontaktieren."
+      "not_supervisor": "Diese Integration funktioniert nur mit einem Home Assistant mit Supervisor (Home Assistant OS oder Supervised), weil sie echte MQTT-Zugangsdaten ausstellt und die Add-ons über die Supervisor-API einrichtet.",
+      "already_configured": "Diese Anlage ist bereits eingerichtet. Zum erneuten Einrichten zuerst den bestehenden SmartHeat-Eintrag entfernen.",
+      "no_verified_profiles": "Für deine Heizung ist derzeit kein freigegebenes Profil verfügbar. Bitte später erneut versuchen oder den Support kontaktieren.",
+      "addon_missing": "Das Add-on {addon} ist nicht installiert. Bitte aus dem SmartHeat-Add-on-Repository installieren und die Einrichtung neu starten.",
+      "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen und die Einrichtung neu starten.",
+      "addon_outdated": "Das Add-on {addon} ist veraltet (installiert {installed}, benötigt {required}). Bitte aktualisieren und die Einrichtung neu starten.",
+      "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte später erneut versuchen.",
+      "no_supported_integration": "In Home Assistant ist keine unterstützte Heizungs-Integration eingerichtet. Unterstützt: {supported}.",
+      "no_heating_circuit": "{integration} liefert keinen vollständigen Heizkreis (Heizkurve, Mindestvorlauf und Heizgrenze werden benötigt).",
+      "setup_cancelled": "Einrichtung abgebrochen."
+    }
+  },
+  "selector": {
+    "verteilsystem": {
+      "options": {
+        "heizkoerper": "Heizkörper: Metallkörper an der Wand, oft unter dem Fenster",
+        "fussbodenheizung": "Fußbodenheizung: der Boden wird warm, keine Heizkörper an der Wand"
+      }
+    },
+    "erzeuger_typ": {
+      "options": {"gastherme": "Gastherme", "waermepumpe": "Wärmepumpe"}
     }
   }
 }
