@@ -77,7 +77,8 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._room_target: str | None = None
         self._plant: dict[str, str] = {}
         self._kpi: dict[str, str] = {}
-        self._notify_services: list[str] = []
+        # None = Schritt notifications noch nicht bestaetigt (dann alle Handys vorbelegen).
+        self._notify_services: list[str] | None = None
         self._battery_entities: list[str] = []
         self._provisioning: dict | None = None
         self._setup_id: str | None = None
@@ -356,6 +357,13 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._plant, self._kpi = plant, kpi
                 return await self.async_step_notifications()
             suggested = {**{field: user_input.get(field) for field in PLANT_FIELDS}, ADVANCED_SECTION: advanced}
+        elif self._plant:
+            # Zurueck nach setup_failed: die Auswahl des Kunden, nicht erneut die Erkennung (I-1).
+            # KPI genau wie gewaehlt: ein bewusst leer gelassenes Feld bleibt leer.
+            suggested = {
+                **{field: self._plant.get(field) or suggestions.get(field) for field in PLANT_FIELDS},
+                ADVANCED_SECTION: {field: self._kpi[field] for field in kpi_fields if field in self._kpi},
+            }
         else:
             suggested = {
                 **{field: suggestions.get(field) for field in PLANT_FIELDS},
@@ -400,12 +408,15 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # erscheinen, und sieht die ueberwachten Batterien.
         schema = {}
         if services:
-            schema[vol.Optional(OPTION_NOTIFY_SERVICES, default=services)] = selector.SelectSelector(
+            schema[vol.Optional(OPTION_NOTIFY_SERVICES)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=services, multiple=True, mode=selector.SelectSelectorMode.LIST),
             )
+        # Vorbelegung statt default: ein weggelassener Schluessel (alle abgewaehlt) bleibt [] und
+        # wird nicht wieder mit allen Handys gefuellt. Nach "Zurueck" die Auswahl des Kunden.
+        chosen = services if self._notify_services is None else [s for s in services if s in self._notify_services]
         return self.async_show_form(
             step_id="notifications",
-            data_schema=vol.Schema(schema),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema), {OPTION_NOTIFY_SERVICES: chosen}),
             description_placeholders={
                 "phones_note": await self._hint("notifications_phones" if services else "notifications_no_phones"),
                 "batteries": await self._battery_text(),

@@ -19,7 +19,7 @@ HACS-Integration "SmartHeat" (Domain `smartheat`). **Achtung:** das GitHub-Repo 
 python3.14 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
 .venv/bin/python -m pytest -q
 ```
-(`pytest-homeassistant-custom-component` braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup.) (`pytest.ini`: `asyncio_mode = auto`, `testpaths = tests`.) 135 Tests über 7 Dateien (`test_config_flow.py`, `test_supervisor_client.py`, `test_api_client.py`, `test_catalog.py`, `test_detection.py`, `test_validation.py`, `test_const.py`). `tests/fixtures/` enthält Kopien von Server-Daten (`catalog.json`, `client1_mypyllant_registry.json`); Gleichheit mit den echten Server-/Client1-Daten prüft der Contract-Check.
+(`pytest-homeassistant-custom-component` braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup.) (`pytest.ini`: `asyncio_mode = auto`, `testpaths = tests`.) 138 Tests über 7 Dateien (`test_config_flow.py`, `test_supervisor_client.py`, `test_api_client.py`, `test_catalog.py`, `test_detection.py`, `test_validation.py`, `test_const.py`). `tests/fixtures/` enthält Kopien von Server-Daten (`catalog.json`, `client1_mypyllant_registry.json`); Gleichheit mit den echten Server-/Client1-Daten prüft der Contract-Check.
 
 ## Besonderheiten
 

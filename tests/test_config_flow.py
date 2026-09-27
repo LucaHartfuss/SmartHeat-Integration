@@ -39,6 +39,9 @@ async def _reach(hass, monkeypatch, step: str, *, phones=("mobile_app_pixel",), 
         assert result["step_id"] == step_id, result
         if step_id == step:
             return result, mocks
+        if step_id == "notifications" and phones:
+            # Das Frontend sendet die Vorbelegung (suggested_value) unveraendert mit.
+            data = {"notify_services": suggested(result, "notify_services")}
         result = await configure(hass, result, data if data is not None else {})
     raise AssertionError(f"Schritt {step} nicht erreicht")
 
@@ -416,8 +419,26 @@ async def test_kpi_suggestions_from_the_catalog_land_in_the_advanced_section(has
 async def test_all_phones_preselected_and_batteries_listed(hass, monkeypatch):
     result, _ = await _reach(hass, monkeypatch, "notifications", phones=("mobile_app_pixel", "mobile_app_iphone"))
 
-    assert marker(result, "notify_services").default() == ["notify.mobile_app_iphone", "notify.mobile_app_pixel"]
+    assert suggested(result, "notify_services") == ["notify.mobile_app_iphone", "notify.mobile_app_pixel"]
+    # Vorbelegung statt default: sonst fuellt voluptuous einen weggelassenen Schluessel wieder
+    # mit allen Handys auf (T13).
+    assert not has_default(result, "notify_services")
     assert "sensor.wz_batterie" in result["description_placeholders"]["batteries"]
+
+
+@pytest.mark.parametrize("data", [{}, {"notify_services": []}])
+async def test_deselecting_all_phones_writes_an_empty_list(hass, monkeypatch, data):
+    """Alle Handys abgewaehlt: das Frontend sendet [] oder laesst den Schluessel weg."""
+    result, _ = await _reach(hass, monkeypatch, "notifications", phones=("mobile_app_pixel", "mobile_app_iphone"))
+    calls = mock_addons(hass, monkeypatch)
+
+    result = await configure(hass, result, data)
+    assert result["description_placeholders"]["recipients"] == "0"
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["type"] == "create_entry"
+    assert result["data"]["notify_services"] == []
+    assert calls.options["heizungsbruecke"]["notify_services"] == []
 
 
 async def test_notifications_step_without_phones_explains_and_lists_batteries(hass, monkeypatch):
@@ -556,6 +577,49 @@ async def test_configuration_error_offers_back_without_second_provision(hass, mo
     mocks.provision.assert_awaited_once()
     assert calls.options["heizungsbruecke"]["setup_id"] != first_setup_id
     assert calls.options["heizungsbruecke"]["room_sensors"] == ["sensor.wz_temperatur"]
+
+
+async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(hass, monkeypatch):
+    """I-1: "Zurueck zur Auswahl" belegt Anlagenwerte, KPI und Handys mit der Auswahl des Kunden
+    vor, nicht erneut mit der Erkennung. Durchklicken schreibt die Korrekturen, nicht die Erkennung."""
+    result, _ = await _reach(hass, monkeypatch, "plant_values", phones=("mobile_app_pixel", "mobile_app_iphone"))
+    hass.states.async_set("sensor.aussen", "5.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.andere_kurve", "1.3")
+    hass.states.async_set("sensor.gas", "123", {"state_class": "total_increasing"})
+    corrected = {
+        **PLANT_INPUT, "entity_outdoor_temp": "sensor.aussen", "entity_curve_current": "number.andere_kurve",
+        "advanced": {"entity_energy_primary_heating": "sensor.gas"},
+    }
+    result = await configure(hass, result, corrected)
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+    mock_addons(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    result = await configure(hass, result, {"next_step_id": "rooms"})
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert result["step_id"] == "plant_values"
+    plant = {field: suggested(result, field) for field in (
+        "entity_curve_current", "entity_offset_current", "entity_heat_limit", "entity_outdoor_temp",
+    )}
+    assert plant == {
+        "entity_curve_current": "number.andere_kurve", "entity_offset_current": OFFSET,
+        "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": "sensor.aussen",
+    }
+    assert suggested(result, "entity_energy_primary_heating", section="advanced") == "sensor.gas"
+    result = await configure(hass, result, {**plant, "advanced": {"entity_energy_primary_heating": "sensor.gas"}})
+    assert result["step_id"] == "notifications"
+    assert suggested(result, "notify_services") == ["notify.mobile_app_pixel"]
+    result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
+    calls = mock_addons(hass, monkeypatch, status="bereit")
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["type"] == "create_entry"
+    options = calls.options["heizungsbruecke"]
+    assert options["entity_outdoor_temp"] == "sensor.aussen"
+    assert options["entity_curve_current"] == "number.andere_kurve"
+    assert options["entity_energy_primary_heating"] == "sensor.gas"
+    assert options["notify_services"] == ["notify.mobile_app_pixel"]
 
 
 async def test_timeout_offers_to_check_again(hass, monkeypatch):
