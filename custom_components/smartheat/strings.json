@@ -151,6 +151,46 @@
       "supervision_warning": "SmartHeat is set up. The watchdog of the add-ons could not be switched on, please check the log."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SmartHeat options",
+        "description": "Changes here need no sign-in. SmartHeat restarts the Heizungsbruecke add-on afterwards.",
+        "data": {
+          "room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature",
+          "notify_services": "Phones", "battery_entities": "Monitored batteries",
+          "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
+          "hint_manueller_eingriff": "Notify about a manual change of the heating curve",
+          "hint_quellwechsel": "Notify about a changed temperature source"
+        }
+      },
+      "confirm": {
+        "title": "Please check",
+        "description": "{warnings}",
+        "data": {
+          "confirm_stale": "I checked the sources without an update for more than 6 hours",
+          "confirm_deviation": "I checked the room sensors deviating by more than 3 K"
+        }
+      },
+      "failed": {"title": "Not applied", "description": "{grund}\n\nSubmit to go back to the options."},
+      "timeout": {
+        "title": "No response from the add-on",
+        "description": "The Heizungsbruecke add-on did not report within 3 minutes. The options are saved anyway; its status is shown at the SmartHeat device."
+      }
+    },
+    "progress": {"apply": "Applying the options and restarting the Heizungsbruecke add-on (up to 3 minutes)."},
+    "error": {
+      "room_sensors_required": "Choose at least one room temperature sensor",
+      "entity_not_found": "This entity does not exist",
+      "entity_unavailable": "This entity currently has no value",
+      "not_numeric": "This entity does not provide a number",
+      "unit_mismatch": "Wrong unit, °C is required",
+      "out_of_range": "The value is outside the physically plausible range",
+      "duplicate_entity": "The same entity is used for two roles",
+      "warnings_not_confirmed": "Please confirm all notes"
+    },
+    "abort": {"setup_incomplete": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure."}
+  },
   "selector": {
     "verteilsystem": {
       "options": {

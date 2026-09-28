@@ -1,4 +1,5 @@
-"""Hilfen fuer die Config-Flow-Tests (Wizard 2.0): Supervisor, Server, Registry, Add-ons."""
+"""Hilfen fuer die Config- und Options-Flow-Tests (Wizard 2.0, Optionen ohne Login): Supervisor,
+Server, Registry, Add-ons."""
 from __future__ import annotations
 
 import json
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import voluptuous as vol
+from homeassistant.data_entry_flow import UnknownFlow
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -177,8 +179,18 @@ async def start(hass):
     return await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
 
 
+def _flow_manager(hass, flow_id: str):
+    """Config-Flow und Options-Flow leben in getrennten FlowManagern (`hass.config_entries.flow`
+    bzw. `.options`) mit je eigenem `_progress`; `configure`/`finish_progress` bedienen beide."""
+    try:
+        hass.config_entries.options.async_get(flow_id)
+        return hass.config_entries.options
+    except UnknownFlow:
+        return hass.config_entries.flow
+
+
 async def configure(hass, result, data=None):
-    return await hass.config_entries.flow.async_configure(result["flow_id"], data)
+    return await _flow_manager(hass, result["flow_id"]).async_configure(result["flow_id"], data)
 
 
 async def login(hass, result):

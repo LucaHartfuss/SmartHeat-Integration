@@ -1,0 +1,148 @@
+"""Optionen ohne Login (Spec TP7 2.2)."""
+import json
+from pathlib import Path
+
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.smartheat.const import DOMAIN
+
+from .addon_fakes import make_entry
+from .flow_helpers import (
+    BRIDGE_OPTIONS, configure, enable_supervisor, fast_status_wait, finish_progress, mock_addons, mock_server,
+    register_phones, setup_mypyllant, setup_rooms, suggested,
+)
+
+NEW_ROOMS = {
+    "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz",
+    "notify_services": ["notify.mobile_app_iphone"], "battery_entities": ["sensor.wz_batterie"],
+    "hint_raumfuehler": True, "hint_batterie": False, "hint_manueller_eingriff": True, "hint_quellwechsel": True,
+}
+
+
+async def _open(hass, monkeypatch, entry=None, **addons):
+    enable_supervisor(hass, monkeypatch)
+    server = mock_server(monkeypatch)
+    mypyllant = setup_mypyllant(hass)
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel", "mobile_app_iphone")
+    fast_status_wait(monkeypatch)
+    calls = mock_addons(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, **addons)
+    entry = entry or make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    return result, entry, calls, server
+
+
+async def test_options_are_prefilled_from_the_entry(hass, monkeypatch):
+    result, _, _, _ = await _open(hass, monkeypatch)
+
+    assert result["step_id"] == "init"
+    assert suggested(result, "room_sensors") == ["sensor.wz_temperatur"]
+    assert suggested(result, "entity_room_target") == "climate.wz"
+    assert suggested(result, "notify_services") == ["notify.mobile_app_pixel"]
+    assert suggested(result, "battery_entities") == ["sensor.wz_batterie"]
+    schema = result["data_schema"].schema
+    assert all(next(k for k in schema if k == f"hint_{c}").default() is True
+               for c in ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel"))
+
+
+async def test_saving_merges_only_the_own_keys_and_restarts_only_the_bridge(hass, monkeypatch):
+    result, entry, calls, server = await _open(hass, monkeypatch)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert result["type"] == "create_entry"
+    assert entry.options == {
+        "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": ["notify.mobile_app_iphone"], "battery_entities": ["sensor.wz_batterie"],
+        "notify_hints_off": ["batterie"],
+    }
+    options = calls.options["heizungsbruecke"]
+    assert options == {**BRIDGE_OPTIONS, **entry.options, "setup_id": options["setup_id"]}
+    assert calls.restarts == ["heizungsbruecke"]
+    assert "cloudflared_access_mqtt" not in calls.options
+    server.login.assert_not_awaited()
+    server.provision.assert_not_awaited()
+
+
+async def test_a_dead_room_sensor_is_rejected(hass, monkeypatch):
+    result, entry, calls, _ = await _open(hass, monkeypatch)
+    hass.states.async_set("sensor.kz_temperatur", "unavailable")
+
+    result = await configure(hass, result, NEW_ROOMS)
+
+    assert (result["step_id"], result["errors"]) == ("init", {"room_sensors": "entity_unavailable"})
+    assert calls.options == {}
+
+
+async def test_a_room_sensor_that_is_also_the_outdoor_sensor_is_a_duplicate(hass, monkeypatch):
+    result, _, _, _ = await _open(hass, monkeypatch)
+    hass.states.async_set("sensor.zuhause_outdoor_temperature", "7.5", {"unit_of_measurement": "°C"})
+
+    result = await configure(hass, result, {**NEW_ROOMS, "room_sensors": ["sensor.zuhause_outdoor_temperature"]})
+
+    assert result["errors"] == {"room_sensors": "duplicate_entity"}
+
+
+async def test_warnings_need_confirmation(hass, monkeypatch):
+    result, _, calls, _ = await _open(hass, monkeypatch)
+    hass.states.async_set("sensor.kz_temperatur", "25.0", {"unit_of_measurement": "°C"})
+
+    result = await configure(hass, result, NEW_ROOMS)
+    assert result["step_id"] == "confirm"
+    assert "sensor.kz_temperatur" in result["description_placeholders"]["warnings"]
+    result = await configure(hass, result, {"confirm_deviation": False})
+    assert result["errors"] == {"base": "warnings_not_confirmed"}
+
+    result = await finish_progress(hass, await configure(hass, result, {"confirm_deviation": True}))
+
+    assert result["type"] == "create_entry"
+
+
+async def test_timeout_saves_the_options_anyway(hass, monkeypatch):
+    result, entry, _, _ = await _open(hass, monkeypatch, status=None)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+    assert result["step_id"] == "timeout"
+    result = await configure(hass, result, {})
+
+    assert result["type"] == "create_entry"
+    assert entry.options["notify_hints_off"] == ["batterie"]
+
+
+async def test_configuration_error_shows_the_reason_and_keeps_the_old_options(hass, monkeypatch):
+    result, entry, _, _ = await _open(hass, monkeypatch, status="konfigurationsfehler", grund="Entity fehlt")
+    before = dict(entry.options)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+    assert (result["step_id"], result["description_placeholders"]["grund"]) == ("failed", "Entity fehlt")
+    result = await configure(hass, result, {})
+
+    assert result["step_id"] == "init"
+    assert suggested(result, "room_sensors") == NEW_ROOMS["room_sensors"]
+    assert entry.options == before
+
+
+async def test_incomplete_entry_has_no_options_yet(hass, monkeypatch):
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=2, unique_id="wohnung1", options={},
+        data={"tenant_id": "wohnung1", "profile_id": "p", "unvollstaendig": True},
+    )
+    entry.add_to_hass(hass)
+
+    result, _, _, _ = await _open(hass, monkeypatch, entry=entry)
+
+    assert (result["type"], result["reason"]) == ("abort", "setup_incomplete")
+
+
+_COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
+
+
+@pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_every_options_step_has_a_text(path):
+    options = json.loads((_COMPONENT / path).read_text())["options"]
+
+    assert {"init", "confirm", "failed", "timeout"} <= set(options["step"])
+    assert "apply" in options["progress"]
+    assert "setup_incomplete" in options["abort"]
+    assert {"room_sensors_required", "entity_unavailable", "duplicate_entity", "warnings_not_confirmed"} <= set(options["error"])

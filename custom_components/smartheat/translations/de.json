@@ -151,6 +151,46 @@
       "supervision_warning": "SmartHeat ist eingerichtet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SmartHeat-Optionen",
+        "description": "Änderungen hier brauchen keine Anmeldung. SmartHeat startet danach das Add-on Heizungsbrücke neu.",
+        "data": {
+          "room_sensors": "Raumtemperatur-Fühler", "entity_room_target": "Wunschtemperatur",
+          "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
+          "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
+          "hint_manueller_eingriff": "Bei manueller Änderung der Heizkurve benachrichtigen",
+          "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen"
+        }
+      },
+      "confirm": {
+        "title": "Bitte prüfen",
+        "description": "{warnings}",
+        "data": {
+          "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
+          "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
+        }
+      },
+      "failed": {"title": "Nicht übernommen", "description": "{grund}\n\nAbsenden führt zurück zu den Optionen."},
+      "timeout": {
+        "title": "Keine Antwort vom Add-on",
+        "description": "Das Add-on Heizungsbrücke hat sich nicht innerhalb von 3 Minuten gemeldet. Die Optionen werden trotzdem gespeichert; der Status steht am SmartHeat-Gerät."
+      }
+    },
+    "progress": {"apply": "Optionen werden übernommen, das Add-on Heizungsbrücke startet neu (bis zu 3 Minuten)."},
+    "error": {
+      "room_sensors_required": "Mindestens einen Raumtemperaturfühler wählen",
+      "entity_not_found": "Diese Entity existiert nicht",
+      "entity_unavailable": "Diese Entity hat gerade keinen Wert",
+      "not_numeric": "Diese Entity liefert keine Zahl",
+      "unit_mismatch": "Falsche Einheit, benötigt wird °C",
+      "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
+      "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
+      "warnings_not_confirmed": "Bitte alle Hinweise bestätigen"
+    },
+    "abort": {"setup_incomplete": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen."}
+  },
   "selector": {
     "verteilsystem": {
       "options": {

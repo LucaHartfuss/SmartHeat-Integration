@@ -10,7 +10,6 @@ provision() nur der Profilwechsel, die Zugangsdaten bleiben (provision() nur, we
 keine hat). Reauth: Login -> setup mit provision(). Der Eintrag enthaelt keine Zugangsdaten."""
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
@@ -23,7 +22,6 @@ from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
-from homeassistant.util import dt as dt_util
 
 from . import detection, validation
 from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_set_supervision
@@ -37,6 +35,7 @@ from .const import (
     PLAUSIBLE_RANGES, ROLE_DOMAINS, ROOM_SENSOR_DOMAINS, STATUS_KONFIGURATIONSFEHLER, STATUS_REGELT,
     STATUS_WAIT_SECONDS, STATUS_ZUGANG_ABGELEHNT, UNMANAGED_ADDON_OPTIONS, kpi_energy_role,
 )
+from .flow_progress import ProgressFlowMixin
 from .options_flow import SmartHeatOptionsFlow
 from .supervisor_client import (
     AddonNotFoundError, AddonOutdatedError, AmbiguousAddonMatchError, async_get_addon_managers,
@@ -51,8 +50,6 @@ ADVANCED_SECTION = "advanced"
 # Beide Karten immer, ohne Vorbelegung bei der Ersteinrichtung: das Verteilsystem bestimmt die
 # lokalen Sicherheits-Clamps (Spec TP6, Nutzer-Entscheidung 2026-09-25). Werte = Uebersetzungsschluessel.
 VERTEILSYSTEM_OPTIONS = ["fussbodenheizung", "heizkoerper"]
-WARNING_STALE = "stale"
-WARNING_DEVIATION = "deviation"
 ORIGIN_INTEGRATION = "integration"
 ORIGIN_WEATHER = "weather"
 
@@ -67,7 +64,7 @@ def _has_credentials(bridge_options: dict, cloudflared_options: dict) -> bool:
     )
 
 
-class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 2
 
     def __init__(self) -> None:
@@ -95,7 +92,6 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._hints_off: list[str] = []
         self._provisioning: dict | None = None
         self._setup_id: str | None = None
-        self._setup_task: asyncio.Task | None = None
         self._setup_error = ""
         # Neu konfigurieren/Reauth: der bestehende Eintrag, Tenant fest.
         self._entry: config_entries.ConfigEntry | None = None
@@ -520,19 +516,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _warnings(self) -> dict[str, list[str]]:
         refs = [*self._room_sensors, self._room_target, *self._plant.values(), *self._kpi.values()]
-        warnings: dict[str, list[str]] = {}
-        stale = validation.stale_entities(self.hass, refs, dt_util.utcnow())
-        if stale:
-            warnings[WARNING_STALE] = stale
-        values = {}
-        for ref in self._room_sensors:
-            value = validation.read_value(self.hass, ref)[0]
-            if value is not None:
-                values[ref] = value
-        deviating = validation.deviating_room_sensors(values)
-        if deviating:
-            warnings[WARNING_DEVIATION] = deviating
-        return warnings
+        return validation.collect_warnings(self.hass, refs, self._room_sensors)
 
     async def _credentials_note(self) -> str:
         """Neu konfigurieren ohne Zugangsdaten im Add-on (neu installiert, zuvor abgemeldet): der
@@ -594,26 +578,14 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # --- Schritt 9: Einrichten (Fortschritt) ---
 
     async def async_step_setup(self, user_input: dict | None = None):
-        return await self._progress("setup", self._run_setup)
+        return await self._run_progress("setup", "setup", self._run_setup)
 
     async def async_step_wait_status(self, user_input: dict | None = None):
-        return await self._progress("wait_status", self._wait_for_status)
+        return await self._run_progress("wait_status", "setup", self._wait_for_status)
 
-    async def _progress(self, step_id: str, job):
-        if self._setup_task is None:
-            # Nicht eager: sonst kann der Job schon vor der done()-Pruefung fertig sein, und der
-            # Schritt gaebe nie ein Fortschrittsergebnis zurueck.
-            self._setup_task = self.hass.async_create_task(job(), eager_start=False)
-        if not self._setup_task.done():
-            return self.async_show_progress(step_id=step_id, progress_action="setup", progress_task=self._setup_task)
-        task, self._setup_task = self._setup_task, None
-        try:
-            next_step = task.result()
-        except Exception:
-            _LOGGER.exception("Unerwarteter Fehler bei der Einrichtung")
-            self._setup_error = await self._hint("setup_unexpected")
-            next_step = "setup_failed"
-        return self.async_show_progress_done(next_step_id=next_step)
+    async def _progress_error_step(self) -> str:
+        self._setup_error = await self._hint("setup_unexpected")
+        return "setup_failed"
 
     async def _run_setup(self) -> str:
         """Liefert den naechsten Schritt: finish, setup_failed, setup_timeout oder user."""

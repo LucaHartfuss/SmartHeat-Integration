@@ -7,6 +7,7 @@ import math
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CLIMATE_ATTRIBUTE_ROOM_SENSOR, CLIMATE_ATTRIBUTE_ROOM_TARGET, OPTION_ENTITY_ROOM_TARGET, OPTION_ROOM_SENSORS,
@@ -20,6 +21,8 @@ ERROR_NOT_NUMERIC = "not_numeric"
 ERROR_UNIT = "unit_mismatch"
 ERROR_RANGE = "out_of_range"
 ERROR_DUPLICATE = "duplicate_entity"
+WARNING_STALE = "stale"
+WARNING_DEVIATION = "deviation"
 
 
 def entity_of(ref: str) -> str:
@@ -123,6 +126,25 @@ def deviating_room_sensors(values: dict[str, float]) -> list[str]:
         if abs(value - sum(others) / len(others)) > ROOM_SENSOR_DEVIATION_K:
             result.append(entity_of(ref))
     return result
+
+
+def collect_warnings(hass: HomeAssistant, stale_refs: list[str], room_sensor_refs: list[str]) -> dict[str, list[str]]:
+    """Warnungen fuer den Bestaetigungsschritt (Wizard-Zusammenfassung bzw. Optionen-`confirm`):
+    veraltete Quellen unter `stale_refs` und voneinander abweichende Raumfuehler unter
+    `room_sensor_refs`. Beide Flows teilen diese Pruefung (Controller-Ruling F5, TP7 Task 16)."""
+    warnings: dict[str, list[str]] = {}
+    stale = stale_entities(hass, stale_refs, dt_util.utcnow())
+    if stale:
+        warnings[WARNING_STALE] = stale
+    values = {}
+    for ref in room_sensor_refs:
+        value = read_value(hass, ref)[0]
+        if value is not None:
+            values[ref] = value
+    deviating = deviating_room_sensors(values)
+    if deviating:
+        warnings[WARNING_DEVIATION] = deviating
+    return warnings
 
 
 def check_rooms(hass: HomeAssistant, room_sensor_entities: list[str], target_entity: str) -> tuple[list[str], str, dict[str, str]]:
