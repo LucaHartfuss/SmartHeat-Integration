@@ -8,6 +8,8 @@ from typing import Any
 
 import aiohttp
 
+from .const import PROFILE_PATH
+
 
 class ApiError(Exception):
     """Basisklasse fuer alle Fehler dieses Clients."""
@@ -63,6 +65,26 @@ class HeizungsserverClient:
                 return await response.json()
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
+    async def update_profile(self, token: str, tenant_id: str, profile_id: str) -> dict:
+        """Profilwechsel ohne neue Zugangsdaten (Neu konfigurieren, Spec TP7 4.1). Liefert die
+        profile_params fuer die Add-on-Optionen."""
+        try:
+            async with self._session.post(
+                f"{self._base_url}{PROFILE_PATH.format(tenant_id=tenant_id)}",
+                json={"profile_id": profile_id},
+                headers={"Authorization": f"Bearer {token}"},
+            ) as response:
+                if response.status == 401:
+                    raise InvalidAuth("Sitzung abgelaufen")
+                if response.status != 200:
+                    raise ApiError(f"Profilwechsel fehlgeschlagen (HTTP {response.status})")
+                body = await response.json()
+        except aiohttp.ClientError as error:
+            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+        if not isinstance(body, dict) or not isinstance(body.get("profile_params"), dict):
+            raise ApiError("Profil-Antwort ohne gueltiges 'profile_params'")
+        return body["profile_params"]
 
     async def logout(self, token: str) -> None:
         """Beendet die Login-Sitzung (I5). Der Wizard ruft das nach erfolgreicher Einrichtung;

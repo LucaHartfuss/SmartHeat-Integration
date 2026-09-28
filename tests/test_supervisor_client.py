@@ -10,6 +10,7 @@ from custom_components.smartheat.supervisor_client import (
     AddonOutdatedError,
     AmbiguousAddonMatchError,
     ResolvedAddon,
+    async_find_addon_managers,
     async_get_addon_managers,
     async_resolve_addons,
 )
@@ -97,7 +98,7 @@ async def test_supervisor_error_becomes_addon_error(monkeypatch):
 
 
 async def test_get_addon_managers_keeps_order_and_uses_resolved_slugs(monkeypatch):
-    _patch_supervisor_client(monkeypatch, _both())
+    _patch_supervisor_client(monkeypatch, _both(hb_version="0.20.0"))
 
     managers = await async_get_addon_managers(
         None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
@@ -111,3 +112,34 @@ async def test_get_addon_managers_refuses_outdated_addons(monkeypatch):
 
     with pytest.raises(AddonOutdatedError):
         await async_get_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])
+
+
+async def test_find_addon_managers_resolves_each_slug_without_a_minimum_version(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both(hb_version="0.18.0"))
+
+    managers = await async_find_addon_managers(
+        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
+    )
+
+    assert {slug: m.addon_slug for slug, m in managers.items()} == {
+        "heizungsbruecke": "f5f6325b_heizungsbruecke", "cloudflared_access_mqtt": "f5f6325b_cloudflared_access_mqtt",
+    }
+
+
+async def test_find_addon_managers_gives_none_for_missing_or_ambiguous(monkeypatch):
+    _patch_supervisor_client(monkeypatch, _both()[1:] + [
+        _installed_addon("a_cloudflared_access_mqtt", REPO_URL),  # zweites cloudflared
+    ])
+
+    managers = await async_find_addon_managers(
+        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
+    )
+
+    assert managers == {"heizungsbruecke": None, "cloudflared_access_mqtt": None}
+
+
+async def test_find_addon_managers_turns_a_supervisor_error_into_addon_error(monkeypatch):
+    _patch_supervisor_client(monkeypatch, error=SupervisorError("weg"))
+
+    with pytest.raises(AddonError):
+        await async_find_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])

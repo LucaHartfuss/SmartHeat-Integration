@@ -68,6 +68,15 @@ class ResolvedAddon:
     version: str | None
 
 
+def _matching_addons(installed, repository_url: str, config_slug: str) -> list:
+    """Installierte Add-ons mit dieser Repository-URL und diesem Slug-Suffix (gemeinsame
+    Zuordnungslogik fuer async_resolve_addons und async_find_addon_managers)."""
+    return [
+        addon for addon in installed
+        if addon.url == repository_url and addon.slug.endswith(f"_{config_slug}")
+    ]
+
+
 async def async_resolve_addons(
     hass: HomeAssistant, repository_url: str, min_versions: dict[str, str],
 ) -> dict[str, ResolvedAddon]:
@@ -81,10 +90,7 @@ async def async_resolve_addons(
 
     result: dict[str, ResolvedAddon] = {}
     for config_slug, required in min_versions.items():
-        matches = [
-            addon for addon in installed
-            if addon.url == repository_url and addon.slug.endswith(f"_{config_slug}")
-        ]
+        matches = _matching_addons(installed, repository_url, config_slug)
         if not matches:
             raise AddonNotFoundError(config_slug)
         if len(matches) > 1:
@@ -104,3 +110,19 @@ async def async_get_addon_managers(
         hass, ADDON_REPOSITORY_URL, {slug: MIN_ADDON_VERSIONS[slug] for _, slug in addon_specs},
     )
     return [AddonManager(hass, _LOGGER, name, resolved[slug].slug) for name, slug in addon_specs]
+
+
+async def async_find_addon_managers(
+    hass: HomeAssistant, addon_specs: list[tuple[str, str]],
+) -> dict[str, AddonManager | None]:
+    """Fuer Waechter und Entfernen: jeder config-Slug einzeln aus EINEM addons.list(), ohne
+    Mindestversion. Nicht oder mehrfach installiert -> None. Eine SupervisorError wird AddonError."""
+    try:
+        installed = await get_supervisor_client(hass).addons.list()
+    except SupervisorError as error:
+        raise AddonError(f"Supervisor nicht erreichbar bei der Add-on-Aufloesung: {error}") from error
+    managers: dict[str, AddonManager | None] = {}
+    for name, config_slug in addon_specs:
+        matches = _matching_addons(installed, ADDON_REPOSITORY_URL, config_slug)
+        managers[config_slug] = AddonManager(hass, _LOGGER, name, matches[0].slug) if len(matches) == 1 else None
+    return managers

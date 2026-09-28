@@ -148,3 +148,36 @@ async def test_logout_raises_api_error_on_500(aiohttp_client):
 
     with pytest.raises(ApiError):
         await HeizungsserverClient(client, "").logout("tok123")
+
+
+async def test_update_profile_posts_the_profile_and_returns_profile_params(aiohttp_client):
+    async def handler(request):
+        assert request.headers["Authorization"] == "Bearer tok123"
+        assert await request.json() == {"profile_id": "vaillant_gastherme_heizkoerper"}
+        return web.json_response({"profile_params": {"verteilsystem": "Heizkoerper"}})
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    result = await HeizungsserverClient(client, "").update_profile("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+    assert result == {"verteilsystem": "Heizkoerper"}
+
+
+@pytest.mark.parametrize("status,body,error", [
+    (401, {"error": "x"}, InvalidAuth),
+    (403, {"error": "x"}, ApiError),
+    (200, {"profile_params": "Heizkoerper"}, ApiError),
+    (200, {}, ApiError),
+])
+async def test_update_profile_errors(aiohttp_client, status, body, error):
+    async def handler(request):
+        return web.json_response(body, status=status)
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(error):
+        await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")
