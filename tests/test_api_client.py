@@ -1,3 +1,5 @@
+import base64
+
 import aiohttp
 import pytest
 from aiohttp import web
@@ -253,7 +255,8 @@ async def test_delete_installation_sends_basic_auth_and_returns_the_status(aioht
     result = await HeizungsserverClient(client, "").delete_installation("wohnung1", "wohnung1_abc", "geheim")
 
     assert result == status
-    assert seen == {"auth": aiohttp.BasicAuth("wohnung1_abc", "geheim").encode(), "tenant": "wohnung1"}
+    expected_token = base64.b64encode(b"wohnung1_abc:geheim").decode()
+    assert seen == {"auth": f"Basic {expected_token}", "tenant": "wohnung1"}
 
 
 async def test_delete_installation_returns_none_without_connection():

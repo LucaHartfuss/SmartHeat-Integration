@@ -5,11 +5,23 @@ aus dem alten heizungsbruecke/web.py-Wizard -- dieselbe API, nur async und ohne 
 from __future__ import annotations
 
 import asyncio
+import base64
 from typing import Any
 
 import aiohttp
 
 from .const import INSTALLATION_PATH, PROFILE_PATH, REVOKE_TIMEOUT_SECONDS
+
+
+def _basic_auth_header(username: str, password: str) -> str:
+    """Baut den Authorization-Header fuer HTTP Basic selbst (RFC 7617), statt der von aiohttp
+    3.14 als deprecated markierten `auth=aiohttp.BasicAuth(...)`. `aiohttp.encode_basic_auth()`
+    scheidet aus: die Mindestversion in hacs.json (HA 2026.4.0) bindet keine aiohttp-Version, in
+    der diese Funktion garantiert existiert -- ein AttributeError daraus liegt ausserhalb der in
+    delete_installation() gefangenen Exceptions und wuerde das Entfernen der Integration
+    abbrechen. Niemals loggen (Regel 6)."""
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return f"Basic {token}"
 
 
 class ApiError(Exception):
@@ -109,7 +121,7 @@ class HeizungsserverClient:
             async with asyncio.timeout(REVOKE_TIMEOUT_SECONDS):
                 async with self._session.delete(
                     f"{self._base_url}{INSTALLATION_PATH.format(tenant_id=tenant_id)}",
-                    auth=aiohttp.BasicAuth(username, password),
+                    headers={"Authorization": _basic_auth_header(username, password)},
                 ) as response:
                     return response.status
         except (aiohttp.ClientError, TimeoutError):
