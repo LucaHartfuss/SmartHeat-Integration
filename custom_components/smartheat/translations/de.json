@@ -149,5 +149,35 @@
     "erzeuger_typ": {
       "options": {"gastherme": "Gastherme", "waermepumpe": "Wärmepumpe"}
     }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "startet": "Startet", "regelt": "Regelt", "konfigurationsfehler": "Konfigurationsfehler",
+          "zugang_abgelehnt": "Zugang abgelehnt", "abo_beendet": "Abo beendet", "abo_inaktiv": "Abo inaktiv",
+          "notbetrieb": "Notbetrieb", "datenfehler": "Datenfehler", "abgemeldet": "Abgemeldet",
+          "addon_gestoppt": "Add-on gestoppt", "reagiert_nicht": "Add-on reagiert nicht"
+        }
+      },
+      "datenfehler": {
+        "name": "Datenfehler",
+        "state": {"keiner": "Keiner", "lokal": "Lokaler Fühler", "server": "Vom Server abgelehnt", "anlage": "Anlage nicht beschreibbar"}
+      },
+      "boost": {"name": "Boost", "state": {"keiner": "Keiner", "komfort": "Komfort", "notfall": "Notfall"}},
+      "letzte_serverantwort": {"name": "Letzte Serverantwort"},
+      "heizkurve": {"name": "Gelernte Heizkurve"},
+      "offset": {"name": "Gelernter Offset"},
+      "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
+      "addon_version": {"name": "Add-on-Version"}
+    },
+    "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}}
+  },
+  "issues": {
+    "complete_setup": {
+      "title": "SmartHeat: Einrichtung für {tenant} abschließen",
+      "description": "Nach dem Update ist die Einrichtung von {tenant} unvollständig. Die Heizungssteuerung pausiert, die Anlage behält ihre letzten Werte. Unter Einstellungen → Geräte & Dienste → SmartHeat über ⋮ → „Neu konfigurieren“ anmelden. Die Zugangsdaten bleiben gleich."
+    }
   }
 }

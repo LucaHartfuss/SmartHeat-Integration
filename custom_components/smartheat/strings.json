@@ -149,5 +149,35 @@
     "erzeuger_typ": {
       "options": {"gastherme": "Gas boiler", "waermepumpe": "Heat pump"}
     }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "startet": "Starting", "regelt": "Controlling", "konfigurationsfehler": "Configuration error",
+          "zugang_abgelehnt": "Access denied", "abo_beendet": "Subscription ended",
+          "abo_inaktiv": "Subscription inactive", "notbetrieb": "Emergency mode", "datenfehler": "Data fault",
+          "abgemeldet": "Signed off", "addon_gestoppt": "Add-on stopped", "reagiert_nicht": "Add-on not responding"
+        }
+      },
+      "datenfehler": {
+        "name": "Data fault",
+        "state": {"keiner": "None", "lokal": "Local sensor", "server": "Rejected by the server", "anlage": "Heating not writable"}
+      },
+      "boost": {"name": "Boost", "state": {"keiner": "None", "komfort": "Comfort", "notfall": "Emergency"}},
+      "letzte_serverantwort": {"name": "Last server answer"},
+      "heizkurve": {"name": "Learned heating curve"},
+      "offset": {"name": "Learned offset"},
+      "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
+      "addon_version": {"name": "Add-on version"}
+    },
+    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}}
+  },
+  "issues": {
+    "complete_setup": {
+      "title": "SmartHeat: complete the setup for {tenant}",
+      "description": "After the update the setup of {tenant} is incomplete. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
+    }
   }
 }

@@ -55,7 +55,7 @@ _ADDON_SPECS = [
 
 
 class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         self._token: str | None = None

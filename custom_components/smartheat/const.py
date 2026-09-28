@@ -201,3 +201,11 @@ ADDON_SPECS: list[tuple[str, str]] = [
     ("Heizungsbruecke", HEIZUNGSBRUECKE_ADDON_SLUG),
     ("Cloudflared Access TCP-Bridge", CLOUDFLARED_ADDON_SLUG),
 ]
+
+# Kundensichtbare Anzeigenamen der Add-ons mit Umlauten (Controller-Entscheidung F7), fuer
+# WATCHDOG_REASONS. ADDON_SPECS bleibt ASCII: das ist der Anzeigename, den AddonManager in
+# Supervisor-Logs verwendet, kein Kundentext.
+ADDON_DISPLAY_NAMES: dict[str, str] = {
+    HEIZUNGSBRUECKE_ADDON_SLUG: "Heizungsbrücke",
+    CLOUDFLARED_ADDON_SLUG: "Cloudflared-Verbindung",
+}
