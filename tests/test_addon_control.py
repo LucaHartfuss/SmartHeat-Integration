@@ -112,14 +112,30 @@ def dismissed(monkeypatch):
     return calls
 
 
-def _addons(hass, monkeypatch, log, *, answer=True, bridge_error=None):
+class FakeServer:
+    def __init__(self, log, status=204):
+        self.log = log
+        self.status = status
+
+    def client(self, session, base_url):
+        server = self
+
+        class _Client:
+            async def delete_installation(self, tenant_id, username, password):
+                server.log.append(("revoke", tenant_id, {"base_url": base_url, "username": username, "password": password}))
+                return server.status
+
+        return _Client()
+
+
+def _addons(hass, monkeypatch, log, *, answer=True, bridge_error=None, server_status=204, bridge_options=None):
     def _answer(addon):
         if answer:
             hass.bus.async_fire("smartheat_status", status_event(TENANT, "abgemeldet"))
 
     bridge = FakeAddon(
         "a_heizungsbruecke", log, on_restart=_answer, error=bridge_error,
-        options={"tenant_id": TENANT, "mqtt_username": "u", "mqtt_password": "p"},
+        options=bridge_options if bridge_options is not None else {"tenant_id": TENANT, "mqtt_username": "u", "mqtt_password": "p"},
     )
     cloudflared = FakeAddon("a_cloudflared_access_mqtt", log, options={
         "hostname": "h", "local_port": 18830, "service_token_id": "i", "service_token_secret": "s",
@@ -128,6 +144,9 @@ def _addons(hass, monkeypatch, log, *, answer=True, bridge_error=None):
         return_value={"heizungsbruecke": bridge, "cloudflared_access_mqtt": cloudflared},
     ))
     monkeypatch.setattr(f"{AC}.get_supervisor_client", lambda hass: FakeSupervisor(log))
+    server = FakeServer(log, server_status)
+    monkeypatch.setattr(f"{AC}.HeizungsserverClient", server.client)
+    monkeypatch.setattr(f"{AC}.async_get_clientsession", lambda hass: None)
     return bridge, cloudflared
 
 
@@ -141,13 +160,53 @@ async def test_sign_off_order(hass, monkeypatch, dismissed):
         ("options", "a_heizungsbruecke"), ("restart", "a_heizungsbruecke"),
         ("stop", "a_heizungsbruecke"), ("stop", "a_cloudflared_access_mqtt"),
         ("supervision", "a_heizungsbruecke"), ("supervision", "a_cloudflared_access_mqtt"),
+        ("revoke", TENANT),
         ("options", "a_heizungsbruecke"), ("options", "a_cloudflared_access_mqtt"),
     ]
+    assert log[6][2] == {"base_url": "https://accounts.hartfussha.org", "username": "u", "password": "p"}
     assert log[0][2]["abgemeldet"] is True
     assert log[4][2] == {"boot": "manual", "watchdog": False}
     assert bridge.options == {"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": "", "abgemeldet": True}
     assert cloudflared.options == {"hostname": "h", "local_port": 18830, "service_token_id": "", "service_token_secret": ""}
     assert dismissed == ["smartheat_wohnung1_addon"]
+
+
+async def test_revoke_uses_the_base_url_from_the_bridge_options(hass, monkeypatch, dismissed):
+    log = []
+    _addons(hass, monkeypatch, log, bridge_options={
+        "tenant_id": TENANT, "mqtt_username": "u", "mqtt_password": "p", "accounts_api_base_url": "https://test.example",
+    })
+
+    await addon_control.async_sign_off(hass, TENANT)
+
+    revoke = [entry for entry in log if entry[0] == "revoke"]
+    assert revoke == [("revoke", TENANT, {"base_url": "https://test.example", "username": "u", "password": "p"})]
+
+
+@pytest.mark.parametrize("server_status,message", [
+    (401, "kennt die Zugangsdaten nicht"), (500, "HTTP 500"), (None, "nicht erreichbar"),
+])
+async def test_remove_completes_when_the_server_refuses_or_is_away(hass, monkeypatch, dismissed, caplog, server_status, message):
+    log = []
+    bridge, cloudflared = _addons(hass, monkeypatch, log, server_status=server_status, bridge_options={
+        "tenant_id": TENANT, "mqtt_username": "wohnung1_abc", "mqtt_password": "geheim-pw-123",
+    })
+
+    await addon_control.async_sign_off(hass, TENANT)
+
+    assert bridge.options["mqtt_password"] == "" and cloudflared.options["service_token_secret"] == ""
+    assert dismissed == ["smartheat_wohnung1_addon"]
+    assert message in caplog.text
+    assert "geheim-pw-123" not in caplog.text
+
+
+async def test_no_revoke_without_credentials(hass, monkeypatch, dismissed, caplog):
+    log = []
+    _addons(hass, monkeypatch, log, bridge_options={"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": ""})
+
+    await addon_control.async_sign_off(hass, TENANT)
+
+    assert "revoke" not in [entry[0] for entry in log]
 
 
 async def test_remove_succeeds_when_the_addon_never_answers(hass, monkeypatch, dismissed, caplog):
@@ -175,6 +234,7 @@ async def test_remove_succeeds_when_the_bridge_fails_everywhere(hass, monkeypatc
     # separaten Supervisor-Aufruf fuer Watchdog/Boot.
     assert ("supervision", "a_heizungsbruecke") in [entry[:2] for entry in log]
     assert ("supervision", "a_cloudflared_access_mqtt") in [entry[:2] for entry in log]
+    assert "revoke" not in [entry[0] for entry in log]
     assert dismissed == ["smartheat_wohnung1_addon"]
 
 

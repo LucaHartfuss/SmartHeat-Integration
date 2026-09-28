@@ -20,6 +20,11 @@ BRIDGE_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
 CLOUDFLARED_CREDENTIAL_OPTIONS = ("service_token_id", "service_token_secret")
 # Profilwechsel ohne neue Zugangsdaten; Route im Server: accounts_api.py (Contract-Check 17).
 PROFILE_PATH = "/tenants/{tenant_id}/profile"
+INSTALLATION_PATH = "/tenants/{tenant_id}/installation"
+# Add-on-Option der Heizungsbruecke mit der Basis-URL der accounts-api (Spec TP3 S3); das
+# Entfernen widerruft damit dort, wo auch das Add-on fragt (Spec TP8 4).
+OPTION_ACCOUNTS_API_BASE_URL = "accounts_api_base_url"
+REVOKE_TIMEOUT_SECONDS = 10
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
 # Vom Wizard nicht verwaltet: bleiben beim erneuten Einrichten aus den bestehenden Optionen
 # erhalten (I3). Alles andere setzt der Wizard vollstaendig neu.
