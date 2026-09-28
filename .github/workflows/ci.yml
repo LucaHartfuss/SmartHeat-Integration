@@ -58,7 +58,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          ignore: brands
+          # license: GitHub erkennt die Lizenz nur auf main; LICENSE liegt im Repo. Nach dem
+          # ersten Integration-Release "license" wieder entfernen (docs/ci-cd-runbook.md).
+          ignore: brands license
   contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
