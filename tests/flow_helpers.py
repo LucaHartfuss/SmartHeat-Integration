@@ -1,4 +1,5 @@
-"""Hilfen fuer die Config-Flow-Tests (Wizard 2.0): Supervisor, Server, Registry, Add-ons."""
+"""Hilfen fuer die Config- und Options-Flow-Tests (Wizard 2.0, Optionen ohne Login): Supervisor,
+Server, Registry, Add-ons."""
 from __future__ import annotations
 
 import json
@@ -7,11 +8,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import voluptuous as vol
+from homeassistant.data_entry_flow import UnknownFlow
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.const import DOMAIN, STATUS_ATTR_GRUND, STATUS_ATTR_SETUP_ID, status_entity_id
+from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import ResolvedAddon
+
+from .addon_fakes import FakeSupervisor, status_event
 
 FLOW = "custom_components.smartheat.config_flow"
 CATALOG = json.loads((Path(__file__).parent / "fixtures" / "catalog.json").read_text())
@@ -39,6 +43,13 @@ PLANT_INPUT = {
     "entity_curve_current": CURVE, "entity_offset_current": OFFSET,
     "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR, "advanced": {},
 }
+BRIDGE_OPTIONS = {
+    "tenant_id": TENANT, "mqtt_username": "wohnung1_alt", "mqtt_password": "alt-geheim",
+    "local_check_interval_seconds": 120, "room_sensors": ["sensor.wz_temperatur"],
+}
+CF_OPTIONS = {
+    "hostname": "mqtt.example.org", "local_port": 18830, "service_token_id": "cf-id-alt", "service_token_secret": "cf-alt",
+}
 
 
 def enable_supervisor(hass, monkeypatch, versions: dict[str, str] | None = None) -> AsyncMock:
@@ -62,9 +73,10 @@ def mock_server(monkeypatch, *, tenants=(TENANT,), catalog=CATALOG, provisioning
         list_tenants=AsyncMock(return_value=[{"tenant_id": tenant} for tenant in tenants]),
         get_catalog=AsyncMock(return_value=catalog),
         provision=AsyncMock(return_value=provisioning),
+        update_profile=AsyncMock(return_value=PROFILE_PARAMS),
         logout=AsyncMock(return_value=None),
     )
-    for name in ("login", "list_tenants", "get_catalog", "provision", "logout"):
+    for name in ("login", "list_tenants", "get_catalog", "provision", "update_profile", "logout"):
         monkeypatch.setattr(f"{FLOW}.HeizungsserverClient.{name}", getattr(mocks, name))
     return mocks
 
@@ -125,11 +137,11 @@ def register_phones(hass, *names: str) -> None:
         hass.services.async_register("notify", name, AsyncMock())
 
 
-def mock_addons(hass, monkeypatch, *, status="bereit", grund=None, existing_options=None, set_error=None,
-                status_setup_id=None) -> SimpleNamespace:
-    """AddonManager-Aufrufe aufzeichnen. Der Neustart der heizungsbruecke setzt die Status-Entity
+def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_options=None, cloudflared_options=None,
+                set_error=None, status_setup_id=None, supervision_error=None) -> SimpleNamespace:
+    """AddonManager-Aufrufe aufzeichnen. Der Neustart der Heizungsbruecke feuert das Status-Event
     wie das echte Add-on (mit der setup_id aus den gesetzten Optionen, ausser status_setup_id)."""
-    calls = SimpleNamespace(options={}, restarts=[])
+    calls = SimpleNamespace(options={}, restarts=[], supervision=[])
 
     async def set_options(manager, config):
         if set_error is not None:
@@ -139,34 +151,46 @@ def mock_addons(hass, monkeypatch, *, status="bereit", grund=None, existing_opti
     async def restart(manager):
         calls.restarts.append(manager.addon_slug)
         if manager.addon_slug == "heizungsbruecke" and status is not None:
-            attributes = {
-                STATUS_ATTR_SETUP_ID: status_setup_id or calls.options["heizungsbruecke"]["setup_id"],
-                "addon_version": "0.19.0",
-            }
-            if grund:
-                attributes[STATUS_ATTR_GRUND] = grund
-            hass.states.async_set(status_entity_id(TENANT), status, attributes)
+            setup_id = status_setup_id or calls.options["heizungsbruecke"]["setup_id"]
+            hass.bus.async_fire("smartheat_status", status_event(TENANT, status, setup_id=setup_id, grund=grund))
 
     async def info(manager):
-        return SimpleNamespace(options=dict(existing_options or {}))
+        source = existing_options if manager.addon_slug == "heizungsbruecke" else cloudflared_options
+        return SimpleNamespace(options=dict(source or {}))
 
+    supervisor_log = []
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options)
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_restart_addon", restart)
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_get_addon_info", info)
+    monkeypatch.setattr(
+        "custom_components.smartheat.addon_control.get_supervisor_client",
+        lambda hass: FakeSupervisor(supervisor_log, error=supervision_error),
+    )
+    calls.supervision = supervisor_log
     return calls
 
 
 def fast_status_wait(monkeypatch, wait_seconds: float = 0.2) -> None:
-    monkeypatch.setattr(f"{FLOW}.STATUS_POLL_SECONDS", 0.01)
     monkeypatch.setattr(f"{FLOW}.STATUS_WAIT_SECONDS", wait_seconds)
+    monkeypatch.setattr("custom_components.smartheat.options_flow.STATUS_WAIT_SECONDS", wait_seconds)
 
 
 async def start(hass):
     return await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
 
 
+def _flow_manager(hass, flow_id: str):
+    """Config-Flow und Options-Flow leben in getrennten FlowManagern (`hass.config_entries.flow`
+    bzw. `.options`) mit je eigenem `_progress`; `configure`/`finish_progress` bedienen beide."""
+    try:
+        hass.config_entries.options.async_get(flow_id)
+        return hass.config_entries.options
+    except UnknownFlow:
+        return hass.config_entries.flow
+
+
 async def configure(hass, result, data=None):
-    return await hass.config_entries.flow.async_configure(result["flow_id"], data)
+    return await _flow_manager(hass, result["flow_id"]).async_configure(result["flow_id"], data)
 
 
 async def login(hass, result):

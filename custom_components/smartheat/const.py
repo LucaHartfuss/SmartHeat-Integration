@@ -9,6 +9,17 @@ OPTION_ROOM_SENSORS = "room_sensors"
 OPTION_NOTIFY_SERVICES = "notify_services"
 OPTION_BATTERY_ENTITIES = "battery_entities"
 OPTION_SETUP_ID = "setup_id"
+OPTION_ENTITY_ROOM_TARGET = "entity_room_target"
+OPTION_ABGEMELDET = "abgemeldet"
+OPTION_NOTIFY_HINTS_OFF = "notify_hints_off"
+# Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
+HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
+# Alter Eintrag (v1, client1): Einrichtung ueber "Neu konfigurieren" abschliessen.
+DATA_INCOMPLETE = "unvollstaendig"
+BRIDGE_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
+CLOUDFLARED_CREDENTIAL_OPTIONS = ("service_token_id", "service_token_secret")
+# Profilwechsel ohne neue Zugangsdaten; Route im Server: accounts_api.py (Contract-Check 17).
+PROFILE_PATH = "/tenants/{tenant_id}/profile"
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
 # Vom Wizard nicht verwaltet: bleiben beim erneuten Einrichten aus den bestehenden Optionen
 # erhalten (I3). Alles andere setzt der Wizard vollstaendig neu.
@@ -32,20 +43,83 @@ PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
 STALE_AFTER_HOURS = 6
 ROOM_SENSOR_DEVIATION_K = 3.0
 
-# Status-Entity des Add-ons (Spec TP6 3.6), gleiche Regel wie heizungsbruecke/status.py.
+# Status-Kanal (Spec TP7 1.1): HA-Event des Add-ons. Name, schema, Felder und Wertemengen muessen
+# zu heizungsbruecke/status.py passen (tools/contract_check.py, Pruefung 14).
+STATUS_EVENT = "smartheat_status"
+STATUS_EVENT_SCHEMA = 1
+STATUS_EVENT_FIELDS = (
+    "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
+    "boost", "letzte_serverantwort", "kurve", "offset", "abo", "abo_frist_ende", "hinweise",
+)
 STATUS_STARTET = "startet"
-STATUS_BEREIT = "bereit"
+STATUS_REGELT = "regelt"
 STATUS_KONFIGURATIONSFEHLER = "konfigurationsfehler"
+STATUS_ZUGANG_ABGELEHNT = "zugang_abgelehnt"
+STATUS_ABO_BEENDET = "abo_beendet"
+STATUS_ABO_INAKTIV = "abo_inaktiv"
+STATUS_NOTBETRIEB = "notbetrieb"
+STATUS_DATENFEHLER = "datenfehler"
+STATUS_ABGEMELDET = "abgemeldet"
+ADDON_STATUS_VALUES = (
+    STATUS_STARTET, STATUS_REGELT, STATUS_KONFIGURATIONSFEHLER, STATUS_ZUGANG_ABGELEHNT, STATUS_ABO_BEENDET,
+    STATUS_ABO_INAKTIV, STATUS_NOTBETRIEB, STATUS_DATENFEHLER, STATUS_ABGEMELDET,
+)
+# Nur die Integration (zweiter Waechter, Spec TP7 1.3).
+STATUS_ADDON_GESTOPPT = "addon_gestoppt"
+STATUS_REAGIERT_NICHT = "reagiert_nicht"
+STATUS_SENSOR_VALUES = ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT)
+BOOST_VALUES = ("keiner", "komfort", "notfall")
+ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
+DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
+DATENFEHLER_KEINER = "keiner"
+HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
+
 STATUS_WAIT_SECONDS = 180
-STATUS_POLL_SECONDS = 2
-# Namen der Status-Entity-Attribute (das Add-on definiert dieselben Konstanten in
-# status.py; tools/contract_check.py vergleicht sie).
-STATUS_ATTR_SETUP_ID = "setup_id"
-STATUS_ATTR_GRUND = "grund"
+SIGN_OFF_WAIT_SECONDS = 60
+WATCHDOG_INTERVAL_SECONDS = 300
+STOPPED_AFTER_CHECKS = 2
+SILENCE_SECONDS = 900
+MAX_RESTARTS_PER_WINDOW = 3
+RESTART_WINDOW_SECONDS = 3600
+
+# Meldungen des zweiten Waechters (auf Deutsch wie alle Meldungen des Add-ons).
+WATCHDOG_MESSAGES = {
+    STATUS_ADDON_GESTOPPT: (
+        "SmartHeat: Ein SmartHeat-Add-on läuft nicht, die Heizungssteuerung ist unterbrochen. "
+        "SmartHeat startet es neu."
+    ),
+    STATUS_REAGIERT_NICHT: (
+        "SmartHeat: Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die Heizungssteuerung "
+        "ist unterbrochen. SmartHeat startet es neu."
+    ),
+}
+WATCHDOG_REASONS = {
+    STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: {addons}",
+    STATUS_REAGIERT_NICHT: "Heizungsbrücke meldet sich seit 15 Minuten nicht",
+}
+WATCHDOG_ALL_CLEAR_MESSAGE = "SmartHeat: Die SmartHeat-Add-ons laufen wieder, die Heizungssteuerung ist wieder aktiv."
 
 
-def status_entity_id(tenant_id: str) -> str:
-    return f"sensor.smartheat_{re.sub(r'[^a-z0-9_]', '_', tenant_id.lower())}_status"
+def slug(tenant_id: str) -> str:
+    return re.sub(r"[^a-z0-9_]", "_", tenant_id.lower())
+
+
+def entity_id(platform: str, tenant_id: str, key: str) -> str:
+    """Feste Entity-IDs (Praezisierung 20): sensor.smartheat_<slug>_status wie in TP6."""
+    return f"{platform}.smartheat_{slug(tenant_id)}_{key}"
+
+
+def watchdog_notification_id(tenant_id: str) -> str:
+    return f"smartheat_{slug(tenant_id)}_addon"
+
+
+def repair_issue_id(entry_id: str) -> str:
+    return f"complete_setup_{entry_id}"
+
+
+def signal_update(entry_id: str) -> str:
+    return f"{DOMAIN}_update_{entry_id}"
+
 
 # Einzel-Entity-Rollen, die als entity_<rolle> ins Add-on gehen (ohne KPI-Rollen). Die
 # Raumfuehler gehen als Liste room_sensors (Spec TP6 3.1). Kein geteilter Code zwischen den
@@ -106,6 +180,21 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.19.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.20.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
+}
+
+ADDON_SPECS: list[tuple[str, str]] = [
+    ("Heizungsbruecke", HEIZUNGSBRUECKE_ADDON_SLUG),
+    ("Cloudflared Access TCP-Bridge", CLOUDFLARED_ADDON_SLUG),
+]
+
+# Kundensichtbare Anzeigenamen der Add-ons mit Umlauten (Controller-Entscheidung F7), fuer
+# WATCHDOG_REASONS. ADDON_SPECS bleibt ASCII: das ist der Anzeigename, den AddonManager in
+# Supervisor-Logs verwendet, kein Kundentext. Cloudflared hat im Namen keinen Umlaut; hier steht
+# absichtlich der echte config.yaml-Name (Fund M3), damit der Kunde das Add-on in Einstellungen ->
+# Add-ons wiederfindet.
+ADDON_DISPLAY_NAMES: dict[str, str] = {
+    HEIZUNGSBRUECKE_ADDON_SLUG: "Heizungsbrücke",
+    CLOUDFLARED_ADDON_SLUG: "Cloudflared Access TCP-Bridge",
 }

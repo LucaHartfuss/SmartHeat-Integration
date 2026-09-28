@@ -62,7 +62,7 @@
       },
       "summary": {
         "title": "Zusammenfassung",
-        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
@@ -105,7 +105,10 @@
       "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte erneut versuchen.",
       "provisioning_failed": "Der SmartHeat-Server konnte keine Zugangsdaten ausstellen. Bitte später erneut versuchen.",
       "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Antwort geliefert. Bitte später erneut versuchen oder den Support kontaktieren.",
-      "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll."
+      "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll.",
+      "new_credentials": "Es werden neue Zugangsdaten ausgestellt.",
+      "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",
+      "options_addon_failed": "Das Add-on Heizungsbrücke konnte nicht aktualisiert werden. Bitte den Supervisor prüfen und erneut versuchen."
     },
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
@@ -128,7 +131,7 @@
     },
     "abort": {
       "not_supervisor": "Diese Integration funktioniert nur mit einem Home Assistant mit Supervisor (Home Assistant OS oder Supervised), weil sie echte MQTT-Zugangsdaten ausstellt und die Add-ons über die Supervisor-API einrichtet.",
-      "already_configured": "Diese Anlage ist bereits eingerichtet. Zum erneuten Einrichten zuerst den bestehenden SmartHeat-Eintrag entfernen.",
+      "already_configured": "Diese Anlage ist bereits eingerichtet. Zum Ändern den SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
       "no_verified_profiles": "Für deine Heizung ist derzeit kein freigegebenes Profil verfügbar. Bitte später erneut versuchen oder den Support kontaktieren.",
       "addon_missing": "Das Add-on {addon} ist nicht installiert. Bitte aus dem SmartHeat-Add-on-Repository installieren und die Einrichtung neu starten.",
       "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen und die Einrichtung neu starten.",
@@ -136,8 +139,59 @@
       "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte später erneut versuchen.",
       "no_supported_integration": "In Home Assistant ist keine unterstützte Heizungs-Integration eingerichtet. Unterstützt: {supported}.",
       "no_heating_circuit": "{integration} liefert keinen vollständigen Heizkreis (Heizkurve, Mindestvorlauf und Heizgrenze werden benötigt).",
-      "setup_cancelled": "Einrichtung abgebrochen."
+      "setup_cancelled": "Einrichtung abgebrochen.",
+      "wrong_account": "Dieses Konto enthält die Anlage dieses Eintrags nicht.",
+      "reconfigure_first": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
+      "reconfigure_successful": "SmartHeat wurde neu konfiguriert. Die Zugangsdaten sind gleich geblieben.",
+      "reconfigure_successful_warning": "SmartHeat wurde neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
+      "reconfigure_successful_new_credentials": "SmartHeat wurde neu konfiguriert. Es wurden neue Zugangsdaten ausgestellt, weil in den Add-ons keine vollständigen standen.",
+      "reconfigure_successful_new_credentials_warning": "SmartHeat wurde mit neuen Zugangsdaten neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
+      "reauth_successful": "SmartHeat ist wieder angemeldet.",
+      "reauth_successful_warning": "SmartHeat ist wieder angemeldet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
+    },
+    "create_entry": {
+      "supervision_warning": "SmartHeat ist eingerichtet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SmartHeat-Optionen",
+        "description": "Änderungen hier brauchen keine Anmeldung. SmartHeat startet danach das Add-on Heizungsbrücke neu.",
+        "data": {
+          "room_sensors": "Raumtemperatur-Fühler", "entity_room_target": "Wunschtemperatur",
+          "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
+          "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
+          "hint_manueller_eingriff": "Bei manueller Änderung der Heizkurve benachrichtigen",
+          "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen"
+        }
+      },
+      "confirm": {
+        "title": "Bitte prüfen",
+        "description": "{warnings}",
+        "data": {
+          "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
+          "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
+        }
+      },
+      "failed": {"title": "Nicht übernommen", "description": "{grund}\n\nAbsenden führt zurück zu den Optionen."},
+      "timeout": {
+        "title": "Keine Antwort vom Add-on",
+        "description": "Das Add-on Heizungsbrücke hat sich nicht innerhalb von 3 Minuten gemeldet. Die Optionen werden trotzdem gespeichert; der Status steht am SmartHeat-Gerät."
+      }
+    },
+    "progress": {"apply": "Optionen werden übernommen, das Add-on Heizungsbrücke startet neu (bis zu 3 Minuten)."},
+    "error": {
+      "room_sensors_required": "Mindestens einen Raumtemperaturfühler wählen",
+      "entity_not_found": "Diese Entity existiert nicht",
+      "entity_unavailable": "Diese Entity hat gerade keinen Wert",
+      "not_numeric": "Diese Entity liefert keine Zahl",
+      "unit_mismatch": "Falsche Einheit, benötigt wird °C",
+      "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
+      "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
+      "warnings_not_confirmed": "Bitte alle Hinweise bestätigen"
+    },
+    "abort": {"setup_incomplete": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen."}
   },
   "selector": {
     "verteilsystem": {
@@ -148,6 +202,36 @@
     },
     "erzeuger_typ": {
       "options": {"gastherme": "Gastherme", "waermepumpe": "Wärmepumpe"}
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "startet": "Startet", "regelt": "Regelt", "konfigurationsfehler": "Konfigurationsfehler",
+          "zugang_abgelehnt": "Zugang abgelehnt", "abo_beendet": "Abo beendet", "abo_inaktiv": "Abo inaktiv",
+          "notbetrieb": "Notbetrieb", "datenfehler": "Datenfehler", "abgemeldet": "Abgemeldet",
+          "addon_gestoppt": "Add-on gestoppt", "reagiert_nicht": "Add-on reagiert nicht"
+        }
+      },
+      "datenfehler": {
+        "name": "Datenfehler",
+        "state": {"keiner": "Keiner", "lokal": "Lokaler Fühler", "server": "Vom Server abgelehnt", "anlage": "Anlage nicht beschreibbar"}
+      },
+      "boost": {"name": "Boost", "state": {"keiner": "Keiner", "komfort": "Komfort", "notfall": "Notfall"}},
+      "letzte_serverantwort": {"name": "Letzte Serverantwort"},
+      "heizkurve": {"name": "Gelernte Heizkurve"},
+      "offset": {"name": "Gelernter Offset"},
+      "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
+      "addon_version": {"name": "Add-on-Version"}
+    },
+    "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}}
+  },
+  "issues": {
+    "complete_setup": {
+      "title": "SmartHeat: Einrichtung für {tenant} abschließen",
+      "description": "Nach dem Update ist die Einrichtung von {tenant} unvollständig. Die Heizungssteuerung pausiert, die Anlage behält ihre letzten Werte. Unter Einstellungen → Geräte & Dienste → SmartHeat über ⋮ → „Neu konfigurieren“ anmelden. Die Zugangsdaten bleiben gleich."
     }
   }
 }

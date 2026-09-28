@@ -109,6 +109,33 @@ async def test_provision_raises_invalid_auth_on_401(aiohttp_client):
         await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
 
 
+async def test_provision_raises_api_error_on_a_200_with_the_wrong_content_type(aiohttp_client):
+    # Ein 200 mit falschem Content-Type ist eine kaputte Antwort (ApiError), keine
+    # Verbindungsstoerung -- aiohttp.ContentTypeError ist sonst eine ClientError-Unterklasse und
+    # wuerde faelschlich als CannotConnect ankommen.
+    async def handler(request):
+        return web.Response(status=200, text="not json", content_type="text/plain")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/provision", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+
+async def test_provision_raises_api_error_on_invalid_json_body(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=200, text="{not valid json", content_type="application/json")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/provision", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+
 @pytest.mark.parametrize("status", [200, 204])
 async def test_logout_posts_bearer_token(aiohttp_client, status):
     seen = {}
@@ -148,3 +175,60 @@ async def test_logout_raises_api_error_on_500(aiohttp_client):
 
     with pytest.raises(ApiError):
         await HeizungsserverClient(client, "").logout("tok123")
+
+
+async def test_update_profile_posts_the_profile_and_returns_profile_params(aiohttp_client):
+    async def handler(request):
+        assert request.headers["Authorization"] == "Bearer tok123"
+        assert await request.json() == {"profile_id": "vaillant_gastherme_heizkoerper"}
+        return web.json_response({"profile_params": {"verteilsystem": "Heizkoerper"}})
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    result = await HeizungsserverClient(client, "").update_profile("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+    assert result == {"verteilsystem": "Heizkoerper"}
+
+
+@pytest.mark.parametrize("status,body,error", [
+    (401, {"error": "x"}, InvalidAuth),
+    (403, {"error": "x"}, ApiError),
+    (200, {"profile_params": "Heizkoerper"}, ApiError),
+    (200, {}, ApiError),
+])
+async def test_update_profile_errors(aiohttp_client, status, body, error):
+    async def handler(request):
+        return web.json_response(body, status=status)
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(error):
+        await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")
+
+
+async def test_update_profile_raises_api_error_on_a_200_with_the_wrong_content_type(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=200, text="not json", content_type="text/plain")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")
+
+
+async def test_update_profile_raises_api_error_on_invalid_json_body(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=200, text="{not valid json", content_type="application/json")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")

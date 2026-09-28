@@ -8,6 +8,8 @@ from typing import Any
 
 import aiohttp
 
+from .const import PROFILE_PATH
+
 
 class ApiError(Exception):
     """Basisklasse fuer alle Fehler dieses Clients."""
@@ -60,9 +62,29 @@ class HeizungsserverClient:
                     raise InvalidAuth("Sitzung abgelaufen")
                 if response.status != 200:
                     raise ApiError(f"Provisioning fehlgeschlagen (HTTP {response.status})")
-                return await response.json()
+                return await self._read_json(response, "Provisioning-Antwort ist kein gueltiges JSON")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
+    async def update_profile(self, token: str, tenant_id: str, profile_id: str) -> dict:
+        """Profilwechsel ohne neue Zugangsdaten (Neu konfigurieren, Spec TP7 4.1). Liefert die
+        profile_params fuer die Add-on-Optionen."""
+        try:
+            async with self._session.post(
+                f"{self._base_url}{PROFILE_PATH.format(tenant_id=tenant_id)}",
+                json={"profile_id": profile_id},
+                headers={"Authorization": f"Bearer {token}"},
+            ) as response:
+                if response.status == 401:
+                    raise InvalidAuth("Sitzung abgelaufen")
+                if response.status != 200:
+                    raise ApiError(f"Profilwechsel fehlgeschlagen (HTTP {response.status})")
+                body = await self._read_json(response, "Profil-Antwort ist kein gueltiges JSON")
+        except aiohttp.ClientError as error:
+            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+        if not isinstance(body, dict) or not isinstance(body.get("profile_params"), dict):
+            raise ApiError("Profil-Antwort ohne gueltiges 'profile_params'")
+        return body["profile_params"]
 
     async def logout(self, token: str) -> None:
         """Beendet die Login-Sitzung (I5). Der Wizard ruft das nach erfolgreicher Einrichtung;
@@ -77,6 +99,17 @@ class HeizungsserverClient:
                     raise ApiError(f"Logout fehlgeschlagen (HTTP {response.status})")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
+    async def _read_json(self, response: aiohttp.ClientResponse, error_message: str) -> Any:
+        """Liest den JSON-Body einer bereits als 200 akzeptierten Antwort. Ein falscher
+        Content-Type oder ungueltiges JSON ist eine kaputte Antwort (ApiError), keine
+        Verbindungsstoerung -- ohne diesen Fang wuerde aiohttp.ContentTypeError (Unterklasse von
+        aiohttp.ClientError) faelschlich als CannotConnect ankommen, und ein reines
+        JSONDecodeError (ValueError) gar nicht gefangen."""
+        try:
+            return await response.json()
+        except (aiohttp.ContentTypeError, ValueError) as error:
+            raise ApiError(f"{error_message}: {error}") from error
 
     async def _get_authenticated(self, path: str, token: str) -> Any:
         try:
