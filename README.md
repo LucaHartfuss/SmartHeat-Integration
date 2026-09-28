@@ -29,7 +29,8 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
   Datenfehler mit Quelle, Boost, letzte Serverantwort, gelernte Heizkurve/Offset, Abo, Add-on-Version.
   Ausgefallene Raumfühler, schwache Batterien und manuelle Eingriffe stehen als Attribute am Status.
 - **Optionen** (ohne Anmeldung): Raumfühler, Wunschtemperatur, Handys, Batterien, Hinweise einzeln abschalten.
-- **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte. Die Zugangsdaten bleiben.
+- **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte. Die Zugangsdaten bleiben
+  (fehlen sie in den Add-ons, werden neue ausgestellt); Batterieauswahl und Handys aus den Optionen bleiben.
 - **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein, prüft alle
   5 Minuten, ob sie laufen und sich melden, meldet Ausfälle und startet sie neu (höchstens dreimal pro Stunde).
 - **Entfernen:** Das Add-on wird abgemeldet (ein laufender Boost wird zurückgesetzt), beide Add-ons werden

@@ -403,6 +403,35 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, mon
     assert hass.states.get(STATUS).state == "regelt"
 
 
+async def test_event_without_notbetrieb_and_with_broken_hints_does_not_crash_entities(hass, monkeypatch, clock):
+    """Final-Review M4: ein fehlendes `notbetrieb` (KeyError im Binaersensor) und ein `hinweise`,
+    das kein Objekt ist (AttributeError im Status-Sensor), duerfen die Entities nicht haengen
+    lassen -- wie EventSensor._safe_value: unbekannt bzw. leer."""
+    await _setup(hass, monkeypatch, {})
+    _fire(hass, status_event(TENANT, "regelt", notbetrieb=True))
+    await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"
+
+    event = status_event(TENANT, "regelt", hinweise=["kaputt"])
+    del event["notbetrieb"]
+    _fire(hass, event)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "unknown"
+    status = hass.states.get(STATUS)
+    assert status.state == "regelt"
+    assert status.attributes["manueller_eingriff"] is None
+
+
+async def test_a_non_boolean_notbetrieb_is_unknown(hass, monkeypatch, clock):
+    await _setup(hass, monkeypatch, {})
+
+    _fire(hass, status_event(TENANT, "regelt", notbetrieb="false"))
+    await hass.async_block_till_done()
+
+    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "unknown"
+
+
 async def test_restore_ignores_an_out_of_options_value(hass, monkeypatch, clock):
     """M4: ein gespeicherter Wert, der nicht (mehr) in den Enum-Optionen ist (z. B. ein Wert aus
     einer aelteren Version), darf nicht uebernommen werden -- sonst dieselbe ValueError wie bei

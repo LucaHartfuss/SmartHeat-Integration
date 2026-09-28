@@ -82,7 +82,7 @@ async def test_reconfigure_without_credentials_in_the_addon_issues_new_ones(hass
     result = await finish_progress(hass, await configure(hass, result, {}))
     await hass.async_block_till_done()
 
-    assert result["reason"] == "reconfigure_successful"
+    assert result["reason"] == "reconfigure_successful_new_credentials"
     mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     mocks.update_profile.assert_not_awaited()
     options = calls.options["heizungsbruecke"]
@@ -232,7 +232,7 @@ async def test_reconfigure_with_missing_cloudflared_credentials_issues_new_ones(
     result = await finish_progress(hass, await configure(hass, result, {}))
     await hass.async_block_till_done()
 
-    assert result["reason"] == "reconfigure_successful"
+    assert result["reason"] == "reconfigure_successful_new_credentials"
     mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     mocks.update_profile.assert_not_awaited()
     assert calls.options["heizungsbruecke"]["mqtt_password"] == MQTT_PASSWORD
@@ -296,3 +296,58 @@ async def test_reconfigure_session_expiry_during_profile_update_goes_back_to_log
     result = await finish_progress(hass, await configure(hass, result, {}))
 
     assert (result["step_id"], result["errors"]) == ("user", {"base": "session_expired"})
+
+
+async def test_reconfigure_keeps_the_battery_selection_from_the_options(hass, monkeypatch):
+    """Final-Review M2: eine in den Optionen gewaehlte Batterieliste darf "Neu konfigurieren"
+    nicht durch die Erkennung ersetzen."""
+    mypyllant, _, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id, options={
+        "room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.kz_batterie"],
+        "notify_hints_off": [],
+    })
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    assert result["description_placeholders"]["batteries"] == "sensor.kz_batterie"
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.options["battery_entities"] == ["sensor.kz_batterie"]
+    assert calls.options["heizungsbruecke"]["battery_entities"] == ["sensor.kz_batterie"]
+
+
+async def test_reconfigure_keeps_a_stored_phone_that_is_not_registered_right_now(hass, monkeypatch):
+    """Final-Review M2 (wie der Options-Flow-Fix aus Task 16): ein gespeichertes, gerade nicht
+    registriertes Handy bleibt waehlbar und vorbelegt, sonst verstummten die Waechter-Meldungen."""
+    mypyllant, _, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    stored = ["notify.mobile_app_pixel", "notify.mobile_app_tablet"]
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id, options={
+        "room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": stored, "battery_entities": ["sensor.wz_batterie"], "notify_hints_off": [],
+    })
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+    for data in (SYSTEM_INPUT, ROOMS_INPUT, PLANT_INPUT):
+        result = await configure(hass, result, data)
+    assert result["step_id"] == "notifications"
+    assert suggested(result, "notify_services") == stored
+    result = await configure(hass, result, {"notify_services": stored})
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert entry.options["notify_services"] == stored
+    assert calls.options["heizungsbruecke"]["notify_services"] == stored
+
+
+async def test_reconfigure_keeps_stored_phones_when_none_is_registered(hass, monkeypatch):
+    mypyllant, _, _ = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    hass.services.async_remove("notify", "mobile_app_pixel")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert entry.options["notify_services"] == ["notify.mobile_app_pixel"]

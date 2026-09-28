@@ -745,6 +745,7 @@ _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
     "wrong_account", "reconfigure_first", "reconfigure_successful", "reconfigure_successful_warning",
+    "reconfigure_successful_new_credentials", "reconfigure_successful_new_credentials_warning",
     "reauth_successful", "reauth_successful_warning",
 }
 

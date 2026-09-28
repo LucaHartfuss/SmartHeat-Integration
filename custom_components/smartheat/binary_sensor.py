@@ -21,7 +21,10 @@ class NotbetriebSensor(SmartHeatEntity, BinarySensorEntity):
         super().__init__(coordinator, "binary_sensor", "notbetrieb")
 
     def _apply(self) -> None:
-        self._attr_is_on = bool(self.coordinator.data["notbetrieb"])
+        # Fehlt `notbetrieb` oder ist es kein bool (aelteres/fremdes Event), unbekannt statt eines
+        # KeyError im Update-Callback bzw. eines falschen "an" fuer den Text "false" (Final-Review M4).
+        value = (self.coordinator.data or {}).get("notbetrieb")
+        self._attr_is_on = value if isinstance(value, bool) else None
 
     def _restore(self, last: State) -> None:
         self._attr_is_on = last.state == STATE_ON

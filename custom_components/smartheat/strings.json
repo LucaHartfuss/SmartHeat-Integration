@@ -144,6 +144,8 @@
       "reconfigure_first": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure.",
       "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.",
       "reconfigure_successful_warning": "SmartHeat was reconfigured. The watchdog of the add-ons could not be switched on, please check the log.",
+      "reconfigure_successful_new_credentials": "SmartHeat was reconfigured. New access credentials were issued, because the add-ons had no complete ones.",
+      "reconfigure_successful_new_credentials_warning": "SmartHeat was reconfigured with new access credentials. The watchdog of the add-ons could not be switched on, please check the log.",
       "reauth_successful": "SmartHeat is signed in again.",
       "reauth_successful_warning": "SmartHeat is signed in again. The watchdog of the add-ons could not be switched on, please check the log."
     },

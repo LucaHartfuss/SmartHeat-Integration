@@ -144,6 +144,8 @@
       "reconfigure_first": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
       "reconfigure_successful": "SmartHeat wurde neu konfiguriert. Die Zugangsdaten sind gleich geblieben.",
       "reconfigure_successful_warning": "SmartHeat wurde neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
+      "reconfigure_successful_new_credentials": "SmartHeat wurde neu konfiguriert. Es wurden neue Zugangsdaten ausgestellt, weil in den Add-ons keine vollständigen standen.",
+      "reconfigure_successful_new_credentials_warning": "SmartHeat wurde mit neuen Zugangsdaten neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
       "reauth_successful": "SmartHeat ist wieder angemeldet.",
       "reauth_successful_warning": "SmartHeat ist wieder angemeldet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
     },

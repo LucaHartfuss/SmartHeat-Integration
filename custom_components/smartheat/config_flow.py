@@ -89,8 +89,15 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         # None = Schritt notifications noch nicht bestaetigt (dann alle Handys vorbelegen).
         self._notify_services: list[str] | None = None
         self._battery_entities: list[str] = []
+        # Neu konfigurieren eines vollstaendigen Eintrags: gespeicherte Handys (bleiben waehlbar,
+        # auch wenn gerade nicht registriert) und die in den Optionen gewaehlten Batterien (statt
+        # der Erkennung); None = Erkennung wie bei der Ersteinrichtung.
+        self._stored_notify_services: list[str] = []
+        self._stored_battery_entities: list[str] | None = None
         self._hints_off: list[str] = []
         self._provisioning: dict | None = None
+        # provision() lief in diesem Flow: neue Zugangsdaten (Abschlusstext im Neu konfigurieren).
+        self._new_credentials = False
         self._setup_id: str | None = None
         self._setup_error = ""
         # Neu konfigurieren/Reauth: der bestehende Eintrag, Tenant fest.
@@ -151,6 +158,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._plant = {field: entities[field] for field in PLANT_FIELDS if field in entities}
         self._kpi = {field: value for field, value in entities.items() if field not in PLANT_FIELDS}
         self._notify_services = list(options.get(OPTION_NOTIFY_SERVICES, []))
+        self._stored_notify_services = list(self._notify_services)
+        if OPTION_BATTERY_ENTITIES in options:
+            self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES])
         self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF, []))
         self._system_defaults = {
             "integration": entry.data.get("integration_domain"),
@@ -483,12 +493,20 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return ", ".join(self._battery_entities) if self._battery_entities else await self._hint("none")
 
     async def async_step_notifications(self, user_input: dict | None = None):
-        battery_candidates = [entry.entity_id for entry in self._entries if entry.device_class == "battery"]
-        self._battery_entities = detection.battery_entities(
-            [validation.entity_of(ref) for ref in [*self._room_sensors, self._room_target]],
-            self._entries, detection.unit_map(self.hass, battery_candidates),
-        )
-        services = detection.mobile_app_services(self.hass.services.async_services_for_domain("notify"))
+        if self._stored_battery_entities is not None:
+            # Neu konfigurieren: die Auswahl aus den Optionen bleibt (Final-Review M2).
+            self._battery_entities = list(self._stored_battery_entities)
+        else:
+            battery_candidates = [entry.entity_id for entry in self._entries if entry.device_class == "battery"]
+            self._battery_entities = detection.battery_entities(
+                [validation.entity_of(ref) for ref in [*self._room_sensors, self._room_target]],
+                self._entries, detection.unit_map(self.hass, battery_candidates),
+            )
+        registered = detection.mobile_app_services(self.hass.services.async_services_for_domain("notify"))
+        # Gespeicherte, gerade nicht registrierte Handys bleiben waehlbar (wie options_flow._notify_options):
+        # sonst fielen sie beim Neu konfigurieren still aus notify_services, und die
+        # Waechter-Meldungen verstummten.
+        services = [*registered, *[s for s in self._stored_notify_services if s not in registered]]
         if user_input is not None:
             chosen = user_input.get(OPTION_NOTIFY_SERVICES, [])
             self._notify_services = [service for service in services if service in chosen]
@@ -651,6 +669,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._setup_error = await self._hint("invalid_provisioning_response")
             return "setup_failed"
         self._provisioning = provisioning
+        self._new_credentials = True
         return None
 
     async def _keep_access(self, bridge_options: dict, cloudflared_options: dict) -> str | None:
@@ -780,9 +799,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if self._reauth:
             return self.async_update_reload_and_abort(self._entry, reason=self._done_reason("reauth_successful"))
         if self._entry is not None:
+            # Nach dem provision()-Rueckfall (Add-on ohne Zugangsdaten) nicht "gleich geblieben" melden.
+            reason = "reconfigure_successful_new_credentials" if self._new_credentials else "reconfigure_successful"
             return self.async_update_reload_and_abort(
                 self._entry, data=self._entry_data(), options=self._entry_options(),
-                reason=self._done_reason("reconfigure_successful"),
+                reason=self._done_reason(reason),
             )
         return self.async_create_entry(
             title=self._tenant_id, data=self._entry_data(), options=self._entry_options(),

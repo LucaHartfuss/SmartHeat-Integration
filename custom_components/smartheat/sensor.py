@@ -85,7 +85,9 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
         return self.coordinator.status is not None
 
     def _apply(self) -> None:
-        hints = (self.coordinator.data or {}).get("hinweise") or {}
+        hints = (self.coordinator.data or {}).get("hinweise")
+        if not isinstance(hints, dict):
+            hints = {}  # kein Objekt (aelteres/fremdes Event): Hinweise leer statt Absturz (Final-Review M4)
         self._attr_native_value = self.coordinator.status
         self._attr_extra_state_attributes = {
             "grund": self.coordinator.reason, **{hint: hints.get(hint) for hint in HINT_FIELDS},
