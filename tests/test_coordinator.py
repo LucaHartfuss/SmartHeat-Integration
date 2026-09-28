@@ -5,6 +5,7 @@ import pytest
 from homeassistant.components.hassio import AddonError, AddonState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import State
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from pytest_homeassistant_custom_component.common import async_mock_service, mock_restore_cache
 
 from custom_components.smartheat.const import WATCHDOG_ALL_CLEAR_MESSAGE, WATCHDOG_MESSAGES
@@ -411,3 +412,45 @@ async def test_restore_ignores_an_out_of_options_value(hass, monkeypatch, clock)
     await _setup(hass, monkeypatch, {})
 
     assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
+
+
+async def test_event_with_non_numeric_offset_and_curve_does_not_crash_entities(hass, monkeypatch, clock):
+    """Fix-Runde 2, Fund 2: wie bei Enum-/Zeitstempel-Feldern (M2) darf ein nicht-numerischer
+    oder nicht endlicher Wert bei offset (Device-Class TEMPERATURE, HA validiert das) oder
+    heizkurve (ohne Device-Class, aber aus Konsistenz genauso behandelt) nicht zu einer
+    haengenden bzw. kaputten Entity fuehren."""
+    await _setup(hass, monkeypatch, {})
+
+    _fire(hass, status_event(TENANT, "regelt", offset=float("nan"), kurve="ungueltig"))
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.smartheat_wohnung1_offset").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+
+
+async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, monkeypatch, clock, notes):
+    """Fix-Runde 2, Fund 1: waehrend ein addon_gestoppt-Vorfall offen bleibt (Add-on laeuft
+    wieder, aber noch kein Event), darf der Grund den Add-on-Namen nicht verlieren (der Zaehler
+    fuer "gestoppt" ist dann schon zurueckgesetzt), und der unveraenderte Status darf keine neue
+    Aktualisierung ausloesen."""
+    log = []
+    bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING)
+    addons = {"heizungsbruecke": bridge, "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log)}
+    entry = await _setup(hass, monkeypatch, addons)
+    coordinator = entry.runtime_data
+
+    await coordinator.async_check()  # 1/2 gestoppt gezaehlt
+    clock["t"] += 300
+    await coordinator.async_check()  # 2/2 -> addon_gestoppt
+    assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
+
+    signals = []
+    async_dispatcher_connect(hass, coordinator.signal, lambda: signals.append(None))
+
+    bridge.state = AddonState.RUNNING  # laeuft wieder, aber noch kein Event
+    clock["t"] += 300
+    await coordinator.async_check()
+
+    assert hass.states.get(STATUS).state == "addon_gestoppt"
+    assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
+    assert signals == []  # unveraenderter Status/Grund: kein Update

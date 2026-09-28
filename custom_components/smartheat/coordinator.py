@@ -51,6 +51,7 @@ class Watchdog:
     restarts: dict[str, deque] = field(default_factory=dict)
     incident_since: float | None = None
     incident_status: str | None = None
+    incident_addons: list[str] = field(default_factory=list)
 
     def event_received(self, now: float) -> None:
         self.last_event_at = now
@@ -69,23 +70,27 @@ class Watchdog:
         if self._incident_resolved(running):
             self.incident_since = None
             self.incident_status = None
+            self.incident_addons = []
             return None, []
         stopped = self.stopped_addons()
         if stopped:
-            status, revive = STATUS_ADDON_GESTOPPT, stopped
+            status, revive, addons = STATUS_ADDON_GESTOPPT, stopped, stopped
         else:
             silent_since = self._silence_reference()
             if running.get(HEIZUNGSBRUECKE_ADDON_SLUG) and now - silent_since >= SILENCE_SECONDS:
-                status, revive = STATUS_REAGIERT_NICHT, [HEIZUNGSBRUECKE_ADDON_SLUG]
+                status, revive, addons = STATUS_REAGIERT_NICHT, [HEIZUNGSBRUECKE_ADDON_SLUG], [HEIZUNGSBRUECKE_ADDON_SLUG]
             elif self.incident_since is not None:
                 # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der
-                # zuletzt ermittelte Status bleibt bestehen, ohne neuen Startversuch.
-                status, revive = self.incident_status, []
+                # zuletzt ermittelte Status UND die dazugehoerigen Add-on-Namen bleiben bestehen
+                # (sonst waere der Grund leer, sobald der Zaehler zurueckgesetzt ist -- Fix-Runde 2,
+                # Fund 1), ohne neuen Startversuch.
+                status, revive, addons = self.incident_status, [], self.incident_addons
             else:
                 return None, []
         if self.incident_since is None:
             self.incident_since = now
         self.incident_status = status
+        self.incident_addons = addons
         return status, self._allowed(now, revive)
 
     def _incident_resolved(self, running: dict[str, bool]) -> bool:
@@ -99,6 +104,13 @@ class Watchdog:
 
     def stopped_addons(self) -> list[str]:
         return [config_slug for config_slug, count in self.not_running.items() if count >= STOPPED_AFTER_CHECKS]
+
+    def incident_addon_slugs(self) -> list[str]:
+        """Die Add-on-Slugs, um die es im aktuell aktiven Vorfall geht -- fuer den Meldungstext.
+        Anders als `stopped_addons()` bleibt das erhalten, waehrend der Vorfall (noch ohne
+        bestaetigendes Event) weiterlaeuft, auch wenn das Add-on zwischenzeitlich wieder laeuft
+        und der Zaehler dafuer schon zurueckgesetzt ist (Fix-Runde 2, Fund 1)."""
+        return list(self.incident_addons)
 
     def _silence_reference(self) -> float:
         reference = self.started_at if self.last_event_at is None else self.last_event_at
@@ -237,7 +249,7 @@ class SmartHeatCoordinator:
         obwohl der Grund sich aendert: es ist derselbe Vorfall, keine zweite Stoerung (Review-Fund
         1, Fix-Runde 1)."""
         if status == STATUS_ADDON_GESTOPPT:
-            names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.stopped_addons())
+            names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.incident_addon_slugs())
             reason = WATCHDOG_REASONS[status].format(addons=names)
         else:
             reason = WATCHDOG_REASONS.get(status)

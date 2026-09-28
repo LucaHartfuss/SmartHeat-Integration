@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from math import isfinite
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -117,9 +118,11 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         self._attr_extra_state_attributes = attributes
 
     def _safe_value(self, data: dict):
-        """Ein fehlender Schluessel, ein Wert ausserhalb der Enum-Optionen oder ein naiver
-        Zeitstempel wuerden HA beim Schreiben des States mit einer ValueError abbrechen lassen
-        (Sensoren mit `options`/ENUM-Device-Class bzw. TIMESTAMP validieren das); auf None
+        """Ein fehlender Schluessel, ein Wert ausserhalb der Enum-Optionen, ein naiver Zeitstempel
+        oder ein nicht-numerischer/nicht endlicher Wert eines numerischen Feldes (offset hat dafuer
+        die Device-Class TEMPERATURE, die HA beim Schreiben validiert; heizkurve hat keine, wird
+        aus Konsistenz aber genauso behandelt -- Fix-Runde 2, Fund 2) wuerden HA beim Schreiben des
+        States mit einer ValueError abbrechen lassen bzw. eine kaputte Zahl anzeigen; auf None
         abbilden statt die Entity haengen zu lassen (M2), analog zu `_restore`."""
         try:
             value = self._field.value(data)
@@ -129,6 +132,11 @@ class EventSensor(SmartHeatEntity, SensorEntity):
             return None
         if self._field.device_class == SensorDeviceClass.TIMESTAMP and isinstance(value, datetime) and value.tzinfo is None:
             return None
+        if self._field.restore is _number:
+            # Numerische Felder (heizkurve, offset): _number liefert None fuer nicht-numerische
+            # Werte; NaN/Inf sind fuer float() gueltig, aber fuer HA-Sensoren nicht (isfinite).
+            number = _number(value)
+            return number if number is not None and isfinite(number) else None
         return value
 
     def _restore(self, last: State) -> None:
