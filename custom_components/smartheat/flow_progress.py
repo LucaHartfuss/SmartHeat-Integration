@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +22,20 @@ class ProgressFlowMixin:
     unerwartete Ausnahme im Job."""
 
     _progress_task: asyncio.Task | None = None
+
+    # Von der jeweiligen Flow-Basisklasse (ConfigFlow/OptionsFlow) bereitgestellt; hier nur als
+    # Typ-Deklaration fuer den Checker, da der Mixin selbst keine von beiden erbt -- ohne
+    # Zuweisung, also ohne Laufzeitwirkung (echte Werte kommen von der Basisklasse).
+    if TYPE_CHECKING:
+        hass: HomeAssistant
+
+        def async_show_progress(self, **kwargs: Any) -> Any: ...
+
+        def async_show_progress_done(self, **kwargs: Any) -> Any: ...
+
+    async def _progress_error_step(self) -> str:
+        """Wird von jedem konkreten Flow ueberschrieben (config_flow.py, options_flow.py)."""
+        raise NotImplementedError
 
     async def _run_progress(self, step_id: str, progress_action: str, job):
         if self._progress_task is None:

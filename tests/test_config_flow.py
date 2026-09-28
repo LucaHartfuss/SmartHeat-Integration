@@ -1,8 +1,7 @@
 """Config-Flow 2.0 (Spec TP6, Tests laut Spec 6)."""
+import json
 import logging
 from datetime import timedelta
-
-import json
 from pathlib import Path
 
 import pytest
@@ -14,15 +13,40 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import (
-    AddonNotFoundError, AddonOutdatedError, AmbiguousAddonMatchError,
+    AddonNotFoundError,
+    AddonOutdatedError,
+    AmbiguousAddonMatchError,
 )
 
 from .addon_fakes import status_event
 from .flow_helpers import (
-    CATALOG, CF_OPTIONS, CF_SECRET, CURVE, HEAT_LIMIT, MQTT_PASSWORD, OFFSET, OUTDOOR, PLANT_INPUT, PROFILE_PARAMS,
-    ROOMS_INPUT, SYSTEM_INPUT, TENANT, configure, enable_supervisor, fast_status_wait, finish_progress,
-    has_default, login, marker, mock_addons, mock_server, register_phones, select_values, setup_mypyllant,
-    setup_rooms, start, suggested,
+    CATALOG,
+    CF_SECRET,
+    CURVE,
+    HEAT_LIMIT,
+    MQTT_PASSWORD,
+    OFFSET,
+    OUTDOOR,
+    PLANT_INPUT,
+    PROFILE_PARAMS,
+    ROOMS_INPUT,
+    SYSTEM_INPUT,
+    TENANT,
+    configure,
+    enable_supervisor,
+    fast_status_wait,
+    finish_progress,
+    has_default,
+    login,
+    marker,
+    mock_addons,
+    mock_server,
+    register_phones,
+    select_values,
+    setup_mypyllant,
+    setup_rooms,
+    start,
+    suggested,
 )
 
 
@@ -754,8 +778,8 @@ _EXPECTED_ABORTS = {
 def test_every_error_and_abort_has_a_text(path):
     config = json.loads((_COMPONENT / path).read_text())["config"]
 
-    assert _EXPECTED_ERRORS <= set(config["error"])
-    assert _EXPECTED_ABORTS <= set(config["abort"])
+    assert set(config["error"]) >= _EXPECTED_ERRORS
+    assert set(config["abort"]) >= _EXPECTED_ABORTS
     assert {"user", "tenant", "heating", "system", "rooms", "plant_values", "notifications", "summary",
             "setup_failed", "setup_timeout"} <= set(config["step"])
     assert "setup" in config["progress"]

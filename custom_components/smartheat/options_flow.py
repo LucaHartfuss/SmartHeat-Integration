@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.components.hassio import AddonError
@@ -17,12 +18,29 @@ from homeassistant.helpers import selector
 from . import detection, validation
 from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_update_addon_options
 from .const import (
-    ADDON_SPECS, DATA_INCOMPLETE, HINT_CATEGORIES, OPTION_BATTERY_ENTITIES, OPTION_ENTITY_ROOM_TARGET,
-    OPTION_NOTIFY_HINTS_OFF, OPTION_NOTIFY_SERVICES, OPTION_ROOM_SENSORS, OPTION_SETUP_ID, ROLE_DOMAINS,
-    ROOM_SENSOR_DOMAINS, STATUS_KONFIGURATIONSFEHLER, STATUS_REGELT, STATUS_WAIT_SECONDS, STATUS_ZUGANG_ABGELEHNT,
+    ADDON_SPECS,
+    DATA_INCOMPLETE,
+    HINT_CATEGORIES,
+    OPTION_BATTERY_ENTITIES,
+    OPTION_ENTITY_ROOM_TARGET,
+    OPTION_NOTIFY_HINTS_OFF,
+    OPTION_NOTIFY_SERVICES,
+    OPTION_ROOM_SENSORS,
+    OPTION_SETUP_ID,
+    ROLE_DOMAINS,
+    ROOM_SENSOR_DOMAINS,
+    STATUS_KONFIGURATIONSFEHLER,
+    STATUS_REGELT,
+    STATUS_WAIT_SECONDS,
+    STATUS_ZUGANG_ABGELEHNT,
 )
 from .flow_progress import ProgressFlowMixin
-from .supervisor_client import AddonNotFoundError, AddonOutdatedError, AmbiguousAddonMatchError, async_get_addon_managers
+from .supervisor_client import (
+    AddonNotFoundError,
+    AddonOutdatedError,
+    AmbiguousAddonMatchError,
+    async_get_addon_managers,
+)
 from .texts import async_hint
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,7 +91,7 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
 
     def _schema(self, notify_options: list[str]) -> vol.Schema:
         hints_off = self.config_entry.options.get(OPTION_NOTIFY_HINTS_OFF, [])
-        schema = {
+        schema: dict[vol.Marker, Any] = {
             vol.Required(OPTION_ROOM_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=ROOM_SENSOR_DOMAINS, multiple=True),
             ),
@@ -164,12 +182,14 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         return "failed"
 
     async def _apply(self) -> str:
+        new = self._new
+        assert new is not None  # async_step_apply() folgt nur nach async_step_init(), das self._new setzt
         self._setup_id = uuid.uuid4().hex
         if self._status is None:
             self._status = StatusListener(self.hass, self.config_entry.data["tenant_id"])
         try:
             heizungsbruecke, _ = await async_get_addon_managers(self.hass, ADDON_SPECS)
-            await async_update_addon_options(heizungsbruecke, {**self._new, OPTION_SETUP_ID: self._setup_id})
+            await async_update_addon_options(heizungsbruecke, {**new, OPTION_SETUP_ID: self._setup_id})
             await heizungsbruecke.async_restart_addon()
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
             # Nicht den Supervisor-Text zeigen: er kann Optionswerte zitieren.
@@ -186,12 +206,16 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         return "save" if outcome == WAIT_DONE else "timeout"
 
     async def async_step_save(self, user_input: dict | None = None):
-        return self.async_create_entry(data=self._new)
+        new = self._new
+        assert new is not None  # async_step_save() folgt nur nach _apply(), das self._new voraussetzt
+        return self.async_create_entry(data=new)
 
     async def async_step_timeout(self, user_input: dict | None = None):
         """Spec TP7 2.5: speichern trotzdem, der Status ist an den Entities sichtbar."""
         if user_input is not None:
-            return self.async_create_entry(data=self._new)
+            new = self._new
+            assert new is not None  # siehe async_step_save()
+            return self.async_create_entry(data=new)
         return self.async_show_form(step_id="timeout", data_schema=vol.Schema({}))
 
     async def async_step_failed(self, user_input: dict | None = None):

@@ -6,8 +6,16 @@ import pytest
 
 from custom_components.smartheat.catalog import parse_integrations
 from custom_components.smartheat.detection import (
-    DeviceInfo, RegistryEntry, WeatherCandidate, battery_entities, find_circuits, installed_integrations,
-    mobile_app_services, suggest_erzeuger_typ, system_role_suggestions, weather_fallback,
+    DeviceInfo,
+    RegistryEntry,
+    WeatherCandidate,
+    battery_entities,
+    find_circuits,
+    installed_integrations,
+    mobile_app_services,
+    suggest_erzeuger_typ,
+    system_role_suggestions,
+    weather_fallback,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"

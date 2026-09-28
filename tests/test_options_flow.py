@@ -12,8 +12,18 @@ from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import make_entry
 from .flow_helpers import (
-    BRIDGE_OPTIONS, configure, enable_supervisor, fast_status_wait, finish_progress, mock_addons, mock_server,
-    register_phones, select_values, setup_mypyllant, setup_rooms, suggested,
+    BRIDGE_OPTIONS,
+    configure,
+    enable_supervisor,
+    fast_status_wait,
+    finish_progress,
+    mock_addons,
+    mock_server,
+    register_phones,
+    select_values,
+    setup_mypyllant,
+    setup_rooms,
+    suggested,
 )
 
 NEW_ROOMS = {

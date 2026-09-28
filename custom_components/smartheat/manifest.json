@@ -1,11 +1,11 @@
 {
   "domain": "smartheat",
   "name": "SmartHeat",
+  "codeowners": ["@LucaHartfuss"],
   "config_flow": true,
   "documentation": "https://github.com/LucaHartfuss/SmartHeat-Integration",
+  "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/LucaHartfuss/SmartHeat-Integration/issues",
-  "codeowners": ["@LucaHartfuss"],
-  "version": "0.6.0",
   "requirements": [],
-  "iot_class": "cloud_polling"
+  "version": "0.6.0"
 }
