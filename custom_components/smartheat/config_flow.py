@@ -30,12 +30,12 @@ from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_set_sup
 from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
 from .catalog import parse_integrations, verified_profiles
 from .const import (
-    ADDON_REPOSITORY_URL, ADDON_SPECS, BRIDGE_CREDENTIAL_OPTIONS, DATA_INCOMPLETE, DEFAULT_HEIZUNGSSERVER_BASE_URL,
-    DOMAIN, KPI_ENERGY_CHANNELS, KPI_ROLE_STATE_CLASS_EXPECTATIONS, KPI_SCALAR_ROLE_BY_CAPABILITY, MIN_ADDON_VERSIONS,
-    OPTION_ABGEMELDET, OPTION_BATTERY_ENTITIES, OPTION_ENTITY_ROOM_TARGET, OPTION_NOTIFY_HINTS_OFF,
-    OPTION_NOTIFY_SERVICES, OPTION_ROOM_SENSORS, OPTION_SETUP_ID, PLAUSIBLE_RANGES, ROLE_DOMAINS, ROOM_SENSOR_DOMAINS,
-    STATUS_KONFIGURATIONSFEHLER, STATUS_REGELT, STATUS_WAIT_SECONDS, STATUS_ZUGANG_ABGELEHNT,
-    UNMANAGED_ADDON_OPTIONS, kpi_energy_role,
+    ADDON_REPOSITORY_URL, ADDON_SPECS, BRIDGE_CREDENTIAL_OPTIONS, CLOUDFLARED_CREDENTIAL_OPTIONS, DATA_INCOMPLETE,
+    DEFAULT_HEIZUNGSSERVER_BASE_URL, DOMAIN, KPI_ENERGY_CHANNELS, KPI_ROLE_STATE_CLASS_EXPECTATIONS,
+    KPI_SCALAR_ROLE_BY_CAPABILITY, MIN_ADDON_VERSIONS, OPTION_ABGEMELDET, OPTION_BATTERY_ENTITIES,
+    OPTION_ENTITY_ROOM_TARGET, OPTION_NOTIFY_HINTS_OFF, OPTION_NOTIFY_SERVICES, OPTION_ROOM_SENSORS, OPTION_SETUP_ID,
+    PLAUSIBLE_RANGES, ROLE_DOMAINS, ROOM_SENSOR_DOMAINS, STATUS_KONFIGURATIONSFEHLER, STATUS_REGELT,
+    STATUS_WAIT_SECONDS, STATUS_ZUGANG_ABGELEHNT, UNMANAGED_ADDON_OPTIONS, kpi_energy_role,
 )
 from .options_flow import SmartHeatOptionsFlow
 from .supervisor_client import (
@@ -57,8 +57,14 @@ ORIGIN_INTEGRATION = "integration"
 ORIGIN_WEATHER = "weather"
 
 
-def _has_credentials(addon_options: dict) -> bool:
-    return all(addon_options.get(key) for key in BRIDGE_CREDENTIAL_OPTIONS)
+def _has_credentials(bridge_options: dict, cloudflared_options: dict) -> bool:
+    """Beide Add-ons brauchen ihre Zugangsdaten (Fund 2, Fix-Runde 1): fehlen die Tunnel-Token,
+    weil nur cloudflared neu installiert wurde, waeren sonst provision() uebersprungen und leere
+    Token in _keep_access uebernommen worden (stiller setup_timeout, da der Tunnel nicht steht)."""
+    return (
+        all(bridge_options.get(key) for key in BRIDGE_CREDENTIAL_OPTIONS)
+        and all(cloudflared_options.get(key) for key in CLOUDFLARED_CREDENTIAL_OPTIONS)
+    )
 
 
 class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -194,6 +200,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 elif self._entry is None:
                     return await self.async_step_tenant()
                 elif self._tenant_id not in {tenant["tenant_id"] for tenant in self._tenants}:
+                    # Fund 3, Fix-Runde 1: eine erfolgreiche Sitzung nicht offen lassen, obwohl der
+                    # Flow hier abbricht.
+                    await self._logout()
                     return self.async_abort(reason="wrong_account")
                 elif self._reauth:
                     return await self.async_step_setup()
@@ -212,6 +221,14 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._token = None
         self._session_expired = True
         return await self.async_step_user()
+
+    async def _logout(self) -> None:
+        """Best effort, wie am regulaeren Flow-Ende: ein Fehler wird nur geloggt."""
+        try:
+            await self._client().logout(self._token)
+        except ApiError as error:
+            _LOGGER.warning("Logout fehlgeschlagen: %s", error)
+        self._token = None
 
     # --- Schritt 2: Tenant (nur Ersteinrichtung) ---
 
@@ -254,18 +271,21 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             user_input = None
         domains = [descriptor.domain for descriptor in self._integrations]
-        if user_input is None and self._system_defaults.get("integration") in domains:
-            user_input = {"integration": self._system_defaults["integration"]}
-        elif user_input is None and len(domains) == 1:
+        if user_input is None and len(domains) == 1:
             user_input = {"integration": domains[0]}
         if user_input is not None:
             self._integration = next(d for d in self._integrations if d.domain == user_input["integration"])
             self._circuits = []
             return await self.async_step_system()
         options = [{"value": d.domain, "label": d.label} for d in self._integrations]
+        # Vorbelegung, kein Ueberspringen (Controller-Ruling, Fix-Runde 1): bei mehreren erkannten
+        # Integrationen muss der Kunde beim Neu konfigurieren weiterhin wechseln koennen, auch wenn
+        # die im Eintrag gespeicherte Integration noch installiert ist (Spec 2.3: "vorausgefuellt").
+        default = self._system_defaults.get("integration")
+        integration_key = vol.Required("integration", default=default) if default in domains else vol.Required("integration")
         return self.async_show_form(
             step_id="heating",
-            data_schema=vol.Schema({vol.Required("integration"): selector.SelectSelector(
+            data_schema=vol.Schema({integration_key: selector.SelectSelector(
                 selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.LIST),
             )}),
         )
@@ -520,11 +540,12 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._entry is None or self._reauth:
             return ""
         try:
-            heizungsbruecke, _ = await async_get_addon_managers(self.hass, ADDON_SPECS)
-            options = (await heizungsbruecke.async_get_addon_info()).options
+            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
+            bridge_options = (await heizungsbruecke.async_get_addon_info()).options
+            cloudflared_options = (await cloudflared.async_get_addon_info()).options
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError):
             return ""
-        return "" if _has_credentials(options) else await self._hint("new_credentials")
+        return "" if _has_credentials(bridge_options, cloudflared_options) else await self._hint("new_credentials")
 
     async def _summary_placeholders(self, warnings: dict[str, list[str]]) -> dict[str, str]:
         def _value(ref: str) -> str:
@@ -633,8 +654,9 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         erledigt, sonst der naechste Schritt."""
         if self._entry is not None and not self._reauth:
             bridge_options = (await heizungsbruecke.async_get_addon_info()).options
-            if _has_credentials(bridge_options):
-                return await self._keep_access(bridge_options, (await cloudflared.async_get_addon_info()).options)
+            cloudflared_options = (await cloudflared.async_get_addon_info()).options
+            if _has_credentials(bridge_options, cloudflared_options):
+                return await self._keep_access(bridge_options, cloudflared_options)
         return await self._provision()
 
     def _expire_session(self) -> str:
@@ -782,11 +804,7 @@ class SmartHeatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return f"{reason}_warning" if self._supervision_failed else reason
 
     async def async_step_finish(self, user_input: dict | None = None):
-        try:
-            await self._client().logout(self._token)
-        except ApiError as error:
-            _LOGGER.warning("Logout nach der Einrichtung fehlgeschlagen: %s", error)
-        self._token = None
+        await self._logout()
         if self._reauth:
             return self.async_update_reload_and_abort(self._entry, reason=self._done_reason("reauth_successful"))
         if self._entry is not None:

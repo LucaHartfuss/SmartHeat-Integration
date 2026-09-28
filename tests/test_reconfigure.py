@@ -2,13 +2,14 @@
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.smartheat.api_client import ApiError, InvalidAuth
 from custom_components.smartheat.const import DOMAIN
 
 from .addon_fakes import make_entry, status_event
 from .flow_helpers import (
-    BRIDGE_OPTIONS, CF_OPTIONS, CURVE, MQTT_PASSWORD, CF_SECRET, PLANT_INPUT, PROFILE_PARAMS, PROVISIONING, ROOMS_INPUT,
-    SYSTEM_INPUT, TENANT, configure, enable_supervisor, fast_status_wait, finish_progress, has_default, login,
-    marker, mock_addons, mock_server, register_phones, setup_mypyllant, setup_rooms, suggested,
+    BRIDGE_OPTIONS, CATALOG, CF_OPTIONS, CURVE, MQTT_PASSWORD, CF_SECRET, PLANT_INPUT, PROFILE_PARAMS, PROVISIONING,
+    ROOMS_INPUT, SYSTEM_INPUT, TENANT, configure, enable_supervisor, fast_status_wait, finish_progress, has_default,
+    login, marker, mock_addons, mock_server, register_phones, setup_mypyllant, setup_rooms, suggested,
 )
 
 
@@ -124,12 +125,14 @@ async def test_reconfigure_of_an_incomplete_entry_uses_the_detection_and_clears_
 
 
 async def test_reconfigure_with_an_account_without_the_tenant_aborts(hass, monkeypatch):
-    mypyllant, _, _ = _prepare(hass, monkeypatch, tenants=("andere",))
+    mypyllant, mocks, _ = _prepare(hass, monkeypatch, tenants=("andere",))
     entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
 
     result = await login(hass, await entry.start_reconfigure_flow(hass))
 
     assert (result["type"], result["reason"]) == ("abort", "wrong_account")
+    # Fund 3, Fix-Runde 1: die erfolgreiche Sitzung nicht offen lassen, obwohl der Flow abbricht.
+    mocks.logout.assert_awaited_once_with("tok123")
 
 
 async def test_reauth_issues_new_credentials_and_keeps_everything_else(hass, monkeypatch):
@@ -178,3 +181,118 @@ async def test_zugang_abgelehnt_event_starts_a_reauth_flow(hass, monkeypatch):
 
     flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert [flow["context"]["source"] for flow in flows] == ["reauth"]
+
+
+async def test_reauth_with_an_account_without_the_tenant_aborts(hass, monkeypatch):
+    """Fund 3/4e, Fix-Runde 1: wrong_account gilt auch auf dem Reauth-Weg, mit Logout."""
+    mypyllant, mocks, _ = _prepare(hass, monkeypatch, tenants=("andere",))
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+
+    result = await login(hass, await entry.start_reauth_flow(hass))
+
+    assert (result["type"], result["reason"]) == ("abort", "wrong_account")
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+# --- Fix-Runde 1 (Review von a05371d) ---
+
+async def test_reconfigure_with_two_integrations_shows_the_heating_form_prefilled(hass, monkeypatch):
+    """Ruling 1: kein automatisches Ueberspringen bei mehreren erkannten Integrationen, auch wenn
+    die gespeicherte Integration noch installiert ist -- nur vorbelegt (Spec 2.3: "vorausgefuellt")."""
+    catalog = {**CATALOG, "integrations": CATALOG["integrations"] + [
+        {**CATALOG["integrations"][0], "domain": "andere", "label": "Andere Heizung"},
+    ]}
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=catalog)
+    mypyllant = setup_mypyllant(hass)
+    setup_rooms(hass)
+    MockConfigEntry(domain="andere").add_to_hass(hass)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+
+    assert result["step_id"] == "heating"
+    assert marker(result, "integration").default() == "mypyllant"
+    result = await configure(hass, result, {"integration": "mypyllant"})
+    assert result["step_id"] == "system"
+
+
+async def test_reconfigure_with_missing_cloudflared_credentials_issues_new_ones(hass, monkeypatch):
+    """Ruling 2: fehlende Tunnel-Token zaehlen wie fehlende MQTT-Zugangsdaten -> provision(), nicht
+    leere Token aus _keep_access."""
+    mypyllant, mocks, calls = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS,
+        cloudflared_options={**CF_OPTIONS, "service_token_id": "", "service_token_secret": ""},
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    assert result["step_id"] == "summary"
+    assert result["description_placeholders"]["credentials_note"] == "New access credentials will be issued."
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.update_profile.assert_not_awaited()
+    assert calls.options["heizungsbruecke"]["mqtt_password"] == MQTT_PASSWORD
+    assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
+
+
+async def test_reauth_setup_failure_menu_offers_only_cancel(hass, monkeypatch):
+    """Praez. 19: kein 'Zurueck zur Auswahl' im Reauth, dort gibt es keine Auswahl."""
+    mypyllant, _, _ = _prepare(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+
+    result = await finish_progress(hass, await login(hass, await entry.start_reauth_flow(hass)))
+
+    assert (result["type"], result["step_id"]) == ("menu", "setup_failed")
+    assert result["menu_options"] == ["cancel"]
+
+
+async def test_status_listener_is_unsubscribed_after_a_successful_reconfigure(hass, monkeypatch):
+    """Der Flow meldet seinen eigenen StatusListener beim Ende ab (async_remove); nur der
+    dauerhafte Listener des (neu geladenen) Coordinators darf uebrig bleiben, sonst bliebe ein
+    toter Listener je abgeschlossenem Flow zurueck."""
+    mypyllant, mocks, calls = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    baseline = hass.bus.async_listeners().get("smartheat_status", 0)
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    # +1: der Coordinator des (durch async_update_reload_and_abort neu geladenen) Eintrags
+    # meldet sich dauerhaft an; genau ein Listener, nicht zwei, beweist, dass der Flow seinen
+    # eigenen StatusListener wieder abgemeldet hat.
+    assert hass.bus.async_listeners().get("smartheat_status", 0) == baseline + 1
+
+
+async def test_reconfigure_profile_update_failure_is_a_setup_failure(hass, monkeypatch):
+    mypyllant, mocks, _ = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    mocks.update_profile.side_effect = ApiError("500")
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"]
+
+
+async def test_reconfigure_session_expiry_during_profile_update_goes_back_to_login(hass, monkeypatch):
+    mypyllant, mocks, _ = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    mocks.update_profile.side_effect = InvalidAuth("abgelaufen")
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert (result["step_id"], result["errors"]) == ("user", {"base": "session_expired"})
