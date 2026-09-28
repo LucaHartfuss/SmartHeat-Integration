@@ -20,13 +20,28 @@ HACS-Integration "SmartHeat" (Domain `smartheat`). **Achtung:** das GitHub-Repo 
 - `const.py` — Rollen (`ROLE_DOMAINS`), Add-on-Optionsnamen, Plausibilitätsbereiche, Mindestversionen, der Status-Event-Vertrag (`STATUS_EVENT = "smartheat_status"`, `STATUS_EVENT_SCHEMA`, `STATUS_EVENT_FIELDS`, `ADDON_STATUS_VALUES`, `STATUS_SENSOR_VALUES` = Add-on-Zustände plus die beiden wächtereigenen `addon_gestoppt`/`reagiert_nicht`, `HINT_FIELDS`) sowie `entity_id()`/`signal_update()`/`watchdog_notification_id()`/`repair_issue_id()`.
 - `translations/{de,en}.json`, `strings.json` — alle Texte inkl. `config.hints` (dynamische Hinweise in der UI-Sprache, gelesen über `translation.async_get_translations`) und `selector` (Beschriftungen von `verteilsystem`/`erzeuger_typ` über `translation_key`, keine `*_LABELS`-Konstanten mehr).
 
-## Tests
+## Prüfen und Branches
 
 ```
-python3.14 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
-.venv/bin/python -m pytest -q
+scripts/check.sh          # lint, test, contract (--only <schritt> für einzelne Schritte)
 ```
-(`pytest-homeassistant-custom-component` braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup.) (`pytest.ini`: `asyncio_mode = auto`, `testpaths = tests`.) 241 Tests über 12 Dateien (`test_config_flow.py`, `test_reconfigure.py`, `test_options_flow.py`, `test_coordinator.py`, `test_addon_control.py`, `test_init.py`, `test_supervisor_client.py`, `test_api_client.py`, `test_catalog.py`, `test_detection.py`, `test_validation.py`, `test_const.py`); `addon_fakes.py`/`flow_helpers.py` sind gemeinsame Test-Doubles (Fake-Supervisor/Add-on-Manager, Fake-HA-Bus), keine eigene Testdatei. `tests/fixtures/` enthält Kopien von Server-Daten (`catalog.json`, `client1_mypyllant_registry.json`); Gleichheit mit den echten Server-/Client1-Daten prüft der Contract-Check.
+Direkter Aufruf bleibt möglich: `python3.14 -m venv .venv && .venv/bin/pip install -r
+requirements_test.txt && .venv/bin/python -m pytest -q` (`pytest-homeassistant-custom-component`
+braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup; `pytest.ini`:
+`asyncio_mode = auto`, `testpaths = tests`). Testdateien: `test_config_flow.py`,
+`test_reconfigure.py`, `test_options_flow.py`, `test_coordinator.py`, `test_addon_control.py`,
+`test_init.py`, `test_supervisor_client.py`, `test_api_client.py`, `test_catalog.py`,
+`test_detection.py`, `test_validation.py`, `test_const.py`; Anzahl: siehe CI (Job `test`).
+`addon_fakes.py`/`flow_helpers.py` sind gemeinsame Test-Doubles (Fake-Supervisor/Add-on-Manager,
+Fake-HA-Bus), keine eigene Testdatei. `tests/fixtures/` enthält Kopien von Server-Daten
+(`catalog.json`, `client1_mypyllant_registry.json`); Gleichheit mit den echten
+Server-/Client1-Daten prüft der Contract-Check.
+
+Feature-Branches (`feat/…`/`fix/…`) zweigen von `develop` ab und werden `--no-ff` nach `develop`
+gemergt — nie direkt nach `main`. `main` bewegt sich nur per Release-Tag (`vX.Y.Z`,
+Fortsetzung der bestehenden Tags `v0.1.0`…`v0.2.2`; `-dryrun`-Suffix = Probelauf) — ein Push nach
+`main` ist ein Release, ab dem ersten GitHub-Release bietet HACS Kunden nur noch Releases statt des
+neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbook.md`.
 
 ## Besonderheiten
 

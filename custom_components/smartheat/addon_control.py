@@ -13,9 +13,18 @@ from homeassistant.components.hassio import AddonError, AddonManager, get_superv
 from homeassistant.core import Event, HomeAssistant, callback
 
 from .const import (
-    ADDON_SPECS, ADDON_STATUS_VALUES, BRIDGE_CREDENTIAL_OPTIONS, CLOUDFLARED_ADDON_SLUG,
-    CLOUDFLARED_CREDENTIAL_OPTIONS, HEIZUNGSBRUECKE_ADDON_SLUG, OPTION_ABGEMELDET, SIGN_OFF_WAIT_SECONDS,
-    STATUS_ABGEMELDET, STATUS_EVENT, STATUS_EVENT_SCHEMA, watchdog_notification_id,
+    ADDON_SPECS,
+    ADDON_STATUS_VALUES,
+    BRIDGE_CREDENTIAL_OPTIONS,
+    CLOUDFLARED_ADDON_SLUG,
+    CLOUDFLARED_CREDENTIAL_OPTIONS,
+    HEIZUNGSBRUECKE_ADDON_SLUG,
+    OPTION_ABGEMELDET,
+    SIGN_OFF_WAIT_SECONDS,
+    STATUS_ABGEMELDET,
+    STATUS_EVENT,
+    STATUS_EVENT_SCHEMA,
+    watchdog_notification_id,
 )
 from .supervisor_client import async_find_addon_managers
 

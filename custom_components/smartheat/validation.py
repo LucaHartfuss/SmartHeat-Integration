@@ -10,8 +10,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CLIMATE_ATTRIBUTE_ROOM_SENSOR, CLIMATE_ATTRIBUTE_ROOM_TARGET, OPTION_ENTITY_ROOM_TARGET, OPTION_ROOM_SENSORS,
-    PLAUSIBLE_RANGES, ROOM_SENSOR_DEVIATION_K, STALE_AFTER_HOURS, TEMPERATURE_UNIT, WEATHER_TEMPERATURE_ATTRIBUTE,
+    CLIMATE_ATTRIBUTE_ROOM_SENSOR,
+    CLIMATE_ATTRIBUTE_ROOM_TARGET,
+    OPTION_ENTITY_ROOM_TARGET,
+    OPTION_ROOM_SENSORS,
+    PLAUSIBLE_RANGES,
+    ROOM_SENSOR_DEVIATION_K,
+    STALE_AFTER_HOURS,
+    TEMPERATURE_UNIT,
+    WEATHER_TEMPERATURE_ATTRIBUTE,
     WEATHER_UNIT_ATTRIBUTE,
 )
 
@@ -54,7 +61,9 @@ def read_value(hass: HomeAssistant, ref: str) -> tuple[float | None, str | None]
     if isinstance(raw, bool):
         return None, ERROR_NOT_NUMERIC
     try:
-        value = float(raw)
+        # raw kann None/Any sein (attributes.get() ohne Default); float(None) wirft TypeError,
+        # das der except-Zweig direkt darunter abfaengt -- Verhalten bleibt unveraendert.
+        value = float(raw)  # type: ignore[reportArgumentType]  # None wird per TypeError abgefangen
     except (TypeError, ValueError):
         return None, ERROR_NOT_NUMERIC
     if not math.isfinite(value):
@@ -65,6 +74,10 @@ def read_value(hass: HomeAssistant, ref: str) -> tuple[float | None, str | None]
 def _unit_ok(hass: HomeAssistant, ref: str) -> bool:
     entity_id = entity_of(ref)
     state = hass.states.get(entity_id)
+    # Einziger Aufrufer ist check_temperature() (synchron, kein await dazwischen), das denselben
+    # entity_id ueber read_value() bereits erfolgreich aufgeloest hat -- der State kann sich
+    # zwischen den beiden hass.states.get()-Aufrufen nicht aendern (Single-Thread-Event-Loop).
+    assert state is not None
     domain = _domain(entity_id)
     if domain == "weather":
         return state.attributes.get(WEATHER_UNIT_ATTRIBUTE) == TEMPERATURE_UNIT
@@ -78,6 +91,9 @@ def check_temperature(hass: HomeAssistant, ref: str, bounds: tuple[float, float]
     value, error = read_value(hass, ref)
     if error:
         return error
+    # read_value() liefert laut Vertrag nur (None, <fehlertext>) oder (float, None) -- ist error
+    # hier None (kein fruehes return oben), ist value also garantiert ein float.
+    assert value is not None
     if not _unit_ok(hass, ref):
         return ERROR_UNIT
     if bounds is not None and not bounds[0] <= value <= bounds[1]:

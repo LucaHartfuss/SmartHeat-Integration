@@ -20,11 +20,26 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
-    ADDON_DISPLAY_NAMES, ADDON_SPECS, ADDON_STATUS_VALUES, HEIZUNGSBRUECKE_ADDON_SLUG, MAX_RESTARTS_PER_WINDOW,
-    OPTION_NOTIFY_SERVICES, RESTART_WINDOW_SECONDS, SILENCE_SECONDS, STATUS_ADDON_GESTOPPT, STATUS_EVENT,
-    STATUS_EVENT_SCHEMA, STATUS_REAGIERT_NICHT, STATUS_ZUGANG_ABGELEHNT, STOPPED_AFTER_CHECKS,
-    WATCHDOG_ALL_CLEAR_MESSAGE, WATCHDOG_INTERVAL_SECONDS, WATCHDOG_MESSAGES, WATCHDOG_REASONS,
-    signal_update, watchdog_notification_id,
+    ADDON_DISPLAY_NAMES,
+    ADDON_SPECS,
+    ADDON_STATUS_VALUES,
+    HEIZUNGSBRUECKE_ADDON_SLUG,
+    MAX_RESTARTS_PER_WINDOW,
+    OPTION_NOTIFY_SERVICES,
+    RESTART_WINDOW_SECONDS,
+    SILENCE_SECONDS,
+    STATUS_ADDON_GESTOPPT,
+    STATUS_EVENT,
+    STATUS_EVENT_SCHEMA,
+    STATUS_REAGIERT_NICHT,
+    STATUS_ZUGANG_ABGELEHNT,
+    STOPPED_AFTER_CHECKS,
+    WATCHDOG_ALL_CLEAR_MESSAGE,
+    WATCHDOG_INTERVAL_SECONDS,
+    WATCHDOG_MESSAGES,
+    WATCHDOG_REASONS,
+    signal_update,
+    watchdog_notification_id,
 )
 from .supervisor_client import async_find_addon_managers
 
@@ -252,7 +267,9 @@ class SmartHeatCoordinator:
             names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.incident_addon_slugs())
             reason = WATCHDOG_REASONS[status].format(addons=names)
         else:
-            reason = WATCHDOG_REASONS.get(status)
+            # status kann hier None sein (Entwarnung); WATCHDOG_REASONS kennt nur echte
+            # Waechter-Status als Schluessel, ein None-Lookup ergaebe ohnehin None.
+            reason = WATCHDOG_REASONS.get(status) if status is not None else None
         previous = self.watchdog_status
         changed = (status, reason) != (previous, self._watchdog_reason)
         self.watchdog_status, self._watchdog_reason = status, reason

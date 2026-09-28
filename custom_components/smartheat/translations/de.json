@@ -82,34 +82,6 @@
     "progress": {
       "setup": "SmartHeat wird eingerichtet: Zugang anfordern, Add-ons konfigurieren und starten, auf die Bereit-Meldung des Add-ons warten (bis zu 3 Minuten)."
     },
-    "hints": {
-      "role_entity_curve_current": "Heizkurve",
-      "role_entity_offset_current": "Mindestvorlauf",
-      "role_entity_heat_limit": "Heizgrenze",
-      "role_entity_outdoor_temp": "Außentemperatur",
-      "origin_integration": "{role}: {entity} (erkannt aus {integration})",
-      "origin_weather": "{role}: {entity} (Wetterdienst, deine Heizung hat keinen Außenfühler)",
-      "origin_none": "{role}: nicht erkannt, bitte wählen",
-      "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
-      "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
-      "none": "keine",
-      "notifications_phones": "SmartHeat benachrichtigt die ausgewählten Handys, wenn die Regelung stoppt, ein Raumfühler ausfällt oder eine Batterie schwach wird.",
-      "notifications_no_phones": "Es wurde keine Home-Assistant-Companion-App gefunden. SmartHeat kann wichtige Meldungen (z. B. wenn die Regelung stoppt) deshalb nur als Benachrichtigung in Home Assistant anzeigen. Mit der Companion-App auf einem Handy kommen zusätzlich Push-Nachrichten, z. B. bei ausgefallenem Raumfühler oder schwacher Batterie.",
-      "erzeuger_typ_gastherme": "Gastherme",
-      "erzeuger_typ_waermepumpe": "Wärmepumpe",
-      "verteilsystem_heizkoerper": "Heizkörper",
-      "verteilsystem_fussbodenheizung": "Fußbodenheizung",
-      "addon_missing": "Das Add-on {addon} ist nicht installiert.",
-      "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen.",
-      "addon_outdated": "Das Add-on {addon} ist veraltet (installiert {installed}, benötigt {required}). Bitte aktualisieren.",
-      "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte erneut versuchen.",
-      "provisioning_failed": "Der SmartHeat-Server konnte keine Zugangsdaten ausstellen. Bitte später erneut versuchen.",
-      "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Antwort geliefert. Bitte später erneut versuchen oder den Support kontaktieren.",
-      "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll.",
-      "new_credentials": "Es werden neue Zugangsdaten ausgestellt.",
-      "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",
-      "options_addon_failed": "Das Add-on Heizungsbrücke konnte nicht aktualisiert werden. Bitte den Supervisor prüfen und erneut versuchen."
-    },
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
       "cannot_connect": "SmartHeat-Dienst nicht erreichbar",
@@ -233,5 +205,33 @@
       "title": "SmartHeat: Einrichtung für {tenant} abschließen",
       "description": "Nach dem Update ist die Einrichtung von {tenant} unvollständig. Die Heizungssteuerung pausiert, die Anlage behält ihre letzten Werte. Unter Einstellungen → Geräte & Dienste → SmartHeat über ⋮ → „Neu konfigurieren“ anmelden. Die Zugangsdaten bleiben gleich."
     }
+  },
+  "common": {
+    "role_entity_curve_current": "Heizkurve",
+    "role_entity_offset_current": "Mindestvorlauf",
+    "role_entity_heat_limit": "Heizgrenze",
+    "role_entity_outdoor_temp": "Außentemperatur",
+    "origin_integration": "{role}: {entity} (erkannt aus {integration})",
+    "origin_weather": "{role}: {entity} (Wetterdienst, deine Heizung hat keinen Außenfühler)",
+    "origin_none": "{role}: nicht erkannt, bitte wählen",
+    "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
+    "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
+    "none": "keine",
+    "notifications_phones": "SmartHeat benachrichtigt die ausgewählten Handys, wenn die Regelung stoppt, ein Raumfühler ausfällt oder eine Batterie schwach wird.",
+    "notifications_no_phones": "Es wurde keine Home-Assistant-Companion-App gefunden. SmartHeat kann wichtige Meldungen (z. B. wenn die Regelung stoppt) deshalb nur als Benachrichtigung in Home Assistant anzeigen. Mit der Companion-App auf einem Handy kommen zusätzlich Push-Nachrichten, z. B. bei ausgefallenem Raumfühler oder schwacher Batterie.",
+    "erzeuger_typ_gastherme": "Gastherme",
+    "erzeuger_typ_waermepumpe": "Wärmepumpe",
+    "verteilsystem_heizkoerper": "Heizkörper",
+    "verteilsystem_fussbodenheizung": "Fußbodenheizung",
+    "addon_missing": "Das Add-on {addon} ist nicht installiert.",
+    "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen.",
+    "addon_outdated": "Das Add-on {addon} ist veraltet (installiert {installed}, benötigt {required}). Bitte aktualisieren.",
+    "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte erneut versuchen.",
+    "provisioning_failed": "Der SmartHeat-Server konnte keine Zugangsdaten ausstellen. Bitte später erneut versuchen.",
+    "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Antwort geliefert. Bitte später erneut versuchen oder den Support kontaktieren.",
+    "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll.",
+    "new_credentials": "Es werden neue Zugangsdaten ausgestellt.",
+    "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",
+    "options_addon_failed": "Das Add-on Heizungsbrücke konnte nicht aktualisiert werden. Bitte den Supervisor prüfen und erneut versuchen."
   }
 }

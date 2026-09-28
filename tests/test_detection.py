@@ -1,13 +1,24 @@
 """Erkennungs-Engine (Spec TP6 2.2, Tests laut Spec 6)."""
 import json
+from collections import UserDict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from custom_components.smartheat import detection
 from custom_components.smartheat.catalog import parse_integrations
 from custom_components.smartheat.detection import (
-    DeviceInfo, RegistryEntry, WeatherCandidate, battery_entities, find_circuits, installed_integrations,
-    mobile_app_services, suggest_erzeuger_typ, system_role_suggestions, weather_fallback,
+    DeviceInfo,
+    RegistryEntry,
+    WeatherCandidate,
+    battery_entities,
+    find_circuits,
+    installed_integrations,
+    mobile_app_services,
+    suggest_erzeuger_typ,
+    system_role_suggestions,
+    weather_fallback,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -190,3 +201,33 @@ def test_mobile_app_services():
 def test_installed_integrations_needs_a_config_entry():
     assert installed_integrations([MYPYLLANT], {"mypyllant", "met"}) == [MYPYLLANT]
     assert installed_integrations([MYPYLLANT], {"met"}) == []
+
+
+def _fake_registries(monkeypatch, devices_container):
+    """Registry-Adapter ohne hass: .devices ist je nach HA-Version ein Mapping (bis 2026.8) oder
+    eine iterierbare DeviceEntry-Sicht (ab 2026.9)."""
+    entity = SimpleNamespace(
+        entity_id="number.zuhause_circuit_0_heating_curve", unique_id="u1", platform="mypyllant",
+        original_name="Heizkurve", config_entry_id="e1", device_id="d1", device_class=None,
+        original_device_class=None,
+    )
+    monkeypatch.setattr(detection.er, "async_get", lambda hass: SimpleNamespace(entities={"x": entity}))
+    monkeypatch.setattr(detection.dr, "async_get", lambda hass: SimpleNamespace(devices=devices_container))
+
+
+_DEVICE = SimpleNamespace(id="d1", name_by_user=None, name="Zuhause", model="ecoTEC plus", config_entries={"e1"})
+_EXPECTED_DEVICES = [DeviceInfo("d1", "Zuhause", "ecoTEC plus", ("e1",))]
+
+
+@pytest.mark.parametrize("container", [
+    UserDict({"d1": _DEVICE}),  # HA 2026.4.4 (client1): ActiveDeviceRegistryItems ist ein UserDict
+    {"d1": _DEVICE},
+    [_DEVICE],  # HA 2026.9: iterierbare Sicht liefert DeviceEntry-Objekte
+])
+def test_registry_snapshot_reads_devices_from_mapping_and_collection(monkeypatch, container):
+    _fake_registries(monkeypatch, container)
+
+    entries, devices = detection.registry_snapshot(None)  # type: ignore[arg-type]
+
+    assert [e.entity_id for e in entries] == ["number.zuhause_circuit_0_heating_curve"]
+    assert devices == _EXPECTED_DEVICES

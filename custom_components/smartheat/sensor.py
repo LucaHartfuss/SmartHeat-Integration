@@ -5,12 +5,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import isfinite
+from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
 from .const import ABO_VALUES, BOOST_VALUES, DATENFEHLER_ARTEN, DATENFEHLER_KEINER, HINT_FIELDS, STATUS_SENSOR_VALUES
@@ -31,10 +33,13 @@ def _fault(data: dict) -> dict:
 @dataclass(frozen=True, kw_only=True)
 class EventField:
     key: str
-    value: Callable[[dict], object]
+    # Alle Lambdas in FIELDS unten liefern nur str/float/None (JSON-Skalare) oder datetime|None
+    # (letzte_serverantwort) -- object waere zu weit gefasst fuer _attr_native_value (StateType |
+    # date | datetime | Decimal).
+    value: Callable[[dict], StateType | datetime]
     attributes: Callable[[dict], dict] = lambda data: {}
     attribute_keys: tuple[str, ...] = ()
-    restore: Callable[[str], object] = lambda state: state
+    restore: Callable[[str], StateType | datetime] = lambda state: state
     device_class: SensorDeviceClass | None = None
     options: list[str] | None = field(default=None)
     unit: str | None = None
@@ -100,6 +105,10 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
 
 
 class EventSensor(SmartHeatEntity, SensorEntity):
+    # Wie HAs eigenes _attr_native_value (sensor/__init__.py): Default None, hier zusaetzlich
+    # explizit optional, da _apply() bei fehlenden Attributen bewusst None zuweist (M2).
+    _attr_extra_state_attributes: dict[str, Any] | None = None
+
     def __init__(self, coordinator, event_field: EventField) -> None:
         super().__init__(coordinator, "sensor", event_field.key)
         self._field = event_field
@@ -110,6 +119,9 @@ class EventSensor(SmartHeatEntity, SensorEntity):
 
     def _apply(self) -> None:
         data = self.coordinator.data
+        # _apply() laeuft laut SmartHeatEntity nur, wenn _has_value() True ist, d.h.
+        # self.coordinator.data ist nicht None (siehe entity.py).
+        assert data is not None
         self._attr_native_value = self._safe_value(data)
         try:
             attributes = self._field.attributes(data) or None

@@ -82,34 +82,6 @@
     "progress": {
       "setup": "Setting up SmartHeat: requesting access, configuring and starting the add-ons, waiting for the add-on to report ready (up to 3 minutes)."
     },
-    "hints": {
-      "role_entity_curve_current": "Heating curve",
-      "role_entity_offset_current": "Minimum flow temperature",
-      "role_entity_heat_limit": "Heating limit",
-      "role_entity_outdoor_temp": "Outdoor temperature",
-      "origin_integration": "{role}: {entity} (detected from {integration})",
-      "origin_weather": "{role}: {entity} (weather service, your heating has no outdoor sensor)",
-      "origin_none": "{role}: not detected, please choose",
-      "warning_stale": "No update for more than 6 hours: {entities}",
-      "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
-      "none": "none",
-      "notifications_phones": "SmartHeat notifies the selected phones when the control stops, a room sensor fails or a battery runs low.",
-      "notifications_no_phones": "No Home Assistant companion app was found, so SmartHeat can only show its important messages (e.g. when the control stops) as notifications in Home Assistant. Install the companion app on a phone to also receive push messages, e.g. about a failed room sensor or a low battery.",
-      "erzeuger_typ_gastherme": "gas boiler",
-      "erzeuger_typ_waermepumpe": "heat pump",
-      "verteilsystem_heizkoerper": "radiators",
-      "verteilsystem_fussbodenheizung": "underfloor heating",
-      "addon_missing": "The add-on {addon} is not installed.",
-      "addon_ambiguous": "The add-on {addon} is installed more than once. Please remove the duplicate installation.",
-      "addon_outdated": "The add-on {addon} is outdated (installed {installed}, required {required}). Please update it.",
-      "supervisor_unavailable": "The Supervisor is not reachable. Please try again.",
-      "provisioning_failed": "The SmartHeat server could not issue access credentials. Please try again later.",
-      "invalid_provisioning_response": "The SmartHeat server returned an incomplete setup response. Please try again later or contact support.",
-      "setup_unexpected": "Unexpected error during setup, see the Home Assistant log.",
-      "new_credentials": "New access credentials will be issued.",
-      "profile_update_failed": "The SmartHeat server could not change the heating profile. Please try again later.",
-      "options_addon_failed": "The Heizungsbruecke add-on could not be updated. Please check the Supervisor and try again."
-    },
     "error": {
       "invalid_auth": "Invalid email or password",
       "cannot_connect": "Could not reach the SmartHeat service",
@@ -233,5 +205,33 @@
       "title": "SmartHeat: complete the setup for {tenant}",
       "description": "After the update the setup of {tenant} is incomplete. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
     }
+  },
+  "common": {
+    "role_entity_curve_current": "Heating curve",
+    "role_entity_offset_current": "Minimum flow temperature",
+    "role_entity_heat_limit": "Heating limit",
+    "role_entity_outdoor_temp": "Outdoor temperature",
+    "origin_integration": "{role}: {entity} (detected from {integration})",
+    "origin_weather": "{role}: {entity} (weather service, your heating has no outdoor sensor)",
+    "origin_none": "{role}: not detected, please choose",
+    "warning_stale": "No update for more than 6 hours: {entities}",
+    "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
+    "none": "none",
+    "notifications_phones": "SmartHeat notifies the selected phones when the control stops, a room sensor fails or a battery runs low.",
+    "notifications_no_phones": "No Home Assistant companion app was found, so SmartHeat can only show its important messages (e.g. when the control stops) as notifications in Home Assistant. Install the companion app on a phone to also receive push messages, e.g. about a failed room sensor or a low battery.",
+    "erzeuger_typ_gastherme": "gas boiler",
+    "erzeuger_typ_waermepumpe": "heat pump",
+    "verteilsystem_heizkoerper": "radiators",
+    "verteilsystem_fussbodenheizung": "underfloor heating",
+    "addon_missing": "The add-on {addon} is not installed.",
+    "addon_ambiguous": "The add-on {addon} is installed more than once. Please remove the duplicate installation.",
+    "addon_outdated": "The add-on {addon} is outdated (installed {installed}, required {required}). Please update it.",
+    "supervisor_unavailable": "The Supervisor is not reachable. Please try again.",
+    "provisioning_failed": "The SmartHeat server could not issue access credentials. Please try again later.",
+    "invalid_provisioning_response": "The SmartHeat server returned an incomplete setup response. Please try again later or contact support.",
+    "setup_unexpected": "Unexpected error during setup, see the Home Assistant log.",
+    "new_credentials": "New access credentials will be issued.",
+    "profile_update_failed": "The SmartHeat server could not change the heating profile. Please try again later.",
+    "options_addon_failed": "The Heizungsbruecke add-on could not be updated. Please check the Supervisor and try again."
   }
 }

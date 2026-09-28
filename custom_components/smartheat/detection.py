@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from .catalog import REQUIRED_CIRCUIT_ROLES, IntegrationDescriptor
 from .const import TEMPERATURE_UNIT, WEATHER_TEMPERATURE_ATTRIBUTE, WEATHER_UNIT_ATTRIBUTE
@@ -85,7 +86,11 @@ def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry
         for role, matcher in descriptor.circuit_roles.items():
             if _domain_of(entry.entity_id) != matcher.entity_domain:
                 continue
-            match = matcher.uid_pattern().search(entry.unique_id)
+            pattern = matcher.uid_pattern()
+            # circuit_roles enthaelt laut _matcher()-Vertrag (catalog.py) nur RoleMatcher mit
+            # gesetztem unique_id_suffix -- uid_pattern() ist hier also nie None.
+            assert pattern is not None
+            match = pattern.search(entry.unique_id)
             if match is None:
                 continue
             key = (entry.config_entry_id, _normalize(entry.unique_id[:match.start()], descriptor.domain), match.group(1))
@@ -99,7 +104,8 @@ def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry
         if any(len(roles.get(role, [])) != 1 for role in REQUIRED_CIRCUIT_ROLES):
             _LOGGER.info("Heizkreis %s unvollstaendig oder mehrdeutig, nicht angeboten: %s", key, roles)
             continue
-        device = devices_by_id.get(curve_devices.get(key))
+        curve_device_id = curve_devices.get(key)
+        device = devices_by_id.get(curve_device_id) if curve_device_id is not None else None
         label = device.name if device is not None and device.name else f"Heizkreis {key[2]}"
         found = {role: ids[0] for role, ids in roles.items() if len(ids) == 1}
         circuits.append(Circuit(key[0], key[1], key[2], label, found))
@@ -127,8 +133,12 @@ def system_role_suggestions(descriptor: IntegrationDescriptor, circuit: Circuit,
             if matcher.unique_id_suffix is not None:
                 if not unique_id.endswith(matcher.unique_id_suffix):
                     continue
-            elif not (entry.original_name or "").lower().endswith(matcher.original_name_suffix.lower()):
-                continue
+            else:
+                # _matcher() garantiert pro Rolle genau eine Suchart: ist unique_id_suffix None,
+                # ist original_name_suffix gesetzt (catalog.py).
+                assert matcher.original_name_suffix is not None
+                if not (entry.original_name or "").lower().endswith(matcher.original_name_suffix.lower()):
+                    continue
             hits.append(entry.entity_id)
         if len(hits) == 1:
             result[role] = hits[0]
@@ -189,9 +199,17 @@ def registry_snapshot(hass: HomeAssistant) -> tuple[list[RegistryEntry], list[De
         )
         for entry in er.async_get(hass).entities.values()
     ]
+    # .devices ist versionsabhaengig: bis HA 2026.8 (client1: 2026.4.4) ein Mapping device_id ->
+    # DeviceEntry (Iteration liefert IDs), ab 2026.9 eine iterierbare DeviceEntry-Sicht, deren
+    # Mapping-Zugriffe (.values()) deprecated sind (bricht 2027.9). Daher nur bei einem echten
+    # Mapping .values(), sonst direkt iterieren.
+    registry_devices = dr.async_get(hass).devices
+    device_entries: Iterable[dr.DeviceEntry] = (
+        registry_devices.values() if isinstance(registry_devices, Mapping) else registry_devices
+    )
     devices = [
         DeviceInfo(device.id, device.name_by_user or device.name, device.model, tuple(device.config_entries))
-        for device in dr.async_get(hass).devices.values()
+        for device in device_entries
     ]
     return entries, devices
 

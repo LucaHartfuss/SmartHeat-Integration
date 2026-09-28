@@ -2,7 +2,9 @@ import pytest
 from aiohttp import web
 
 from custom_components.smartheat.api_client import (
-    ApiError, CannotConnect, HeizungsserverClient, InvalidAuth,
+    ApiError,
+    HeizungsserverClient,
+    InvalidAuth,
 )
 
 # pytest-homeassistant-custom-component blockt echte Sockets standardmaessig
