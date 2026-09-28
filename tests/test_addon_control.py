@@ -200,6 +200,29 @@ async def test_remove_completes_when_the_server_refuses_or_is_away(hass, monkeyp
     assert "geheim-pw-123" not in caplog.text
 
 
+async def test_remove_completes_when_the_server_call_raises_unexpectedly(hass, monkeypatch, dismissed, caplog):
+    """F8 (finale Review, TP8): api_client faengt ClientError/TimeoutError selbst ab, aber ein
+    unerwarteter Fehler (z. B. RuntimeError durch einen Bug) darf async_sign_off nicht mit einer
+    Exception abbrechen lassen -- das Leeren der Add-on-Optionen und das Entfernen der
+    Benachrichtigung muessen trotzdem laufen."""
+    class _BrokenClient:
+        async def delete_installation(self, tenant_id, username, password):
+            raise RuntimeError("unerwarteter Bug")
+
+    log = []
+    bridge, cloudflared = _addons(hass, monkeypatch, log, bridge_options={
+        "tenant_id": TENANT, "mqtt_username": "wohnung1_abc", "mqtt_password": "geheim-pw-123",
+    })
+    monkeypatch.setattr(f"{AC}.HeizungsserverClient", lambda session, base_url: _BrokenClient())
+
+    await addon_control.async_sign_off(hass, TENANT)  # darf nicht werfen
+
+    assert bridge.options["mqtt_password"] == "" and cloudflared.options["service_token_secret"] == ""
+    assert dismissed == ["smartheat_wohnung1_addon"]
+    assert "unerwartet" in caplog.text
+    assert "geheim-pw-123" not in caplog.text
+
+
 async def test_no_revoke_without_credentials(hass, monkeypatch, dismissed, caplog):
     log = []
     _addons(hass, monkeypatch, log, bridge_options={"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": ""})

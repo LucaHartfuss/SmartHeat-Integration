@@ -153,8 +153,15 @@ async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentia
     if credentials is None:
         _LOGGER.info("Entfernen: keine Zugangsdaten in der Heizungsbruecke, kein Widerruf auf dem Server")
         return
-    client = HeizungsserverClient(async_get_clientsession(hass), credentials.base_url)
-    status = await client.delete_installation(tenant_id, credentials.username, credentials.password)
+    try:
+        client = HeizungsserverClient(async_get_clientsession(hass), credentials.base_url)
+        status = await client.delete_installation(tenant_id, credentials.username, credentials.password)
+    except Exception as error:  # noqa: BLE001 -- best effort (F8, finale Review TP8): api_client
+        # faengt ClientError/TimeoutError bereits selbst ab, aber ein unerwarteter Fehler (z. B. ein
+        # Bug in der Aufrufkette) darf das Leeren der Add-on-Zugangsdaten unten nicht verhindern.
+        # Nie Zugangsdaten loggen.
+        _LOGGER.warning("Entfernen: Widerruf auf dem Server unerwartet fehlgeschlagen: %s", error)
+        return
     if status == 204:
         _LOGGER.info("Entfernen: Zugangsdaten auf dem Server widerrufen")
     elif status == 401:
