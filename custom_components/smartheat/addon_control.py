@@ -5,21 +5,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonBoot, AddonsOptions
 from homeassistant.components import persistent_notification
 from homeassistant.components.hassio import AddonError, AddonManager, get_supervisor_client
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api_client import HeizungsserverClient
 from .const import (
     ADDON_SPECS,
     ADDON_STATUS_VALUES,
     BRIDGE_CREDENTIAL_OPTIONS,
     CLOUDFLARED_ADDON_SLUG,
     CLOUDFLARED_CREDENTIAL_OPTIONS,
+    DEFAULT_HEIZUNGSSERVER_BASE_URL,
     HEIZUNGSBRUECKE_ADDON_SLUG,
     OPTION_ABGEMELDET,
+    OPTION_ACCOUNTS_API_BASE_URL,
     SIGN_OFF_WAIT_SECONDS,
     STATUS_ABGEMELDET,
     STATUS_EVENT,
@@ -118,12 +123,64 @@ async def async_set_supervision(hass: HomeAssistant, slugs: list[str], enabled: 
     return failed
 
 
+@dataclass(frozen=True)
+class _ServerCredentials:
+    base_url: str
+    username: str
+    password: str
+
+
+async def _async_read_server_credentials(bridge: AddonManager | None) -> _ServerCredentials | None:
+    """Zugangsdaten und Basis-URL aus den Optionen der Heizungsbruecke -- vor dem Leeren gelesen."""
+    if bridge is None:
+        return None
+    try:
+        options = (await bridge.async_get_addon_info()).options
+    except AddonError as error:
+        _LOGGER.warning("Entfernen: Optionen der Heizungsbruecke nicht lesbar, kein Widerruf auf dem Server: %s", error)
+        return None
+    username_key, password_key = BRIDGE_CREDENTIAL_OPTIONS
+    username, password = options.get(username_key), options.get(password_key)
+    if not username or not password:
+        return None
+    base_url = options.get(OPTION_ACCOUNTS_API_BASE_URL) or DEFAULT_HEIZUNGSSERVER_BASE_URL
+    return _ServerCredentials(base_url, username, password)
+
+
+async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentials: _ServerCredentials | None) -> None:
+    """Spec TP8 4: best effort. Scheitert es, bleiben die Zugangsdaten bis zur naechsten
+    Einrichtung gueltig; das Entfernen laeuft trotzdem weiter. Nie Zugangsdaten loggen."""
+    if credentials is None:
+        _LOGGER.info("Entfernen: keine Zugangsdaten in der Heizungsbruecke, kein Widerruf auf dem Server")
+        return
+    try:
+        client = HeizungsserverClient(async_get_clientsession(hass), credentials.base_url)
+        status = await client.delete_installation(tenant_id, credentials.username, credentials.password)
+    except Exception as error:  # noqa: BLE001 -- best effort (F8, finale Review TP8): api_client
+        # faengt ClientError/TimeoutError bereits selbst ab, aber ein unerwarteter Fehler (z. B. ein
+        # Bug in der Aufrufkette) darf das Leeren der Add-on-Zugangsdaten unten nicht verhindern.
+        # Nie Zugangsdaten loggen.
+        _LOGGER.warning("Entfernen: Widerruf auf dem Server unerwartet fehlgeschlagen: %s", error)
+        return
+    if status == 204:
+        _LOGGER.info("Entfernen: Zugangsdaten auf dem Server widerrufen")
+    elif status == 401:
+        _LOGGER.warning("Entfernen: Server kennt die Zugangsdaten nicht (bereits ersetzt?)")
+    elif status is None:
+        _LOGGER.warning("Entfernen: Server nicht erreichbar, die Zugangsdaten bleiben bis zur naechsten Einrichtung gueltig")
+    else:
+        _LOGGER.warning(
+            "Entfernen: Widerruf auf dem Server fehlgeschlagen (HTTP %s), die Zugangsdaten bleiben bis zur "
+            "naechsten Einrichtung gueltig", status,
+        )
+
+
 async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
     """Entfernen (Spec TP7 2.7), jeder Schritt best effort: Heizungsbruecke abmelden (ein laufender
     Boost wird zurueckgesetzt), hoechstens SIGN_OFF_WAIT_SECONDS auf `abgemeldet` warten, beide
     Add-ons stoppen (manuell, der Watchdog greift nicht), Watchdog/Boot aus, Zugangsdaten in den
-    Optionen leeren, eigene Benachrichtigung entfernen. Serverseitig bleibt der MQTT-Benutzer bis
-    zum naechsten provision() oder zur Kuendigung gueltig (TP8)."""
+    Optionen leeren, eigene Benachrichtigung entfernen. Nach dem Stoppen widerruft der Server die
+    Zugangsdaten (Spec TP8 4, best effort)."""
     try:
         managers = await async_find_addon_managers(hass, ADDON_SPECS)
     except AddonError as error:
@@ -131,6 +188,7 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
         managers = {}
     bridge = managers.get(HEIZUNGSBRUECKE_ADDON_SLUG)
     cloudflared = managers.get(CLOUDFLARED_ADDON_SLUG)
+    credentials = await _async_read_server_credentials(bridge)
     if bridge is not None:
         await _async_sign_off_bridge(hass, bridge, tenant_id)
     present = [manager for manager in (bridge, cloudflared) if manager is not None]
@@ -141,6 +199,7 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
             _LOGGER.warning("Entfernen: Add-on %s nicht gestoppt: %s", manager.addon_slug, error)
     if present:
         await async_set_supervision(hass, [manager.addon_slug for manager in present], enabled=False)
+    await _async_revoke_on_server(hass, tenant_id, credentials)
     for manager, keys in ((bridge, BRIDGE_CREDENTIAL_OPTIONS), (cloudflared, CLOUDFLARED_CREDENTIAL_OPTIONS)):
         if manager is None:
             continue

@@ -1,14 +1,27 @@
 """Async HTTP-Client fuer die heizungsserver-Accounts-API (Login, Tenants, Katalog,
-Provisioning, Logout). Ersetzt die synchronen requests.post()-Aufrufe aus dem alten
-heizungsbruecke/web.py-Wizard -- dieselbe API, nur async und ohne Flask-Session.
+Provisioning, Logout, Widerruf beim Entfernen). Ersetzt die synchronen requests.post()-Aufrufe
+aus dem alten heizungsbruecke/web.py-Wizard -- dieselbe API, nur async und ohne Flask-Session.
 """
 from __future__ import annotations
 
+import asyncio
+import base64
 from typing import Any
 
 import aiohttp
 
-from .const import PROFILE_PATH
+from .const import INSTALLATION_PATH, PROFILE_PATH, REVOKE_TIMEOUT_SECONDS
+
+
+def _basic_auth_header(username: str, password: str) -> str:
+    """Baut den Authorization-Header fuer HTTP Basic selbst (RFC 7617), statt der von aiohttp
+    3.14 als deprecated markierten `auth=aiohttp.BasicAuth(...)`. `aiohttp.encode_basic_auth()`
+    scheidet aus: die Mindestversion in hacs.json (HA 2026.4.0) bindet keine aiohttp-Version, in
+    der diese Funktion garantiert existiert -- ein AttributeError daraus liegt ausserhalb der in
+    delete_installation() gefangenen Exceptions und wuerde das Entfernen der Integration
+    abbrechen. Niemals loggen (Regel 6)."""
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return f"Basic {token}"
 
 
 class ApiError(Exception):
@@ -99,6 +112,20 @@ class HeizungsserverClient:
                     raise ApiError(f"Logout fehlgeschlagen (HTTP {response.status})")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
+    async def delete_installation(self, tenant_id: str, username: str, password: str) -> int | None:
+        """Widerruft die MQTT-Zugangsdaten dieser Anlage auf dem Server (Spec TP8 4), angemeldet mit
+        genau diesen Zugangsdaten. Gibt den HTTP-Status zurueck, None ohne Verbindung/Timeout. Wirft
+        nie: das Entfernen der Integration laeuft in jedem Fall weiter."""
+        try:
+            async with asyncio.timeout(REVOKE_TIMEOUT_SECONDS):
+                async with self._session.delete(
+                    f"{self._base_url}{INSTALLATION_PATH.format(tenant_id=tenant_id)}",
+                    headers={"Authorization": _basic_auth_header(username, password)},
+                ) as response:
+                    return response.status
+        except (aiohttp.ClientError, TimeoutError):
+            return None
 
     async def _read_json(self, response: aiohttp.ClientResponse, error_message: str) -> Any:
         """Liest den JSON-Body einer bereits als 200 akzeptierten Antwort. Ein falscher

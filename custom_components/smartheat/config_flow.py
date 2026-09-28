@@ -41,6 +41,7 @@ from .const import (
     KPI_SCALAR_ROLE_BY_CAPABILITY,
     MIN_ADDON_VERSIONS,
     OPTION_ABGEMELDET,
+    OPTION_ACCOUNTS_API_BASE_URL,
     OPTION_BATTERY_ENTITIES,
     OPTION_ENTITY_ROOM_TARGET,
     OPTION_NOTIFY_HINTS_OFF,
@@ -819,7 +820,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         options.update({
             "tenant_id": self._tenant_id,
             **access,
-            "accounts_api_base_url": DEFAULT_HEIZUNGSSERVER_BASE_URL,
+            OPTION_ACCOUNTS_API_BASE_URL: DEFAULT_HEIZUNGSSERVER_BASE_URL,
             OPTION_ROOM_SENSORS: list(self._room_sensors),
             OPTION_NOTIFY_SERVICES: list(notify_services),
             OPTION_BATTERY_ENTITIES: list(self._battery_entities),

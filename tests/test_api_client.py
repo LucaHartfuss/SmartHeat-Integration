@@ -1,3 +1,6 @@
+import base64
+
+import aiohttp
 import pytest
 from aiohttp import web
 
@@ -234,3 +237,32 @@ async def test_update_profile_raises_api_error_on_invalid_json_body(aiohttp_clie
 
     with pytest.raises(ApiError):
         await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")
+
+
+@pytest.mark.parametrize("status", [204, 401, 500])
+async def test_delete_installation_sends_basic_auth_and_returns_the_status(aiohttp_client, status):
+    seen = {}
+
+    async def handler(request):
+        seen["auth"] = request.headers.get("Authorization")
+        seen["tenant"] = request.match_info["tenant_id"]
+        return web.Response(status=status)
+
+    app = web.Application()
+    app.router.add_delete("/tenants/{tenant_id}/installation", handler)
+    client = await aiohttp_client(app)
+
+    result = await HeizungsserverClient(client, "").delete_installation("wohnung1", "wohnung1_abc", "geheim")
+
+    assert result == status
+    expected_token = base64.b64encode(b"wohnung1_abc:geheim").decode()
+    assert seen == {"auth": f"Basic {expected_token}", "tenant": "wohnung1"}
+
+
+async def test_delete_installation_returns_none_without_connection():
+    session = aiohttp.ClientSession()
+    try:
+        result = await HeizungsserverClient(session, "http://127.0.0.1:9").delete_installation("w", "u", "p")
+    finally:
+        await session.close()
+    assert result is None
