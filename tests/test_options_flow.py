@@ -1,16 +1,19 @@
 """Optionen ohne Login (Spec TP7 2.2)."""
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.components.hassio import AddonError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import make_entry
 from .flow_helpers import (
     BRIDGE_OPTIONS, configure, enable_supervisor, fast_status_wait, finish_progress, mock_addons, mock_server,
-    register_phones, setup_mypyllant, setup_rooms, suggested,
+    register_phones, select_values, setup_mypyllant, setup_rooms, suggested,
 )
 
 NEW_ROOMS = {
@@ -121,6 +124,130 @@ async def test_configuration_error_shows_the_reason_and_keeps_the_old_options(ha
     assert result["step_id"] == "init"
     assert suggested(result, "room_sensors") == NEW_ROOMS["room_sensors"]
     assert entry.options == before
+
+
+async def test_notify_services_survive_when_no_phone_is_currently_registered(hass, monkeypatch):
+    """Fund Review-Runde 1 (1): kein Handy gerade registriert (Begleit-App noch nicht geladen o.
+    Ae.) darf das gespeicherte notify_services nicht beim naechsten Speichern auf leer setzen."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    mypyllant = setup_mypyllant(hass)
+    setup_rooms(hass)
+    # register_phones() bewusst nicht aufgerufen: aktuell kein Handy registriert.
+    fast_status_wait(monkeypatch)
+    mock_addons(hass, monkeypatch, existing_options=BRIDGE_OPTIONS)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)  # notify_services: [pixel]
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert suggested(result, "notify_services") == ["notify.mobile_app_pixel"]
+    assert select_values(result, "notify_services") == ["notify.mobile_app_pixel"]
+
+    changed = {**NEW_ROOMS, "notify_services": ["notify.mobile_app_pixel"]}
+    result = await finish_progress(hass, await configure(hass, result, changed))
+
+    assert result["type"] == "create_entry"
+    assert entry.options["notify_services"] == ["notify.mobile_app_pixel"]
+
+
+async def test_a_stored_but_currently_unregistered_phone_stays_selectable(hass, monkeypatch):
+    """Fund Review-Runde 1 (1): ein frueher gewaehltes Handy, das gerade nicht registriert ist
+    (z. B. ein zweites Telefon offline), faellt nicht aus der Auswahl und verschwindet nicht beim
+    Speichern, ohne dass der Kunde es abgewaehlt hat."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    mypyllant = setup_mypyllant(hass)
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")  # mobile_app_iphone bewusst nicht registriert
+    fast_status_wait(monkeypatch)
+    mock_addons(hass, monkeypatch, existing_options=BRIDGE_OPTIONS)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id, options={
+        "room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": ["notify.mobile_app_pixel", "notify.mobile_app_iphone"],
+        "battery_entities": ["sensor.wz_batterie"], "notify_hints_off": [],
+    })
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert suggested(result, "notify_services") == ["notify.mobile_app_pixel", "notify.mobile_app_iphone"]
+    assert select_values(result, "notify_services") == ["notify.mobile_app_pixel", "notify.mobile_app_iphone"]
+
+    changed = {**NEW_ROOMS, "notify_services": ["notify.mobile_app_pixel", "notify.mobile_app_iphone"]}
+    result = await finish_progress(hass, await configure(hass, result, changed))
+
+    assert result["type"] == "create_entry"
+    assert entry.options["notify_services"] == ["notify.mobile_app_pixel", "notify.mobile_app_iphone"]
+
+
+async def test_addon_write_failure_keeps_a_fixed_text_and_the_old_options(hass, monkeypatch):
+    """Ein Supervisor-Fehler beim Schreiben der Add-on-Optionen zeigt einen festen Hinweistext
+    (nicht die Supervisor-Meldung, die Optionswerte zitieren kann) und laesst entry.options und
+    die Add-on-Optionen unveraendert; kein Neustart."""
+    error = AddonError(f"invalid option mqtt_password={BRIDGE_OPTIONS['mqtt_password']}")
+    result, entry, calls, _ = await _open(hass, monkeypatch, set_error=error)
+    before = dict(entry.options)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    grund = result["description_placeholders"]["grund"]
+    assert result["step_id"] == "failed"
+    assert grund == await async_hint(hass, "options_addon_failed")
+    assert BRIDGE_OPTIONS["mqtt_password"] not in grund
+    assert entry.options == before
+    assert calls.options == {}
+    assert calls.restarts == []
+
+
+async def test_zugang_abgelehnt_is_a_failure_with_reason(hass, monkeypatch):
+    """Wie konfigurationsfehler: zugang_abgelehnt fuehrt ebenfalls auf `failed`, mit dem Grund vom
+    Add-on, und laesst die alten Optionen unveraendert (bislang nur konfigurationsfehler getestet)."""
+    result, entry, _, _ = await _open(
+        hass, monkeypatch, status="zugang_abgelehnt", grund="Zugangsdaten vom Server abgelehnt",
+    )
+    before = dict(entry.options)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert (result["step_id"], result["description_placeholders"]["grund"]) == (
+        "failed", "Zugangsdaten vom Server abgelehnt",
+    )
+    assert entry.options == before
+
+
+async def test_an_unexpected_exception_shows_the_generic_hint(hass, monkeypatch):
+    """Ein unerwarteter Fehler (nicht die bekannten Add-on-/Statusfaelle) fuehrt ueber
+    setup_unexpected auf `failed`, ohne die alten Optionen zu aendern."""
+    result, entry, _, _ = await _open(hass, monkeypatch)
+    before = dict(entry.options)
+    monkeypatch.setattr(
+        "custom_components.smartheat.addon_control.StatusListener.async_wait",
+        AsyncMock(side_effect=RuntimeError("kaputt")),
+    )
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    grund = result["description_placeholders"]["grund"]
+    assert result["step_id"] == "failed"
+    assert grund == await async_hint(hass, "setup_unexpected")
+    assert "kaputt" not in grund
+    assert entry.options == before
+
+
+async def test_a_stored_notify_hints_off_defaults_the_switch_to_false(hass, monkeypatch):
+    """Ein Hinweis-Schalter, den der Kunde zuvor abgeschaltet hat (`notify_hints_off`), oeffnet
+    sich mit `default=False`, nicht mit dem ueblichen `True`."""
+    entry = make_entry(hass, options={
+        "room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.wz_batterie"],
+        "notify_hints_off": ["batterie", "quellwechsel"],
+    })
+
+    result, _, _, _ = await _open(hass, monkeypatch, entry=entry)
+
+    schema = result["data_schema"].schema
+    defaults = {
+        category: next(k for k in schema if k == f"hint_{category}").default()
+        for category in ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
+    }
+    assert defaults == {"raumfuehler": True, "batterie": False, "manueller_eingriff": True, "quellwechsel": False}
 
 
 async def test_incomplete_entry_has_no_options_yet(hass, monkeypatch):

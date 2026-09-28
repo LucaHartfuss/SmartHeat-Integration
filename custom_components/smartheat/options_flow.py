@@ -52,18 +52,26 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
     def _services(self) -> list[str]:
         return detection.mobile_app_services(self.hass.services.async_services_for_domain("notify"))
 
-    def _suggested(self, services: list[str]) -> dict:
+    def _notify_options(self, services: list[str]) -> list[str]:
+        """Aktuell registrierte Handys plus gespeicherte, aber gerade nicht registrierte (Begleit-
+        App kurz offline oder noch nicht geladen). Sonst wuerde das Feld beim Oeffnen entweder ganz
+        verschwinden oder ein gespeichertes Handy aus der Auswahl fallen, und ein Speichern ohne
+        Absicht des Kunden wuerde es aus notify_services entfernen (Fund Review-Runde 1, 1)."""
+        stored = self.config_entry.options.get(OPTION_NOTIFY_SERVICES, [])
+        return [*services, *[s for s in stored if s not in services]]
+
+    def _suggested(self, notify_options: list[str]) -> dict:
         if self._input:
             return self._input  # nach einem Fehler die Auswahl des Kunden
         options = self.config_entry.options
         return {
             OPTION_ROOM_SENSORS: [validation.entity_of(ref) for ref in options.get(OPTION_ROOM_SENSORS, [])],
             OPTION_ENTITY_ROOM_TARGET: validation.entity_of(options.get(OPTION_ENTITY_ROOM_TARGET, "")),
-            OPTION_NOTIFY_SERVICES: [s for s in services if s in options.get(OPTION_NOTIFY_SERVICES, [])],
+            OPTION_NOTIFY_SERVICES: [s for s in notify_options if s in options.get(OPTION_NOTIFY_SERVICES, [])],
             OPTION_BATTERY_ENTITIES: list(options.get(OPTION_BATTERY_ENTITIES, [])),
         }
 
-    def _schema(self, services: list[str]) -> vol.Schema:
+    def _schema(self, notify_options: list[str]) -> vol.Schema:
         hints_off = self.config_entry.options.get(OPTION_NOTIFY_HINTS_OFF, [])
         schema = {
             vol.Required(OPTION_ROOM_SENSORS): selector.EntitySelector(
@@ -76,9 +84,11 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
                 domain=["sensor", "binary_sensor"], device_class="battery", multiple=True,
             )),
         }
-        if services:
+        if notify_options:
             schema[vol.Optional(OPTION_NOTIFY_SERVICES)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(options=services, multiple=True, mode=selector.SelectSelectorMode.LIST),
+                selector.SelectSelectorConfig(
+                    options=notify_options, multiple=True, mode=selector.SelectSelectorMode.LIST,
+                ),
             )
         for category in HINT_CATEGORIES:
             schema[vol.Required(_hint_field(category), default=category not in hints_off)] = bool
@@ -87,11 +97,11 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
     async def async_step_init(self, user_input: dict | None = None):
         if self.config_entry.data.get(DATA_INCOMPLETE):
             return self.async_abort(reason="setup_incomplete")
-        services = self._services()
+        notify_options = self._notify_options(self._services())
         errors: dict[str, str] = {}
         if user_input is not None:
             self._input = dict(user_input)
-            new, errors = self._validate(user_input, services)
+            new, errors = self._validate(user_input, notify_options)
             if not errors:
                 self._new = new
                 self._warnings = self._collect_warnings(new)
@@ -100,10 +110,12 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
                 return await self.async_step_apply()
         return self.async_show_form(
             step_id="init", errors=errors,
-            data_schema=self.add_suggested_values_to_schema(self._schema(services), self._suggested(services)),
+            data_schema=self.add_suggested_values_to_schema(
+                self._schema(notify_options), self._suggested(notify_options),
+            ),
         )
 
-    def _validate(self, user_input: dict, services: list[str]) -> tuple[dict, dict[str, str]]:
+    def _validate(self, user_input: dict, notify_options: list[str]) -> tuple[dict, dict[str, str]]:
         refs, target, errors = validation.check_rooms(
             self.hass, user_input.get(OPTION_ROOM_SENSORS) or [], user_input[OPTION_ENTITY_ROOM_TARGET],
         )
@@ -118,7 +130,7 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         new = {
             OPTION_ROOM_SENSORS: refs,
             OPTION_ENTITY_ROOM_TARGET: target,
-            OPTION_NOTIFY_SERVICES: [service for service in services if service in chosen],
+            OPTION_NOTIFY_SERVICES: [service for service in notify_options if service in chosen],
             OPTION_BATTERY_ENTITIES: list(user_input.get(OPTION_BATTERY_ENTITIES) or []),
             OPTION_NOTIFY_HINTS_OFF: [c for c in HINT_CATEGORIES if not user_input.get(_hint_field(c), True)],
         }
