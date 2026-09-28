@@ -43,6 +43,23 @@ jobs:
         if: github.event_name == 'schedule'
         run: pip install -U pytest-homeassistant-custom-component
       - run: PYTHON=python bash scripts/check.sh --only test
+  test-client1-ha:
+    # Dieselben Tests gegen die HA-Version von client1. Die phcc-Version muss HomeAssistantPapa/.HA_VERSION
+    # folgen (phcc 0.13.325 pinnt homeassistant==2026.4.4) und wird mit dem HA-Pin in
+    # SmartHeat-for-HomeAssistant/.github/workflows/ci.yml zusammen angehoben (docs/ci-cd-runbook.md).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements_test.txt
+      - name: HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.4.4)
+        run: pip install pytest-homeassistant-custom-component==0.13.325
+      - run: PYTHON=python bash scripts/check.sh --only test
   hassfest:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
