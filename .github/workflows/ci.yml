@@ -1,0 +1,81 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_call:
+    secrets:
+      CROSS_REPO_TOKEN:
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+env:
+  CHECKOUT_REF: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements_test.txt
+      - run: PYTHON=python bash scripts/check.sh --only lint
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements_test.txt
+      - name: Taeglich gegen die neueste HA-Testumgebung (Spec 2.2)
+        if: github.event_name == 'schedule'
+        run: pip install -U pytest-homeassistant-custom-component
+      - run: PYTHON=python bash scripts/check.sh --only test
+  hassfest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: home-assistant/actions/hassfest@master
+  hacs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Dev-Root aufbauen
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          SIBLINGS_REF: ${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
+        run: >-
+          bash scripts/ci/siblings.sh "$RUNNER_TEMP/dev" SmartHeat-Integration "$GITHUB_WORKSPACE"
+          "$SIBLINGS_REF"
+          HeizungssteuerungServer SmartHeat-for-HomeAssistant
+      - run: pip install -r "$DEV_ROOT/tools/requirements-dev.txt"
+      - run: PYTHON=python bash scripts/check.sh --only contract
