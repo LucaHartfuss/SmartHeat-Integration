@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 
 from homeassistant.core import HomeAssistant
@@ -199,11 +199,17 @@ def registry_snapshot(hass: HomeAssistant) -> tuple[list[RegistryEntry], list[De
         )
         for entry in er.async_get(hass).entities.values()
     ]
+    # .devices ist versionsabhaengig: bis HA 2026.8 (client1: 2026.4.4) ein Mapping device_id ->
+    # DeviceEntry (Iteration liefert IDs), ab 2026.9 eine iterierbare DeviceEntry-Sicht, deren
+    # Mapping-Zugriffe (.values()) deprecated sind (bricht 2027.9). Daher nur bei einem echten
+    # Mapping .values(), sonst direkt iterieren.
+    registry_devices = dr.async_get(hass).devices
+    device_entries: Iterable[dr.DeviceEntry] = (
+        registry_devices.values() if isinstance(registry_devices, Mapping) else registry_devices
+    )
     devices = [
         DeviceInfo(device.id, device.name_by_user or device.name, device.model, tuple(device.config_entries))
-        # .devices ist als Collection[DeviceEntry] typisiert (kein Mapping mehr) -- direkt
-        # iterieren statt .values(), liefert dieselben DeviceEntry-Objekte.
-        for device in dr.async_get(hass).devices
+        for device in device_entries
     ]
     return entries, devices
 

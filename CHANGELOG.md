@@ -6,6 +6,7 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 ## Unveröffentlicht
 
 - Manifest: `after_dependencies: hassio` (Ladereihenfolge nach dem Supervisor-Modul); Hinweistexte in die Übersetzungskategorie `common` verschoben (keine sichtbare Änderung); Lizenz: MIT.
+- Setup-Erkennung liest die Geräteregistry versionsunabhängig (Mapping bis HA 2026.8, iterierbare Sicht ab 2026.9) — keine Deprecation-Warnung mehr ab HA 2026.9.
 
 ## 0.6.0
 

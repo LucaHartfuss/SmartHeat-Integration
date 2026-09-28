@@ -172,8 +172,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         """Vorbelegung fuer Neu konfigurieren. Bei `unvollstaendig` nichts: dann gilt die Erkennung
         wie bei der Ersteinrichtung, auch ohne vorbelegtes Verteilsystem."""
         entry = self._entry
-        # _prefill_from_entry() laeuft nur aus async_step_reconfigure()/async_step_reauth(), die
-        # self._entry beide vorher setzen.
+        # _prefill_from_entry() laeuft nur aus async_step_reconfigure(), das self._entry vorher
+        # setzt (async_step_reauth() ruft es nicht auf).
         assert entry is not None
         if entry.data.get(DATA_INCOMPLETE):
             return
@@ -259,7 +259,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
     async def _logout(self) -> None:
         """Best effort, wie am regulaeren Flow-Ende: ein Fehler wird nur geloggt."""
         token = self._token
-        assert token is not None  # _logout() laeuft nur nach erfolgreichem Login
+        if token is None:  # ohne Login nichts abzumelden; best effort, kein Fehler
+            return
         try:
             await self._client().logout(token)
         except ApiError as error:
