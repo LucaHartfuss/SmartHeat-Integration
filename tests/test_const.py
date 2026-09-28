@@ -30,3 +30,13 @@ def test_min_addon_version_is_0_20_0():
 
 def test_wait_seconds_are_the_plan_values():
     assert (const.SIGN_OFF_WAIT_SECONDS, const.STATUS_WAIT_SECONDS) == (60, 180)
+
+
+def test_addon_display_names_match_the_real_addon_names():
+    # M3: der Kunde muss das Add-on unter diesem Namen in Einstellungen -> Add-ons wiederfinden
+    # (heizungsbruecke/config.yaml: "Heizungsbruecke", cloudflared_access_mqtt/config.yaml:
+    # "Cloudflared Access TCP-Bridge"); Heizungsbruecke bekommt in Kundentexten einen Umlaut (F7).
+    assert const.ADDON_DISPLAY_NAMES == {
+        const.HEIZUNGSBRUECKE_ADDON_SLUG: "Heizungsbrücke",
+        const.CLOUDFLARED_ADDON_SLUG: "Cloudflared Access TCP-Bridge",
+    }

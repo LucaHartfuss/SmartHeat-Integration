@@ -38,11 +38,19 @@ def _now() -> float:
 
 @dataclass
 class Watchdog:
-    """Reine Entscheidungslogik des zweiten Waechters, Zeiten in Sekunden (monoton)."""
+    """Reine Entscheidungslogik des zweiten Waechters, Zeiten in Sekunden (monoton).
+
+    Waehrend ein Befund aktiv ist (`incident_since` gesetzt), bleibt der zuletzt ermittelte Status
+    aktiv -- auch wenn zwischenzeitlich wieder alles laeuft --, bis NACH dem Beginn des Vorfalls ein
+    Event kam UND alle Add-ons laufen. Ohne diese Regel gaebe es eine falsche Entwarnung, sobald der
+    Supervisor-Neustart selbst schon "laeuft" meldet, obwohl das Add-on sich noch nicht gemeldet hat
+    (Review-Fund 1, Fix-Runde 1)."""
     started_at: float
     last_event_at: float | None = None
     not_running: dict[str, int] = field(default_factory=dict)
     restarts: dict[str, deque] = field(default_factory=dict)
+    incident_since: float | None = None
+    incident_status: str | None = None
 
     def event_received(self, now: float) -> None:
         self.last_event_at = now
@@ -50,20 +58,54 @@ class Watchdog:
     def check(self, now: float, running: dict[str, bool]) -> tuple[str | None, list[str]]:
         """(Waechter-Status oder None, config-Slugs, die jetzt (neu) gestartet werden). `running`:
         config-Slug -> laeuft laut Supervisor. "Laeuft nicht" zaehlt erst ab STOPPED_AFTER_CHECKS
-        Pruefungen in Folge (der Supervisor-Watchdog hat Vortritt); Stille zaehlt ab dem letzten
-        Event, ohne Event ab dem Setup (Anlaufschutz nach einem HA-Neustart)."""
+        Pruefungen in Folge (der Supervisor-Watchdog hat Vortritt); Stille zaehlt ab dem spaeteren
+        von letztem Event und letztem eigenen (Neu-)Start eines Add-ons -- ein frisch gestartetes
+        Add-on bekommt so eine Schonfrist, bevor es erneut als "reagiert nicht" gilt, statt sofort
+        wieder gemeldet zu werden (Review-Fund 1). Ohne Event und ohne eigenen Start zaehlt die
+        Stille ab dem Setup (Anlaufschutz nach einem HA-Neustart). Ein einmal begonnener Vorfall
+        bleibt aktiv, bis er nach `_incident_resolved` beendet ist (siehe dort)."""
         for config_slug, is_running in running.items():
             self.not_running[config_slug] = 0 if is_running else self.not_running.get(config_slug, 0) + 1
+        if self._incident_resolved(running):
+            self.incident_since = None
+            self.incident_status = None
+            return None, []
         stopped = self.stopped_addons()
         if stopped:
-            return STATUS_ADDON_GESTOPPT, self._allowed(now, stopped)
-        silent_since = self.started_at if self.last_event_at is None else self.last_event_at
-        if running.get(HEIZUNGSBRUECKE_ADDON_SLUG) and now - silent_since >= SILENCE_SECONDS:
-            return STATUS_REAGIERT_NICHT, self._allowed(now, [HEIZUNGSBRUECKE_ADDON_SLUG])
-        return None, []
+            status, revive = STATUS_ADDON_GESTOPPT, stopped
+        else:
+            silent_since = self._silence_reference()
+            if running.get(HEIZUNGSBRUECKE_ADDON_SLUG) and now - silent_since >= SILENCE_SECONDS:
+                status, revive = STATUS_REAGIERT_NICHT, [HEIZUNGSBRUECKE_ADDON_SLUG]
+            elif self.incident_since is not None:
+                # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der
+                # zuletzt ermittelte Status bleibt bestehen, ohne neuen Startversuch.
+                status, revive = self.incident_status, []
+            else:
+                return None, []
+        if self.incident_since is None:
+            self.incident_since = now
+        self.incident_status = status
+        return status, self._allowed(now, revive)
+
+    def _incident_resolved(self, running: dict[str, bool]) -> bool:
+        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam und dabei (bzw. seither)
+        alle Add-ons laufen (Spec 1.3: "Kommt wieder ein Event und laufen beide Add-ons")."""
+        if self.incident_since is None:
+            return False
+        if self.last_event_at is None or self.last_event_at <= self.incident_since:
+            return False
+        return all(running.values())
 
     def stopped_addons(self) -> list[str]:
         return [config_slug for config_slug, count in self.not_running.items() if count >= STOPPED_AFTER_CHECKS]
+
+    def _silence_reference(self) -> float:
+        reference = self.started_at if self.last_event_at is None else self.last_event_at
+        own_restarts = self.restarts.get(HEIZUNGSBRUECKE_ADDON_SLUG)
+        if own_restarts:
+            reference = max(reference, own_restarts[-1])
+        return reference
 
     def _allowed(self, now: float, config_slugs: list[str]) -> list[str]:
         allowed = []
@@ -89,6 +131,7 @@ class SmartHeatCoordinator:
         self.watchdog_status: str | None = None
         self._watchdog_reason: str | None = None
         self._watchdog = Watchdog(started_at=_now())
+        self._checking = False
 
     @property
     def signal(self) -> str:
@@ -131,26 +174,37 @@ class SmartHeatCoordinator:
         if data["status"] == STATUS_ZUGANG_ABGELEHNT and previous != STATUS_ZUGANG_ABGELEHNT:
             self.entry.async_start_reauth(self.hass)
         if self.watchdog_status is not None:
-            # Entwarnung pruefen: gilt erst, wenn auch beide Add-ons laufen.
-            self.hass.async_create_task(self.async_check())
+            # Entwarnung pruefen: gilt erst, wenn auch beide Add-ons laufen. An den Eintrag
+            # gebunden (M1, Fix-Runde 1): wird beim Entladen/Entfernen storniert -- sonst koennte
+            # dieser Task nach async_sign_off noch Add-ons (neu) starten, die absichtlich gestoppt
+            # wurden, oder parallel zum Zeit-Takt laufen.
+            self.entry.async_create_task(self.hass, self.async_check(), f"smartheat_recheck_{self.tenant_id}")
         async_dispatcher_send(self.hass, self.signal)
 
     async def async_check(self, _now_dt=None) -> None:
-        try:
-            managers = await async_find_addon_managers(self.hass, ADDON_SPECS)
-        except AddonError as error:
-            _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", error)
+        """Eine Pruefung; nie zwei gleichzeitig (M1): der Zeit-Takt und der Event-ausgeloeste
+        Recheck koennen sonst ueberlappen und den Waechter-Zustand doppelt fortschreiben."""
+        if self._checking:
             return
-        running = {}
-        for config_slug, manager in managers.items():
-            state = await self._async_is_running(manager)
-            if state is None:
-                return  # Zustand unbekannt: kein Zaehler, kein Alarm
-            running[config_slug] = state
-        status, revive = self._watchdog.check(_now(), running)
-        for config_slug in revive:
-            await self._async_revive(managers[config_slug], running[config_slug])
-        self._set_watchdog_status(status)
+        self._checking = True
+        try:
+            try:
+                managers = await async_find_addon_managers(self.hass, ADDON_SPECS)
+            except AddonError as error:
+                _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", error)
+                return
+            running = {}
+            for config_slug, manager in managers.items():
+                state = await self._async_is_running(manager)
+                if state is None:
+                    return  # Zustand unbekannt: kein Zaehler, kein Alarm
+                running[config_slug] = state
+            status, revive = self._watchdog.check(_now(), running)
+            for config_slug in revive:
+                await self._async_revive(managers[config_slug], running[config_slug])
+            self._set_watchdog_status(status)
+        finally:
+            self._checking = False
 
     async def _async_is_running(self, manager) -> bool | None:
         if manager is None:
@@ -176,8 +230,12 @@ class SmartHeatCoordinator:
 
     @callback
     def _set_watchdog_status(self, status: str | None) -> None:
-        """Gemeldet wird nur beim Wechsel: kritisch mit persistent_notification, zurueck auf None
-        mit Entwarnung."""
+        """Push-Meldung und persistent_notification nur beim Beginn (None -> kritisch) und beim
+        Ende (kritisch -> None) eines Vorfalls. Eskaliert ein laufender Vorfall (z. B. gestoppt ->
+        reagiert nicht oder umgekehrt), wird nur der Text der bestehenden persistent_notification
+        aktualisiert (gleiche notification_id, kein neuer Eintrag) -- keine zweite Push-Meldung,
+        obwohl der Grund sich aendert: es ist derselbe Vorfall, keine zweite Stoerung (Review-Fund
+        1, Fix-Runde 1)."""
         if status == STATUS_ADDON_GESTOPPT:
             names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.stopped_addons())
             reason = WATCHDOG_REASONS[status].format(addons=names)
@@ -186,15 +244,18 @@ class SmartHeatCoordinator:
         previous = self.watchdog_status
         changed = (status, reason) != (previous, self._watchdog_reason)
         self.watchdog_status, self._watchdog_reason = status, reason
-        if status != previous:
-            if status is not None:
-                self._notify(WATCHDOG_MESSAGES[status])
-                persistent_notification.async_create(
-                    self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
-                )
-            else:
-                self._notify(WATCHDOG_ALL_CLEAR_MESSAGE)
-                persistent_notification.async_dismiss(self.hass, watchdog_notification_id(self.tenant_id))
+        if previous is None and status is not None:
+            self._notify(WATCHDOG_MESSAGES[status])
+            persistent_notification.async_create(
+                self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
+            )
+        elif previous is not None and status is None:
+            self._notify(WATCHDOG_ALL_CLEAR_MESSAGE)
+            persistent_notification.async_dismiss(self.hass, watchdog_notification_id(self.tenant_id))
+        elif previous is not None and status is not None and status != previous:
+            persistent_notification.async_create(
+                self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
+            )
         if changed:
             async_dispatcher_send(self.hass, self.signal)
 

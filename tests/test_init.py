@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 from homeassistant.helpers import issue_registry as ir
 
+from custom_components import smartheat
 from custom_components.smartheat.const import DOMAIN
 
 from .addon_fakes import make_entry, status_event
@@ -59,6 +60,14 @@ async def test_removing_the_entry_signs_off_and_deletes_the_issue(hass, monkeypa
 
     sign_off.assert_awaited_once_with(hass, "wohnung1")
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"complete_setup_{entry.entry_id}") is None
+
+
+async def test_migrate_entry_refuses_a_future_version(hass):
+    """M4: eine Version > 2 ist neuer als dieser Code kennt (z. B. ein Downgrade der Integration
+    nach einem Update); darf nicht heruntermigriert werden."""
+    entry = make_entry(hass, version=3)
+
+    assert await smartheat.async_migrate_entry(hass, entry) is False
 
 
 async def test_unloaded_entry_no_longer_follows_events(hass, monkeypatch):

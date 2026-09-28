@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -106,8 +107,29 @@ class EventSensor(SmartHeatEntity, SensorEntity):
 
     def _apply(self) -> None:
         data = self.coordinator.data
-        self._attr_native_value = self._field.value(data)
-        self._attr_extra_state_attributes = self._field.attributes(data) or None
+        self._attr_native_value = self._safe_value(data)
+        try:
+            attributes = self._field.attributes(data) or None
+        except (KeyError, TypeError, ValueError, AttributeError):
+            # Ein fehlendes Feld in den Attributen (z. B. bei einem aelteren/fremden Event) soll
+            # nicht den Entity-Update-Callback crashen (M2).
+            attributes = None
+        self._attr_extra_state_attributes = attributes
+
+    def _safe_value(self, data: dict):
+        """Ein fehlender Schluessel, ein Wert ausserhalb der Enum-Optionen oder ein naiver
+        Zeitstempel wuerden HA beim Schreiben des States mit einer ValueError abbrechen lassen
+        (Sensoren mit `options`/ENUM-Device-Class bzw. TIMESTAMP validieren das); auf None
+        abbilden statt die Entity haengen zu lassen (M2), analog zu `_restore`."""
+        try:
+            value = self._field.value(data)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return None
+        if self._field.options is not None and value not in self._field.options:
+            return None
+        if self._field.device_class == SensorDeviceClass.TIMESTAMP and isinstance(value, datetime) and value.tzinfo is None:
+            return None
+        return value
 
     def _restore(self, last: State) -> None:
         value = self._field.restore(last.state)

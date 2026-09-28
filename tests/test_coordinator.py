@@ -72,6 +72,65 @@ def test_watchdog_silence_does_not_count_while_the_bridge_is_stopped():
     assert watchdog.check(1000, {**RUNNING, "heizungsbruecke": False}) == (None, [])
 
 
+# --- Vorfall bleibt aktiv bis Event + alle Add-ons laufen (Review-Fund 1, Fix-Runde 1) ---
+
+def test_incident_continues_when_a_responding_bridge_then_stops():
+    """reagiert_nicht -> naechste Pruefung: Bruecke gestoppt -> keine Entwarnung, kein 2. Push
+    (auf Watchdog-Ebene: Status bleibt reagiert_nicht, kein neuer Startversuch vor dem 2.
+    bestaetigten Ausfall)."""
+    watchdog = Watchdog(started_at=0)
+    assert watchdog.check(900, RUNNING) == ("reagiert_nicht", ["heizungsbruecke"])
+
+    stopped = {**RUNNING, "heizungsbruecke": False}
+    assert watchdog.check(1200, stopped) == ("reagiert_nicht", [])
+
+
+def test_incident_continues_when_a_stopped_addon_starts_without_an_event():
+    """gestoppt -> gestartet -> naechste Pruefung laeuft, aber kein Event -> weiterhin gestoppt,
+    keine Entwarnung."""
+    watchdog = Watchdog(started_at=0)
+    stopped = {**RUNNING, "heizungsbruecke": False}
+    watchdog.check(300, stopped)
+    assert watchdog.check(600, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
+
+    assert watchdog.check(900, RUNNING) == ("addon_gestoppt", [])
+
+
+def test_incident_continues_when_an_event_arrives_but_an_addon_is_still_stopped():
+    """Ein Event kommt, aber ein Add-on ist noch gestoppt -> keine Entwarnung."""
+    watchdog = Watchdog(started_at=0)
+    stopped = {**RUNNING, "heizungsbruecke": False}
+    watchdog.check(300, stopped)
+    watchdog.check(600, stopped)
+    watchdog.event_received(700)
+
+    assert watchdog.check(900, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
+
+
+def test_incident_clears_once_an_event_arrives_with_everything_running():
+    """Event nach Vorfallsbeginn + alle Add-ons laufen -> genau eine Entwarnung."""
+    watchdog = Watchdog(started_at=0)
+    stopped = {**RUNNING, "heizungsbruecke": False}
+    watchdog.check(300, stopped)
+    watchdog.check(600, stopped)
+    watchdog.event_received(700)
+
+    assert watchdog.check(800, RUNNING) == (None, [])
+
+
+def test_a_fresh_restart_does_not_immediately_trigger_reagiert_nicht():
+    """Die Stille zaehlt ab dem eigenen (Neu-)Start (Praezisierung aus Fix-Runde 1): ein gerade
+    gestartetes Add-on bekommt SILENCE_SECONDS Schonfrist, bevor es erneut als "reagiert nicht"
+    gemeldet wird -- sonst waere Szenario B aus der Review sofort ein zweiter kritischer
+    Vorfall."""
+    watchdog = Watchdog(started_at=0)
+    stopped = {**RUNNING, "heizungsbruecke": False}
+    watchdog.check(300, stopped)
+    watchdog.check(600, stopped)  # addon_gestoppt, Start bei t=600 vermerkt
+
+    assert watchdog.check(900, RUNNING) == ("addon_gestoppt", [])  # 300s seit Start: keine Eskalation
+
+
 # --- Coordinator in HA ---
 
 @pytest.fixture
@@ -242,3 +301,113 @@ async def test_zugang_abgelehnt_starts_reauth_once_per_change(hass, monkeypatch,
     await hass.async_block_till_done()
 
     assert started == [entry.entry_id, entry.entry_id]
+
+
+async def test_check_is_skipped_when_one_addons_info_cannot_be_read(hass, monkeypatch, clock, notes):
+    """M4: eine einzelne fehlschlagende async_get_addon_info() darf die gesamte Pruefung nur
+    ueberspringen (kein Zaehler, kein Alarm), nicht abbrechen mit einer Ausnahme."""
+    log = []
+    addons = {
+        "heizungsbruecke": FakeAddon("a_heizungsbruecke", log),
+        "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log, error=AddonError("kaputt")),
+    }
+    entry = await _setup(hass, monkeypatch, addons)
+
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+
+    assert entry.runtime_data.watchdog_status is None
+    assert notes[0] == []
+
+
+async def test_supervisor_outage_between_stopped_checks_does_not_reset_the_counter(hass, monkeypatch, clock):
+    """M4: ein Ausfall des Supervisors zwischen zwei "gestoppt"-Pruefungen darf den Zaehler nicht
+    zuruecksetzen -- die uebersprungene Pruefung zaehlt einfach nicht mit."""
+    log = []
+    bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING)
+    addons = {"heizungsbruecke": bridge, "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log)}
+    entry = await _setup(hass, monkeypatch, addons)
+    coordinator = entry.runtime_data
+
+    await coordinator.async_check()  # 1. Pruefung: gestoppt gezaehlt (1/2)
+    assert hass.states.get(STATUS).state == "unknown"
+
+    monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(side_effect=AddonError("weg")))
+    clock["t"] += 300
+    await coordinator.async_check()  # Ausfall: uebersprungen, zaehlt nicht
+    assert hass.states.get(STATUS).state == "unknown"
+
+    monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(return_value=addons))
+    clock["t"] += 300
+    await coordinator.async_check()  # 2. echte Pruefung: jetzt gestoppt
+
+    assert hass.states.get(STATUS).state == "addon_gestoppt"
+
+
+async def test_escalation_within_an_incident_sends_no_second_push(hass, monkeypatch, clock, notes):
+    """Review-Fund 1: eskaliert ein Vorfall (hier reagiert_nicht -> addon_gestoppt, weil der
+    Neustart die Bruecke nicht wieder zum Laufen bringt), gibt es nur die eine kritische
+    Push-Meldung vom Vorfallsbeginn -- nicht eine zweite fuer die Eskalation."""
+    created, _dismissed = notes
+    pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
+    log = []
+    bridge = FakeAddon("a_heizungsbruecke", log)
+    addons = {"heizungsbruecke": bridge, "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log)}
+    entry = await _setup(hass, monkeypatch, addons)
+    coordinator = entry.runtime_data
+
+    clock["t"] += 900
+    await coordinator.async_check()  # reagiert_nicht: Neustart versucht
+    assert hass.states.get(STATUS).state == "reagiert_nicht"
+    assert len(pushes) == 1
+
+    bridge.state = AddonState.NOT_RUNNING  # der Neustart hat nicht geholfen
+    clock["t"] += 300
+    await coordinator.async_check()  # 1/2 gestoppt
+    clock["t"] += 300
+    await coordinator.async_check()  # 2/2 -> Eskalation auf addon_gestoppt
+
+    assert hass.states.get(STATUS).state == "addon_gestoppt"
+    assert len(pushes) == 1  # weiterhin nur die eine kritische Push-Meldung
+    # Die persistent_notification wird bei der Eskalation neu geschrieben (aktualisierter Text),
+    # aber mit derselben notification_id -- in HA selbst ueberschreibt das den bestehenden Eintrag
+    # statt einen zweiten anzulegen.
+    assert [message for _notification_id, message in created] == [
+        WATCHDOG_MESSAGES["reagiert_nicht"], WATCHDOG_MESSAGES["addon_gestoppt"],
+    ]
+    assert {notification_id for notification_id, _message in created} == {"smartheat_wohnung1_addon"}
+
+
+async def test_event_with_invalid_field_values_does_not_crash_entities(hass, monkeypatch, clock):
+    """M2: ein unbekannter Enum-Wert, ein fehlender Schluessel oder ein naiver Zeitstempel im
+    Event wuerden HA sonst beim Schreiben des States mit einer ValueError abbrechen lassen
+    (SensorEntity.state validiert `options`/ENUM und TIMESTAMP-Zeitzone). Muss auf None
+    abgebildet werden statt die Entity haengen zu lassen."""
+    await _setup(hass, monkeypatch, {})
+
+    event = status_event(
+        TENANT, "regelt", boost="unbekannt", datenfehler={"art": "unbekannt", "rollen": []},
+        letzte_serverantwort="2026-10-01T12:00:05",  # kein Zeitzonen-Offset: naiv
+    )
+    del event["kurve"]  # fehlender Schluessel, z. B. ein aelteres/fremdes Event
+
+    _fire(hass, event)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_datenfehler").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+    # Der Rest der Entities bleibt unberuehrt.
+    assert hass.states.get(STATUS).state == "regelt"
+
+
+async def test_restore_ignores_an_out_of_options_value(hass, monkeypatch, clock):
+    """M4: ein gespeicherter Wert, der nicht (mehr) in den Enum-Optionen ist (z. B. ein Wert aus
+    einer aelteren Version), darf nicht uebernommen werden -- sonst dieselbe ValueError wie bei
+    einem ungueltigen Live-Event."""
+    mock_restore_cache(hass, [State("sensor.smartheat_wohnung1_boost", "veraltet")])
+
+    await _setup(hass, monkeypatch, {})
+
+    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
