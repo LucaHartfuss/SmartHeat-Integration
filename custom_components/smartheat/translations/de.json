@@ -62,7 +62,7 @@
       },
       "summary": {
         "title": "Zusammenfassung",
-        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
@@ -105,7 +105,10 @@
       "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte erneut versuchen.",
       "provisioning_failed": "Der SmartHeat-Server konnte keine Zugangsdaten ausstellen. Bitte später erneut versuchen.",
       "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Antwort geliefert. Bitte später erneut versuchen oder den Support kontaktieren.",
-      "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll."
+      "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll.",
+      "new_credentials": "Es werden neue Zugangsdaten ausgestellt.",
+      "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",
+      "options_addon_failed": "Das Add-on Heizungsbrücke konnte nicht aktualisiert werden. Bitte den Supervisor prüfen und erneut versuchen."
     },
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
@@ -128,7 +131,7 @@
     },
     "abort": {
       "not_supervisor": "Diese Integration funktioniert nur mit einem Home Assistant mit Supervisor (Home Assistant OS oder Supervised), weil sie echte MQTT-Zugangsdaten ausstellt und die Add-ons über die Supervisor-API einrichtet.",
-      "already_configured": "Diese Anlage ist bereits eingerichtet. Zum erneuten Einrichten zuerst den bestehenden SmartHeat-Eintrag entfernen.",
+      "already_configured": "Diese Anlage ist bereits eingerichtet. Zum Ändern den SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
       "no_verified_profiles": "Für deine Heizung ist derzeit kein freigegebenes Profil verfügbar. Bitte später erneut versuchen oder den Support kontaktieren.",
       "addon_missing": "Das Add-on {addon} ist nicht installiert. Bitte aus dem SmartHeat-Add-on-Repository installieren und die Einrichtung neu starten.",
       "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen und die Einrichtung neu starten.",
@@ -136,7 +139,16 @@
       "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte später erneut versuchen.",
       "no_supported_integration": "In Home Assistant ist keine unterstützte Heizungs-Integration eingerichtet. Unterstützt: {supported}.",
       "no_heating_circuit": "{integration} liefert keinen vollständigen Heizkreis (Heizkurve, Mindestvorlauf und Heizgrenze werden benötigt).",
-      "setup_cancelled": "Einrichtung abgebrochen."
+      "setup_cancelled": "Einrichtung abgebrochen.",
+      "wrong_account": "Dieses Konto enthält die Anlage dieses Eintrags nicht.",
+      "reconfigure_first": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
+      "reconfigure_successful": "SmartHeat wurde neu konfiguriert. Die Zugangsdaten sind gleich geblieben.",
+      "reconfigure_successful_warning": "SmartHeat wurde neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
+      "reauth_successful": "SmartHeat ist wieder angemeldet.",
+      "reauth_successful_warning": "SmartHeat ist wieder angemeldet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
+    },
+    "create_entry": {
+      "supervision_warning": "SmartHeat ist eingerichtet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
     }
   },
   "selector": {

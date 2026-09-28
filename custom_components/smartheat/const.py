@@ -43,19 +43,6 @@ PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
 STALE_AFTER_HOURS = 6
 ROOM_SENSOR_DEVIATION_K = 3.0
 
-# Status-Entity des Add-ons (Spec TP6 3.6), gleiche Regel wie heizungsbruecke/status.py.
-STATUS_BEREIT = "bereit"
-STATUS_POLL_SECONDS = 2
-# Namen der Status-Entity-Attribute (das Add-on definiert dieselben Konstanten in
-# status.py; tools/contract_check.py vergleicht sie).
-STATUS_ATTR_SETUP_ID = "setup_id"
-STATUS_ATTR_GRUND = "grund"
-
-
-def status_entity_id(tenant_id: str) -> str:
-    return f"sensor.smartheat_{re.sub(r'[^a-z0-9_]', '_', tenant_id.lower())}_status"
-
-
 # Status-Kanal (Spec TP7 1.1): HA-Event des Add-ons. Name, schema, Felder und Wertemengen muessen
 # zu heizungsbruecke/status.py passen (tools/contract_check.py, Pruefung 14).
 STATUS_EVENT = "smartheat_status"

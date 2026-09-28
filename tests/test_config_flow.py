@@ -6,18 +6,20 @@ import json
 from pathlib import Path
 
 import pytest
+from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
-from custom_components.smartheat.const import DOMAIN, status_entity_id
+from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError, AddonOutdatedError, AmbiguousAddonMatchError,
 )
 
+from .addon_fakes import status_event
 from .flow_helpers import (
-    CATALOG, CF_SECRET, CURVE, HEAT_LIMIT, MQTT_PASSWORD, OFFSET, OUTDOOR, PLANT_INPUT, PROFILE_PARAMS,
+    CATALOG, CF_OPTIONS, CF_SECRET, CURVE, HEAT_LIMIT, MQTT_PASSWORD, OFFSET, OUTDOOR, PLANT_INPUT, PROFILE_PARAMS,
     ROOMS_INPUT, SYSTEM_INPUT, TENANT, configure, enable_supervisor, fast_status_wait, finish_progress,
     has_default, login, marker, mock_addons, mock_server, register_phones, select_values, setup_mypyllant,
     setup_rooms, start, suggested,
@@ -125,7 +127,7 @@ async def test_two_tenants_show_the_tenant_form(hass, monkeypatch):
 
 
 async def test_already_configured_tenant_aborts(hass, monkeypatch):
-    MockConfigEntry(domain=DOMAIN, unique_id=TENANT, data={"tenant_id": TENANT}).add_to_hass(hass)
+    MockConfigEntry(domain=DOMAIN, unique_id=TENANT, data={"tenant_id": TENANT}, version=2).add_to_hass(hass)
     enable_supervisor(hass, monkeypatch)
     mock_server(monkeypatch)
     setup_mypyllant(hass)
@@ -437,7 +439,7 @@ async def test_deselecting_all_phones_writes_an_empty_list(hass, monkeypatch, da
     result = await finish_progress(hass, await configure(hass, result, {}))
 
     assert result["type"] == "create_entry"
-    assert result["data"]["notify_services"] == []
+    assert result["options"]["notify_services"] == []
     assert calls.options["heizungsbruecke"]["notify_services"] == []
 
 
@@ -521,25 +523,34 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
         "tenant_id": TENANT, "profile_id": "vaillant_gastherme_heizkoerper", "integration_domain": "mypyllant",
         "circuit": {"config_entry_id": result["data"]["circuit"]["config_entry_id"], "system_key": "SYSTEM", "circuit": "0"},
         "entities": {
-            "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
-            "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR,
+            "entity_curve_current": CURVE, "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT,
+            "entity_outdoor_temp": OUTDOOR,
         },
-        "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"],
-        "notify_services": ["notify.mobile_app_pixel"],
-        "battery_entities": ["sensor.wz_batterie"],
     }
-    assert MQTT_PASSWORD not in str(result["data"]) and CF_SECRET not in str(result["data"])
+    assert result["options"] == {
+        "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.wz_batterie"], "notify_hints_off": [],
+    }
+    assert result["version"] == 2
+    assert MQTT_PASSWORD not in str(result["data"]) + str(result["options"])
+    assert CF_SECRET not in str(result["data"]) + str(result["options"])
     mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.update_profile.assert_not_awaited()
     mocks.logout.assert_awaited_once_with("tok123")
     assert calls.restarts == ["cloudflared_access_mqtt", "heizungsbruecke"]
+    assert calls.supervision == [
+        ("supervision", "heizungsbruecke", {"boot": "auto", "watchdog": True}),
+        ("supervision", "cloudflared_access_mqtt", {"boot": "auto", "watchdog": True}),
+    ]
     options = calls.options["heizungsbruecke"]
     assert options == {
         "local_check_interval_seconds": 120, **PROFILE_PARAMS,
         "tenant_id": TENANT, "mqtt_username": "wohnung1_a1b2c3d4", "mqtt_password": MQTT_PASSWORD,
-        "accounts_api_base_url": "https://accounts.hartfussha.org", "setup_id": options["setup_id"],
+        "setup_id": options["setup_id"], "abgemeldet": False,
+        "accounts_api_base_url": "https://accounts.hartfussha.org",
         "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"],
         "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.wz_batterie"],
-        "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
+        "notify_hints_off": [], "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
         "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR,
     }
     assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
@@ -568,7 +579,7 @@ async def test_configuration_error_offers_back_without_second_provision(hass, mo
     result = await configure(hass, result, {"next_step_id": "rooms"})
     assert result["step_id"] == "rooms"
     assert suggested(result, "room_sensors") == ROOMS_INPUT["room_sensors"]
-    calls = mock_addons(hass, monkeypatch, status="bereit")
+    calls = mock_addons(hass, monkeypatch, status="regelt")
     for data in ({"room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz"}, PLANT_INPUT, {}, {}):
         result = await configure(hass, result, data)
     result = await finish_progress(hass, result)
@@ -611,7 +622,7 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     assert result["step_id"] == "notifications"
     assert suggested(result, "notify_services") == ["notify.mobile_app_pixel"]
     result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
-    calls = mock_addons(hass, monkeypatch, status="bereit")
+    calls = mock_addons(hass, monkeypatch, status="regelt")
     result = await finish_progress(hass, await configure(hass, result, {}))
 
     assert result["type"] == "create_entry"
@@ -628,7 +639,9 @@ async def test_timeout_offers_to_check_again(hass, monkeypatch):
     result = await finish_progress(hass, result)
     assert (result["type"], result["step_id"]) == ("menu", "setup_timeout")
 
-    hass.states.async_set(status_entity_id(TENANT), "bereit", {"setup_id": calls.options["heizungsbruecke"]["setup_id"]})
+    hass.bus.async_fire("smartheat_status", status_event(
+        TENANT, "regelt", setup_id=calls.options["heizungsbruecke"]["setup_id"],
+    ))
     result = await configure(hass, result, {"next_step_id": "wait_status"})
     result = await finish_progress(hass, result)
 
@@ -637,7 +650,7 @@ async def test_timeout_offers_to_check_again(hass, monkeypatch):
 
 async def test_setup_ignores_status_with_foreign_setup_id(hass, monkeypatch):
     """Review Focus 2."""
-    result, _, _ = await _to_setup(hass, monkeypatch, status="bereit", status_setup_id="vom-letzten-lauf")
+    result, _, _ = await _to_setup(hass, monkeypatch, status="regelt", status_setup_id="vom-letzten-lauf")
 
     result = await finish_progress(hass, result)
 
@@ -731,6 +744,8 @@ _EXPECTED_ERRORS = {
 _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
+    "wrong_account", "reconfigure_first", "reconfigure_successful", "reconfigure_successful_warning",
+    "reauth_successful", "reauth_successful_warning",
 }
 
 
@@ -743,6 +758,7 @@ def test_every_error_and_abort_has_a_text(path):
     assert {"user", "tenant", "heating", "system", "rooms", "plant_values", "notifications", "summary",
             "setup_failed", "setup_timeout"} <= set(config["step"])
     assert "setup" in config["progress"]
+    assert "supervision_warning" in config["create_entry"]
 
 
 def test_strings_json_equals_the_english_translation():
@@ -773,3 +789,36 @@ async def test_hints_follow_the_ui_language(hass, monkeypatch):
     result = await configure(hass, result, ROOMS_INPUT)
 
     assert "erkannt aus myVAILLANT" in result["description_placeholders"]["origins"]
+
+
+async def test_zugang_abgelehnt_is_a_setup_failure_with_reason(hass, monkeypatch):
+    result, _, _ = await _to_setup(hass, monkeypatch, status="zugang_abgelehnt", grund="Zugangsdaten vom Server abgelehnt")
+
+    result = await finish_progress(hass, result)
+
+    assert (result["step_id"], result["description_placeholders"]["grund"]) == (
+        "setup_failed", "Zugangsdaten vom Server abgelehnt",
+    )
+
+
+async def test_failed_watchdog_setting_is_only_a_warning(hass, monkeypatch, caplog):
+    result, _, _ = await _to_setup(hass, monkeypatch, supervision_error=SupervisorError("weg"))
+
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    assert result["description"] == "supervision_warning"
+    assert "Watchdog/Boot" in caplog.text
+
+
+async def test_already_configured_abort_points_to_reconfigure(hass, monkeypatch):
+    MockConfigEntry(domain=DOMAIN, unique_id=TENANT, data={"tenant_id": TENANT}, version=2).add_to_hass(hass)
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "already_configured"
+    text = json.loads((_COMPONENT / "translations/de.json").read_text())["config"]["abort"]["already_configured"]
+    assert "Neu konfigurieren" in text

@@ -9,8 +9,9 @@ from datetime import datetime, timedelta
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CLIMATE_ATTRIBUTE_ROOM_SENSOR, CLIMATE_ATTRIBUTE_ROOM_TARGET, ROOM_SENSOR_DEVIATION_K, STALE_AFTER_HOURS,
-    TEMPERATURE_UNIT, WEATHER_TEMPERATURE_ATTRIBUTE, WEATHER_UNIT_ATTRIBUTE,
+    CLIMATE_ATTRIBUTE_ROOM_SENSOR, CLIMATE_ATTRIBUTE_ROOM_TARGET, OPTION_ENTITY_ROOM_TARGET, OPTION_ROOM_SENSORS,
+    PLAUSIBLE_RANGES, ROOM_SENSOR_DEVIATION_K, STALE_AFTER_HOURS, TEMPERATURE_UNIT, WEATHER_TEMPERATURE_ATTRIBUTE,
+    WEATHER_UNIT_ATTRIBUTE,
 )
 
 ERROR_NOT_FOUND = "entity_not_found"
@@ -122,3 +123,24 @@ def deviating_room_sensors(values: dict[str, float]) -> list[str]:
         if abs(value - sum(others) / len(others)) > ROOM_SENSOR_DEVIATION_K:
             result.append(entity_of(ref))
     return result
+
+
+def check_rooms(hass: HomeAssistant, room_sensor_entities: list[str], target_entity: str) -> tuple[list[str], str, dict[str, str]]:
+    """Harte Pruefungen der Raumauswahl (Wizard-Schritt rooms und Optionen): Raumfuehler-Refs,
+    Soll-Ref und Feldfehler."""
+    refs = [room_sensor_ref(entity) for entity in room_sensor_entities]
+    target = room_target_ref(target_entity)
+    errors: dict[str, str] = {}
+    if not refs:
+        errors[OPTION_ROOM_SENSORS] = "room_sensors_required"
+    for ref in refs:
+        error = check_temperature(hass, ref, PLAUSIBLE_RANGES["room"])
+        if error:
+            errors[OPTION_ROOM_SENSORS] = error
+            break
+    error = check_temperature(hass, target, PLAUSIBLE_RANGES["room"])
+    if error:
+        errors[OPTION_ENTITY_ROOM_TARGET] = error
+    if not errors:
+        errors = duplicate_fields({OPTION_ROOM_SENSORS: refs, OPTION_ENTITY_ROOM_TARGET: [target]})
+    return refs, target, errors

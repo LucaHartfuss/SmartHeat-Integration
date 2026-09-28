@@ -6,7 +6,7 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.smartheat.validation import (
     ERROR_DUPLICATE, ERROR_NOT_FOUND, ERROR_NOT_NUMERIC, ERROR_RANGE, ERROR_UNAVAILABLE, ERROR_UNIT,
-    check_numeric, check_temperature, deviating_room_sensors, duplicate_fields, read_value,
+    check_numeric, check_rooms, check_temperature, deviating_room_sensors, duplicate_fields, read_value,
     room_sensor_ref, room_target_ref, stale_entities,
 )
 
@@ -93,3 +93,16 @@ async def test_stale_entities_after_six_hours(hass):
 ])
 def test_deviating_room_sensors(values, expected):
     assert deviating_room_sensors(values) == expected
+
+
+async def test_check_rooms_returns_refs_and_field_errors(hass):
+    hass.states.async_set("sensor.wz", "21.0", {"unit_of_measurement": "°C"})
+    hass.states.async_set("climate.wz", "heat", {"current_temperature": 21.2, "temperature": 21.5})
+
+    assert check_rooms(hass, ["sensor.wz", "climate.wz"], "climate.wz") == (
+        ["sensor.wz", "climate.wz::current_temperature"], "climate.wz::temperature", {},
+    )
+    assert check_rooms(hass, [], "climate.wz")[2] == {"room_sensors": "room_sensors_required"}
+    assert check_rooms(hass, ["sensor.wz"], "sensor.wz")[2] == {
+        "room_sensors": "duplicate_entity", "entity_room_target": "duplicate_entity",
+    }
