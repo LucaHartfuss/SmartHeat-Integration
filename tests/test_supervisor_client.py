@@ -28,6 +28,9 @@ def _patch_supervisor_client(monkeypatch, installed=None, error=None):
     list_mock = AsyncMock(side_effect=error) if error else AsyncMock(return_value=installed)
     fake_client = SimpleNamespace(addons=SimpleNamespace(list=list_mock))
     monkeypatch.setattr("custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: fake_client)
+    # Diese Tests rufen mit hass=None auf und pruefen nicht die Hass.io-Gate-Klausel selbst
+    # (eigene Tests unten mit dem echten hass-Fixture); ohne den Patch wuerde is_hassio(None) crashen.
+    monkeypatch.setattr("custom_components.smartheat.supervisor_client.is_hassio", lambda hass: True)
     # AddonManager.__init__ holt sich seinen Client ueber einen eigenen Import.
     monkeypatch.setattr("homeassistant.components.hassio.addon_manager.get_supervisor_client", lambda hass: fake_client)
     return list_mock
@@ -143,3 +146,24 @@ async def test_find_addon_managers_turns_a_supervisor_error_into_addon_error(mon
 
     with pytest.raises(AddonError):
         await async_find_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])
+
+
+async def test_find_addon_managers_logs_missing_and_ambiguous_reasons_separately(monkeypatch, caplog):
+    _patch_supervisor_client(monkeypatch, _both()[1:] + [
+        _installed_addon("a_cloudflared_access_mqtt", REPO_URL),  # zweites cloudflared
+    ])
+
+    await async_find_addon_managers(
+        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
+    )
+
+    assert "heizungsbruecke" in caplog.text and "nicht installiert" in caplog.text
+    assert "cloudflared_access_mqtt" in caplog.text and "mehrfach installiert" in caplog.text
+
+
+async def test_find_addon_managers_without_hassio_raises_addon_error(hass):
+    # Fehlt Hass.io ganz (Core/Container-Installation, aus einem Backup wiederhergestellt), bricht
+    # der rohe get_supervisor_client() mit einem KeyError ab -- der Aufrufer soll aber eine
+    # reguläre AddonError sehen, um sauber zu degradieren (z.B. addon_control.async_sign_off).
+    with pytest.raises(AddonError):
+        await async_find_addon_managers(hass, [("Heizungsbruecke", "heizungsbruecke")])

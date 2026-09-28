@@ -170,6 +170,12 @@ async def test_remove_succeeds_when_the_bridge_fails_everywhere(hass, monkeypatc
 
     assert ("stop", "a_cloudflared_access_mqtt") in [entry[:2] for entry in log]
     assert cloudflared.options["service_token_id"] == ""
+    # Watchdog/Boot wird trotz der defekten Bruecke fuer beide (noch vorhandenen) Add-ons
+    # versucht -- der Fehler betrifft nur die AddonManager-Aufrufe der Bruecke, nicht den
+    # separaten Supervisor-Aufruf fuer Watchdog/Boot.
+    assert ("supervision", "a_heizungsbruecke") in [entry[:2] for entry in log]
+    assert ("supervision", "a_cloudflared_access_mqtt") in [entry[:2] for entry in log]
+    assert dismissed == ["smartheat_wohnung1_addon"]
 
 
 async def test_remove_succeeds_without_supervisor(hass, monkeypatch, dismissed):
@@ -178,3 +184,27 @@ async def test_remove_succeeds_without_supervisor(hass, monkeypatch, dismissed):
     await addon_control.async_sign_off(hass, TENANT)  # darf nicht werfen
 
     assert dismissed == ["smartheat_wohnung1_addon"]
+
+
+async def test_sign_off_without_hassio_still_dismisses_the_notification(hass, dismissed):
+    # Kein Hass.io geladen (Core/Container-Installation, aus einem Backup wiederhergestellt):
+    # der rohe get_supervisor_client() wuerde mit einem KeyError abbrechen. Das faengt jetzt
+    # async_find_addon_managers als AddonError ab (Fix Runde 1, hier bewusst NICHT gemockt,
+    # damit der echte Codepfad durchlaeuft), sodass das Entfernen trotzdem zu Ende laeuft.
+    await addon_control.async_sign_off(hass, TENANT)  # darf nicht werfen
+
+    assert dismissed == ["smartheat_wohnung1_addon"]
+
+
+async def test_listener_ignores_an_unknown_status(hass):
+    # Praezisierung 15: ein (kuenftiger, hier noch unbekannter) Status darf kein Warten
+    # faelschlich abschliessen, selbst wenn er zufaellig im uebergebenen done-Set steht.
+    listener = StatusListener(hass, TENANT)
+    hass.bus.async_fire("smartheat_status", status_event(TENANT, "voellig_neuer_status", setup_id="a"))
+
+    outcome = await listener.async_wait(
+        setup_id="a", done=frozenset({"voellig_neuer_status"}), failed=FAILED, timeout=0.05,
+    )
+
+    assert outcome == (WAIT_TIMEOUT, None)
+    listener.close()

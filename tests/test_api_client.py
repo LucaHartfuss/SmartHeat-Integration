@@ -109,6 +109,33 @@ async def test_provision_raises_invalid_auth_on_401(aiohttp_client):
         await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
 
 
+async def test_provision_raises_api_error_on_a_200_with_the_wrong_content_type(aiohttp_client):
+    # Ein 200 mit falschem Content-Type ist eine kaputte Antwort (ApiError), keine
+    # Verbindungsstoerung -- aiohttp.ContentTypeError ist sonst eine ClientError-Unterklasse und
+    # wuerde faelschlich als CannotConnect ankommen.
+    async def handler(request):
+        return web.Response(status=200, text="not json", content_type="text/plain")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/provision", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+
+async def test_provision_raises_api_error_on_invalid_json_body(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=200, text="{not valid json", content_type="application/json")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/provision", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+
+
 @pytest.mark.parametrize("status", [200, 204])
 async def test_logout_posts_bearer_token(aiohttp_client, status):
     seen = {}
@@ -180,4 +207,28 @@ async def test_update_profile_errors(aiohttp_client, status, body, error):
     client = await aiohttp_client(app)
 
     with pytest.raises(error):
+        await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")
+
+
+async def test_update_profile_raises_api_error_on_a_200_with_the_wrong_content_type(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=200, text="not json", content_type="text/plain")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
+        await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")
+
+
+async def test_update_profile_raises_api_error_on_invalid_json_body(aiohttp_client):
+    async def handler(request):
+        return web.Response(status=200, text="{not valid json", content_type="application/json")
+
+    app = web.Application()
+    app.router.add_post("/tenants/wohnung1/profile", handler)
+    client = await aiohttp_client(app)
+
+    with pytest.raises(ApiError):
         await HeizungsserverClient(client, "").update_profile("tok", "wohnung1", "p")

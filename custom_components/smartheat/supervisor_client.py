@@ -27,6 +27,7 @@ from aiohasupervisor.exceptions import SupervisorError
 from awesomeversion import AwesomeVersion
 from homeassistant.components.hassio import AddonError, AddonManager, get_supervisor_client
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.hassio import is_hassio
 
 from .const import ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS
 
@@ -116,7 +117,13 @@ async def async_find_addon_managers(
     hass: HomeAssistant, addon_specs: list[tuple[str, str]],
 ) -> dict[str, AddonManager | None]:
     """Fuer Waechter und Entfernen: jeder config-Slug einzeln aus EINEM addons.list(), ohne
-    Mindestversion. Nicht oder mehrfach installiert -> None. Eine SupervisorError wird AddonError."""
+    Mindestversion. Nicht oder mehrfach installiert -> None (mit einer Warnung, die die beiden
+    Faelle unterscheidet). Ist Hass.io gar nicht geladen (Core/Container-Installation, aus einem
+    Backup wiederhergestellt) wuerde get_supervisor_client() mit einem rohen KeyError abbrechen --
+    das wird hier zu einer regulaeren AddonError, damit z.B. async_sign_off sauber degradiert statt
+    mittendrin abzubrechen. Eine SupervisorError beim eigentlichen Abruf wird ebenfalls AddonError."""
+    if not is_hassio(hass):
+        raise AddonError("Hass.io ist auf dieser Installation nicht geladen")
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
@@ -124,5 +131,10 @@ async def async_find_addon_managers(
     managers: dict[str, AddonManager | None] = {}
     for name, config_slug in addon_specs:
         matches = _matching_addons(installed, ADDON_REPOSITORY_URL, config_slug)
-        managers[config_slug] = AddonManager(hass, _LOGGER, name, matches[0].slug) if len(matches) == 1 else None
+        if len(matches) == 1:
+            managers[config_slug] = AddonManager(hass, _LOGGER, name, matches[0].slug)
+            continue
+        reason = "nicht installiert" if not matches else "mehrfach installiert"
+        _LOGGER.warning("Add-on %s (%s) ist %s, wird uebersprungen", name, config_slug, reason)
+        managers[config_slug] = None
     return managers

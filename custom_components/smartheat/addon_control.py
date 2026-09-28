@@ -13,9 +13,9 @@ from homeassistant.components.hassio import AddonError, AddonManager, get_superv
 from homeassistant.core import Event, HomeAssistant, callback
 
 from .const import (
-    ADDON_SPECS, BRIDGE_CREDENTIAL_OPTIONS, CLOUDFLARED_ADDON_SLUG, CLOUDFLARED_CREDENTIAL_OPTIONS,
-    HEIZUNGSBRUECKE_ADDON_SLUG, OPTION_ABGEMELDET, SIGN_OFF_WAIT_SECONDS, STATUS_ABGEMELDET, STATUS_EVENT,
-    STATUS_EVENT_SCHEMA, watchdog_notification_id,
+    ADDON_SPECS, ADDON_STATUS_VALUES, BRIDGE_CREDENTIAL_OPTIONS, CLOUDFLARED_ADDON_SLUG,
+    CLOUDFLARED_CREDENTIAL_OPTIONS, HEIZUNGSBRUECKE_ADDON_SLUG, OPTION_ABGEMELDET, SIGN_OFF_WAIT_SECONDS,
+    STATUS_ABGEMELDET, STATUS_EVENT, STATUS_EVENT_SCHEMA, watchdog_notification_id,
 )
 from .supervisor_client import async_find_addon_managers
 
@@ -39,7 +39,14 @@ class StatusListener:
     @callback
     def _handle(self, event: Event) -> None:
         data = event.data
-        if data.get("tenant_id") != self._tenant_id or data.get("schema") != STATUS_EVENT_SCHEMA:
+        if (
+            data.get("tenant_id") != self._tenant_id
+            or data.get("schema") != STATUS_EVENT_SCHEMA
+            or data.get("status") not in ADDON_STATUS_VALUES
+        ):
+            # Ein unbekannter Status (Praezisierung 15) wird verworfen wie ein fremder Tenant/
+            # Schema -- ein kuenftiger, hier noch unbekannter Wert soll kein Warten faelschlich
+            # abschliessen.
             return
         self._latest = dict(data)
         self._changed.set()

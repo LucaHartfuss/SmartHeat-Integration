@@ -62,7 +62,7 @@ class HeizungsserverClient:
                     raise InvalidAuth("Sitzung abgelaufen")
                 if response.status != 200:
                     raise ApiError(f"Provisioning fehlgeschlagen (HTTP {response.status})")
-                return await response.json()
+                return await self._read_json(response, "Provisioning-Antwort ist kein gueltiges JSON")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
 
@@ -79,7 +79,7 @@ class HeizungsserverClient:
                     raise InvalidAuth("Sitzung abgelaufen")
                 if response.status != 200:
                     raise ApiError(f"Profilwechsel fehlgeschlagen (HTTP {response.status})")
-                body = await response.json()
+                body = await self._read_json(response, "Profil-Antwort ist kein gueltiges JSON")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
         if not isinstance(body, dict) or not isinstance(body.get("profile_params"), dict):
@@ -99,6 +99,17 @@ class HeizungsserverClient:
                     raise ApiError(f"Logout fehlgeschlagen (HTTP {response.status})")
         except aiohttp.ClientError as error:
             raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
+    async def _read_json(self, response: aiohttp.ClientResponse, error_message: str) -> Any:
+        """Liest den JSON-Body einer bereits als 200 akzeptierten Antwort. Ein falscher
+        Content-Type oder ungueltiges JSON ist eine kaputte Antwort (ApiError), keine
+        Verbindungsstoerung -- ohne diesen Fang wuerde aiohttp.ContentTypeError (Unterklasse von
+        aiohttp.ClientError) faelschlich als CannotConnect ankommen, und ein reines
+        JSONDecodeError (ValueError) gar nicht gefangen."""
+        try:
+            return await response.json()
+        except (aiohttp.ContentTypeError, ValueError) as error:
+            raise ApiError(f"{error_message}: {error}") from error
 
     async def _get_authenticated(self, path: str, token: str) -> Any:
         try:

@@ -26,3 +26,7 @@ def test_status_event_contract_and_watchdog_values():
 
 def test_min_addon_version_is_0_20_0():
     assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.20.0"
+
+
+def test_wait_seconds_are_the_plan_values():
+    assert (const.SIGN_OFF_WAIT_SECONDS, const.STATUS_WAIT_SECONDS) == (60, 180)
