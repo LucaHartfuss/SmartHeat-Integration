@@ -41,6 +41,7 @@ from .flow_helpers import (
     marker,
     mock_addons,
     mock_server,
+    offers,
     register_phones,
     select_values,
     setup_mypyllant,
@@ -309,6 +310,26 @@ async def test_rooms_accept_a_thermostat_as_sensor_and_target(hass, monkeypatch)
     assert result["step_id"] == "plant_values"
 
 
+@pytest.mark.parametrize("field", ["room_sensors", "entity_room_target"])
+async def test_room_selectors_offer_only_temperature_sensors_and_thermostats(hass, monkeypatch, field):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+
+    assert offers(result, field, "sensor", "temperature")
+    assert offers(result, field, "climate")
+    assert not offers(result, field, "sensor", "humidity")
+    assert not offers(result, field, "sensor")
+    assert not offers(result, field, "number")
+
+
+async def test_rooms_reject_a_target_outside_the_offered_domains(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    hass.states.async_set("input_number.soll", "21", {"unit_of_measurement": "°C"})
+
+    result = await configure(hass, result, {**ROOMS_INPUT, "entity_room_target": "input_number.soll"})
+
+    assert (result["step_id"], result["errors"]) == ("rooms", {"entity_room_target": "wrong_domain"})
+
+
 @pytest.mark.parametrize("state,attributes,error", [
     ("unavailable", {}, "entity_unavailable"),
     ("warm", {"unit_of_measurement": "°C"}, "not_numeric"),
@@ -393,6 +414,52 @@ async def test_no_outdoor_source_at_all_leaves_the_field_empty(hass, monkeypatch
     result = await configure(hass, result, ROOMS_INPUT)
 
     assert suggested(result, "entity_outdoor_temp") is None
+
+
+async def test_plant_value_selectors_filter_by_device_class(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+
+    assert offers(result, "entity_outdoor_temp", "sensor", "temperature")
+    assert offers(result, "entity_outdoor_temp", "weather")
+    assert not offers(result, "entity_outdoor_temp", "sensor")
+    assert offers(result, "entity_heat_limit", "number")
+    assert offers(result, "entity_heat_limit", "sensor", "temperature")
+    assert not offers(result, "entity_heat_limit", "sensor")
+    for field in ("entity_curve_current", "entity_offset_current"):
+        assert offers(result, field, "number")
+        assert not offers(result, field, "sensor", "temperature")
+
+
+async def test_kpi_selectors_filter_by_device_class(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+
+    def kpi(field, domain, device_class=None):
+        return offers(result, field, domain, device_class, section="advanced")
+
+    assert kpi("entity_flow_temperature", "sensor", "temperature")
+    assert not kpi("entity_flow_temperature", "sensor", "pressure")
+    assert kpi("entity_system_water_pressure", "sensor", "pressure")
+    assert not kpi("entity_system_water_pressure", "sensor", "temperature")
+    assert kpi("entity_energy_thermal_heating", "sensor", "energy")
+    assert not kpi("entity_energy_thermal_heating", "sensor")
+    assert kpi("entity_operating_mode", "sensor")
+    assert kpi("entity_efficiency_ratio", "sensor")
+    assert not kpi("entity_operating_mode", "number")
+
+
+async def test_plant_values_reject_entities_outside_the_offered_domains(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set("input_number.aussen", "12", {"unit_of_measurement": "°C"})
+    hass.states.async_set("number.vorlauf", "40", {"unit_of_measurement": "°C", "state_class": "measurement"})
+
+    result = await configure(hass, result, {
+        **PLANT_INPUT, "entity_outdoor_temp": "input_number.aussen",
+        "advanced": {"entity_flow_temperature": "number.vorlauf"},
+    })
+
+    assert result["errors"] == {
+        "entity_outdoor_temp": "wrong_domain", "entity_flow_temperature": "wrong_domain", "base": "advanced_invalid",
+    }
 
 
 async def test_heat_limit_out_of_range(hass, monkeypatch):

@@ -3,6 +3,15 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.7.1
+
+- Wizard und Optionen: Die Entity-Auswahl zeigt nur noch passende Entities — Raumfühler und
+  Wunschtemperatur: Thermostate und Sensoren mit der Geräteklasse „Temperatur“; Außentemperatur:
+  Temperatursensoren und Wetter; Heizgrenze: `number` und Temperatursensoren; Messwerte unter
+  „Erweitert“ nach Geräteklasse (Temperatur, Druck, Energie). Sensoren ohne Geräteklasse erscheinen
+  nicht mehr; eine unpassende Entity (z. B. per API) wird mit „Diese Entity passt nicht zu diesem
+  Feld“ abgelehnt.
+
 ## 0.7.0
 
 - Manifest: `after_dependencies: hassio` (Ladereihenfolge nach dem Supervisor-Modul); Hinweistexte in die Übersetzungskategorie `common` verschoben (keine sichtbare Änderung); Lizenz: MIT.

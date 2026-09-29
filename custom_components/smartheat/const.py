@@ -30,7 +30,6 @@ LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTI
 # erhalten (I3). Alles andere setzt der Wizard vollstaendig neu.
 UNMANAGED_ADDON_OPTIONS = ("local_check_interval_seconds", "telemetry_interval_seconds")
 
-ROOM_SENSOR_DOMAINS = ["sensor", "climate"]
 # climate/weather liefern die Temperatur als Attribut; das Add-on liest `entity::attribut`.
 CLIMATE_ATTRIBUTE_ROOM_SENSOR = "current_temperature"
 CLIMATE_ATTRIBUTE_ROOM_TARGET = "temperature"
@@ -171,6 +170,25 @@ KPI_ENERGY_CHANNELS: tuple[str, ...] = (
 
 def kpi_energy_role(channel: str) -> str:
     return f"entity_energy_{channel}"
+
+
+# Auswahl im Entity-Selektor (Wizard und Optionen): Eintraege oder-verknuepft, Domain und
+# Geraeteklasse je Eintrag und-verknuepft. Bewusst nur `filter`, kein Legacy-`domain` daneben
+# (wie das Frontend beides kombiniert, ist nicht festgelegt) -- die Domain prueft deshalb
+# validation.check_domain im Backend. Sensoren ohne Geraeteklasse erscheinen nicht.
+_TEMPERATURE_SENSOR = {"domain": "sensor", "device_class": "temperature"}
+ENTITY_FILTERS: dict[str, list[dict[str, str]]] = {
+    OPTION_ROOM_SENSORS: [_TEMPERATURE_SENSOR, {"domain": "climate"}],
+    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen, Heizgrenze).
+    **{role: [_TEMPERATURE_SENSOR if domain == "sensor" else {"domain": domain} for domain in domains]
+       for role, domains in ROLE_DOMAINS.items()},
+    "entity_flow_temperature": [_TEMPERATURE_SENSOR],
+    "entity_return_temperature": [_TEMPERATURE_SENSOR],
+    "entity_system_water_pressure": [{"domain": "sensor", "device_class": "pressure"}],
+    "entity_operating_mode": [{"domain": "sensor"}],
+    "entity_efficiency_ratio": [{"domain": "sensor"}],
+    **{kpi_energy_role(channel): [{"domain": "sensor", "device_class": "energy"}] for channel in KPI_ENERGY_CHANNELS},
+}
 
 
 # Beide Add-ons kommen aus diesem einen Custom-Repository. Ein Supervisor praefigiert den

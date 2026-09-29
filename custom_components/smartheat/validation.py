@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
+from typing import cast
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
 from .const import (
     CLIMATE_ATTRIBUTE_ROOM_SENSOR,
     CLIMATE_ATTRIBUTE_ROOM_TARGET,
+    ENTITY_FILTERS,
     OPTION_ENTITY_ROOM_TARGET,
     OPTION_ROOM_SENSORS,
     PLAUSIBLE_RANGES,
@@ -28,6 +31,7 @@ ERROR_NOT_NUMERIC = "not_numeric"
 ERROR_UNIT = "unit_mismatch"
 ERROR_RANGE = "out_of_range"
 ERROR_DUPLICATE = "duplicate_entity"
+ERROR_DOMAIN = "wrong_domain"
 WARNING_STALE = "stale"
 WARNING_DEVIATION = "deviation"
 
@@ -38,6 +42,18 @@ def entity_of(ref: str) -> str:
 
 def _domain(entity_id: str) -> str:
     return entity_id.split(".", 1)[0]
+
+
+def entity_selector(field: str, *, multiple: bool = False) -> selector.EntitySelector:
+    """Entity-Selektor eines Felds, gefiltert nach const.ENTITY_FILTERS (Wizard und Optionen)."""
+    # Nur fuer Pyright; als String wird der Typ zur Laufzeit nie aufgeloest (HA-Versionsunabhaengig).
+    filters = cast("list[selector.EntityWithDeviceFilterSelectorConfig]", ENTITY_FILTERS[field])
+    return selector.EntitySelector(selector.EntitySelectorConfig(filter=filters, multiple=multiple))
+
+
+def check_domain(entity_id: str, field: str) -> str | None:
+    """Backend-Gegenstueck zum Selektor-Filter: HA prueft `filter` nur im Frontend."""
+    return None if _domain(entity_id) in {entry["domain"] for entry in ENTITY_FILTERS[field]} else ERROR_DOMAIN
 
 
 def room_sensor_ref(entity_id: str) -> str:
@@ -171,12 +187,14 @@ def check_rooms(hass: HomeAssistant, room_sensor_entities: list[str], target_ent
     errors: dict[str, str] = {}
     if not refs:
         errors[OPTION_ROOM_SENSORS] = "room_sensors_required"
-    for ref in refs:
-        error = check_temperature(hass, ref, PLAUSIBLE_RANGES["room"])
+    for entity, ref in zip(room_sensor_entities, refs, strict=True):
+        error = check_domain(entity, OPTION_ROOM_SENSORS) or check_temperature(hass, ref, PLAUSIBLE_RANGES["room"])
         if error:
             errors[OPTION_ROOM_SENSORS] = error
             break
-    error = check_temperature(hass, target, PLAUSIBLE_RANGES["room"])
+    error = check_domain(target_entity, OPTION_ENTITY_ROOM_TARGET) or check_temperature(
+        hass, target, PLAUSIBLE_RANGES["room"],
+    )
     if error:
         errors[OPTION_ENTITY_ROOM_TARGET] = error
     if not errors:
