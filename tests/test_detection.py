@@ -27,7 +27,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # Wie im Server-Test tests/generic/test_catalog_registry_fixture.py (gleiche Suchregeln).
 EXPECTED = {
     "curve_current": "number.zuhause_circuit_0_heating_curve",
-    "offset_current": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
+    "shift_current": "climate.zuhause_zone_1_circuit_0_climate",
+    "min_flow": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
+    "flow_setpoint": "sensor.heizraum_zuhause_circuit_0_flow_temperature_setpoint",
     "heat_limit": "number.zuhause_circuit_0_heat_demand_limited_by_outside_temperature",
     "flow_temperature": "sensor.zuhause_circuit_0_current_flow_temperature",
     "outdoor_temp": "sensor.zuhause_outdoor_temperature",
@@ -94,6 +96,17 @@ def test_two_systems_in_one_account_are_separated_by_system_key():
     assert [c.system_key for c in circuits] == ["A", "B"]
     assert circuits[0].label != circuits[1].label
     assert system_role_suggestions(MYPYLLANT, circuits[1], entries)["outdoor_temp"] == "sensor.b_out"
+
+
+def test_circuit_without_matching_zone_is_still_offered():
+    # shift_current ist keine Pflichtrolle der Kreiserkennung (Praezisierung 9): der Zonen-Index
+    # entspricht nicht immer der Kreisnummer. Ohne die Climate-Zeile fehlt shift_current in
+    # `found`, der Kreis wird trotzdem angeboten - der Kunde waehlt die Zone dann selbst.
+    entries = [e for e in _fixture_entries() if e.entity_id != "climate.zuhause_zone_1_circuit_0_climate"]
+
+    [circuit] = find_circuits(MYPYLLANT, entries, [])
+
+    assert "shift_current" not in circuit.roles
 
 
 def test_circuit_with_missing_required_role_is_not_offered():

@@ -117,6 +117,15 @@ async def test_a_room_sensor_that_is_also_the_outdoor_sensor_is_a_duplicate(hass
     assert result["errors"] == {"room_sensors": "duplicate_entity"}
 
 
+async def test_the_heating_zone_as_room_target_is_rejected(hass, monkeypatch):
+    result, _, calls, _ = await _open(hass, monkeypatch)
+
+    result = await configure(hass, result, {**NEW_ROOMS, "entity_room_target": "climate.zuhause_zone_1_circuit_0_climate"})
+
+    assert (result["step_id"], result["errors"]) == ("init", {"entity_room_target": "zone_is_room_target"})
+    assert calls.options == {}
+
+
 async def test_warnings_need_confirmation(hass, monkeypatch):
     result, _, calls, _ = await _open(hass, monkeypatch)
     hass.states.async_set("sensor.kz_temperatur", "25.0", {"unit_of_measurement": "°C"})
@@ -302,4 +311,5 @@ def test_every_options_step_has_a_text(path):
     assert {"init", "confirm", "failed", "timeout"} <= set(options["step"])
     assert "apply" in options["progress"]
     assert "setup_incomplete" in options["abort"]
-    assert {"room_sensors_required", "entity_unavailable", "duplicate_entity", "warnings_not_confirmed"} <= set(options["error"])
+    assert {"room_sensors_required", "entity_unavailable", "duplicate_entity", "warnings_not_confirmed",
+            "zone_is_room_target"} <= set(options["error"])

@@ -53,7 +53,8 @@ STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 1
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-    "boost", "letzte_serverantwort", "kurve", "offset", "abo", "abo_frist_ende", "hinweise",
+    "boost", "letzte_serverantwort", "kurve", "parallelverschiebung", "mindestvorlauf", "abo",
+    "abo_frist_ende", "hinweise",
 )
 STATUS_STARTET = "startet"
 STATUS_REGELT = "regelt"
@@ -133,9 +134,23 @@ ROLE_DOMAINS: dict[str, list[str]] = {
     "entity_room_target": ["sensor", "climate"],
     "entity_outdoor_temp": ["sensor", "weather"],
     "entity_curve_current": ["number"],
-    "entity_offset_current": ["number"],
+    # Parallelverschiebung (TP11): Zonen-Wunschtemperatur ueber die Climate-Entity (Vaillant).
+    # Nur climate (Controller-Ruling #11b) -- ein direkter number-Wert anderer Hersteller ist
+    # kein Anwendungsfall der aktuellen Profile.
+    "entity_shift_current": ["climate"],
+    # Mindestvorlauftemperatur: nur Untergrenze, das Add-on setzt sie auf die Wunschtemperatur.
+    "entity_min_flow": ["number"],
     "entity_heat_limit": ["number", "sensor"],
+    # Vorlauf-Soll der Therme (optional): zeigt dem Server, wann geheizt wird.
+    "entity_flow_setpoint": ["sensor"],
 }
+
+# Felder des Schritts "Anlagenwerte" (Wizard). Hier statt in config_flow.py, damit der
+# Cross-Repo-Contract-Check (tools/contract_check.py, laedt nur const.py) sie mit den
+# Pflichtoptionen des Add-ons vergleichen kann.
+PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
+# Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
+OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
 
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt
@@ -203,7 +218,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.20.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.24.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 

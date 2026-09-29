@@ -12,12 +12,15 @@ from .flow_helpers import (
     CF_OPTIONS,
     CF_SECRET,
     CURVE,
+    FLOW_SETPOINT,
+    MIN_FLOW,
     MQTT_PASSWORD,
     PLANT_INPUT,
     PROVISIONING,
     ROOMS_INPUT,
     SYSTEM_INPUT,
     TENANT,
+    ZONE,
     configure,
     enable_supervisor,
     fast_status_wait,
@@ -87,6 +90,46 @@ async def test_reconfigure_keeps_the_credentials_and_changes_only_the_profile(ha
     assert entry.options["room_sensors"] == ["sensor.wz_temperatur", "sensor.kz_temperatur"]
     assert entry.data["integration_domain"] == "mypyllant"
     assert [slug for _, slug, _ in calls.supervision] == ["heizungsbruecke", "cloudflared_access_mqtt"]
+
+
+async def test_reconfigure_from_a_07x_entry(hass, monkeypatch):
+    """client1-Weg (TP11): Eintrag und Add-on-Optionen aus 0.7.x mit `entity_offset_current` und den
+    Mittelungsfenstern. Neu konfigurieren schreibt nur noch die neuen Rollen, keine Altschluessel."""
+    legacy_options = {
+        **BRIDGE_OPTIONS, "entity_offset_current": MIN_FLOW,
+        "day_avg_window_start": "10:00", "day_avg_window_end": "16:00",
+        "night_avg_window_start": "22:00", "night_avg_window_end": "06:00",
+    }
+    mypyllant, _, calls = _prepare(
+        hass, monkeypatch, existing_options=legacy_options, cloudflared_options=CF_OPTIONS,
+    )
+    entities = {
+        "entity_curve_current": CURVE, "entity_offset_current": MIN_FLOW,
+        "entity_heat_limit": "number.zuhause_circuit_0_heat_limit",
+        "entity_outdoor_temp": "sensor.zuhause_outdoor_temperature",
+    }
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "entities": entities})
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert suggested(result, "entity_shift_current") == ZONE
+    assert suggested(result, "entity_min_flow") == MIN_FLOW
+    result = await configure(hass, result, PLANT_INPUT)
+    result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert (result["type"], result["reason"]) == ("abort", "reconfigure_successful")
+    options = calls.options["heizungsbruecke"]
+    assert (options["entity_shift_current"], options["entity_min_flow"], options["entity_flow_setpoint"]) == (
+        ZONE, MIN_FLOW, FLOW_SETPOINT,
+    )
+    assert "entity_offset_current" not in options
+    assert not [key for key in options if key.startswith(("day_avg_", "night_avg_"))]
+    assert "entity_offset_current" not in entry.data["entities"]
+    assert entry.data["entities"]["entity_shift_current"] == ZONE
 
 
 async def test_reconfigure_without_credentials_in_the_addon_issues_new_ones(hass, monkeypatch):

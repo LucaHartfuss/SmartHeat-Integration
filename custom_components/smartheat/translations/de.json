@@ -28,12 +28,14 @@
       },
       "plant_values": {
         "title": "Anlagenwerte",
-        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“).",
+        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“). SmartHeat stellt die Heizzone auf „Manuell“ und regelt ihre Wunschtemperatur selbst; die Mindestvorlauftemperatur folgt deiner Wunschtemperatur am Raumthermostat.",
         "data": {
           "entity_curve_current": "Heizkurve",
-          "entity_offset_current": "Mindestvorlauftemperatur (Offset)",
+          "entity_shift_current": "Parallelverschiebung (Wunschtemperatur der Heizzone)",
+          "entity_min_flow": "Mindestvorlauftemperatur",
           "entity_heat_limit": "Heizgrenze",
-          "entity_outdoor_temp": "Außentemperatur"
+          "entity_outdoor_temp": "Außentemperatur",
+          "entity_flow_setpoint": "Vorlauf-Soll der Heizung (optional)"
         },
         "sections": {
           "advanced": {
@@ -62,7 +64,7 @@
       },
       "summary": {
         "title": "Zusammenfassung",
-        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nParallelverschiebung: {shift} °C\nMindestvorlauf: {min_flow} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
@@ -94,6 +96,7 @@
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
       "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
       "wrong_domain": "Diese Entity passt nicht zu diesem Feld",
+      "zone_is_room_target": "Die Heizzone kann nicht gleichzeitig Raum-Soll (Wunschtemperatur) sein: SmartHeat schreibt die Parallelverschiebung in die Zone. Bitte für die Wunschtemperatur ein Raumthermostat oder einen Fühler wählen",
       "room_sensors_required": "Mindestens einen Raumtemperaturfühler wählen",
       "advanced_invalid": "Bitte die Felder unter „Erweitert“ prüfen",
       "warnings_not_confirmed": "Bitte alle Hinweise bestätigen",
@@ -135,7 +138,7 @@
           "room_sensors": "Raumtemperatur-Fühler", "entity_room_target": "Wunschtemperatur",
           "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
           "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
-          "hint_manueller_eingriff": "Bei manueller Änderung der Heizkurve benachrichtigen",
+          "hint_manueller_eingriff": "Bei manueller Änderung von Heizkurve oder Parallelverschiebung benachrichtigen",
           "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen"
         }
       },
@@ -163,6 +166,7 @@
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
       "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
       "wrong_domain": "Diese Entity passt nicht zu diesem Feld",
+      "zone_is_room_target": "Die Heizzone kann nicht gleichzeitig Raum-Soll (Wunschtemperatur) sein: SmartHeat schreibt die Parallelverschiebung in die Zone. Bitte für die Wunschtemperatur ein Raumthermostat oder einen Fühler wählen",
       "warnings_not_confirmed": "Bitte alle Hinweise bestätigen"
     },
     "abort": {"setup_incomplete": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen."}
@@ -196,7 +200,8 @@
       "boost": {"name": "Boost", "state": {"keiner": "Keiner", "komfort": "Komfort", "notfall": "Notfall"}},
       "letzte_serverantwort": {"name": "Letzte Serverantwort"},
       "heizkurve": {"name": "Gelernte Heizkurve"},
-      "offset": {"name": "Gelernter Offset"},
+      "parallelverschiebung": {"name": "Gelernte Parallelverschiebung"},
+      "mindestvorlauf": {"name": "Mindestvorlauftemperatur"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
       "addon_version": {"name": "Add-on-Version"}
     },
@@ -210,9 +215,11 @@
   },
   "common": {
     "role_entity_curve_current": "Heizkurve",
-    "role_entity_offset_current": "Mindestvorlauf",
+    "role_entity_shift_current": "Parallelverschiebung",
+    "role_entity_min_flow": "Mindestvorlauf",
     "role_entity_heat_limit": "Heizgrenze",
     "role_entity_outdoor_temp": "Außentemperatur",
+    "role_entity_flow_setpoint": "Vorlauf-Soll",
     "origin_integration": "{role}: {entity} (erkannt aus {integration})",
     "origin_weather": "{role}: {entity} (Wetterdienst, deine Heizung hat keinen Außenfühler)",
     "origin_none": "{role}: nicht erkannt, bitte wählen",

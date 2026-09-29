@@ -23,11 +23,7 @@ CATALOG = json.loads((Path(__file__).parent / "fixtures" / "catalog.json").read_
 TENANT = "wohnung1"
 MQTT_PASSWORD = "mqtt-geheim-123"
 CF_SECRET = "cf-secret-789"
-PROFILE_PARAMS = {
-    "verteilsystem": "Heizkoerper", "daily_trigger_time": "12:00",
-    "day_avg_window_start": "14:00", "day_avg_window_end": "17:00",
-    "night_avg_window_start": "04:00", "night_avg_window_end": "07:00",
-}
+PROFILE_PARAMS = {"verteilsystem": "Heizkoerper", "daily_trigger_time": "12:00"}
 PROVISIONING = {
     "username": "wohnung1_a1b2c3d4", "password": MQTT_PASSWORD,
     "cloudflared_hostname": "mqtt.example.org", "cloudflared_local_port": 18830,
@@ -35,14 +31,17 @@ PROVISIONING = {
     "profile_params": PROFILE_PARAMS,
 }
 CURVE = "number.zuhause_circuit_0_heating_curve"
-OFFSET = "number.zuhause_circuit_0_min_flow_temperature_setpoint"
+MIN_FLOW = "number.zuhause_circuit_0_min_flow_temperature_setpoint"
+ZONE = "climate.zuhause_zone_1_circuit_0_climate"
+FLOW_SETPOINT = "sensor.heizraum_zuhause_circuit_0_flow_temperature_setpoint"
 HEAT_LIMIT = "number.zuhause_circuit_0_heat_limit"
 OUTDOOR = "sensor.zuhause_outdoor_temperature"
 SYSTEM_INPUT = {"verteilsystem": "heizkoerper", "erzeuger_typ": "gastherme"}
 ROOMS_INPUT = {"room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz"}
 PLANT_INPUT = {
-    "entity_curve_current": CURVE, "entity_offset_current": OFFSET,
-    "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR, "advanced": {},
+    "entity_curve_current": CURVE, "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW,
+    "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR,
+    "entity_flow_setpoint": FLOW_SETPOINT, "advanced": {},
 }
 BRIDGE_OPTIONS = {
     "tenant_id": TENANT, "mqtt_username": "wohnung1_alt", "mqtt_password": "alt-geheim",
@@ -101,6 +100,22 @@ def setup_mypyllant(hass, *, circuits=("0",), model="ecoTEC plus VC 206/5-5", ou
                 config_entry=entry, device_id=device.id, suggested_object_id=object_id,
             )
             hass.states.async_set(f"number.{object_id}", value, {"unit_of_measurement": unit} if unit else {})
+        ent_reg.async_get_or_create(
+            "climate", "mypyllant", f"mypyllant_SYSTEM_zone_{circuit}_climate",
+            config_entry=entry, device_id=device.id, suggested_object_id=f"zuhause_zone_1_circuit_{circuit}_climate",
+        )
+        hass.states.async_set(
+            f"climate.zuhause_zone_1_circuit_{circuit}_climate", "auto", {"temperature": 20.0},
+        )
+        ent_reg.async_get_or_create(
+            "sensor", "mypyllant", f"mypyllant_SYSTEM_circuit_{circuit}_flow_temperature_setpoint",
+            config_entry=entry, device_id=device.id,
+            suggested_object_id=f"heizraum_zuhause_circuit_{circuit}_flow_temperature_setpoint",
+        )
+        hass.states.async_set(
+            f"sensor.heizraum_zuhause_circuit_{circuit}_flow_temperature_setpoint", "38.5",
+            {"unit_of_measurement": "°C", "device_class": "temperature", "state_class": "measurement"},
+        )
     if outdoor:
         ent_reg.async_get_or_create(
             "sensor", "mypyllant", "mypyllant_SYSTEM_home_outdoor_temperature",

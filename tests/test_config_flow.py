@@ -23,15 +23,17 @@ from .flow_helpers import (
     CATALOG,
     CF_SECRET,
     CURVE,
+    FLOW_SETPOINT,
     HEAT_LIMIT,
+    MIN_FLOW,
     MQTT_PASSWORD,
-    OFFSET,
     OUTDOOR,
     PLANT_INPUT,
     PROFILE_PARAMS,
     ROOMS_INPUT,
     SYSTEM_INPUT,
     TENANT,
+    ZONE,
     configure,
     enable_supervisor,
     fast_status_wait,
@@ -376,8 +378,9 @@ async def test_plant_values_are_prefilled_with_origin(hass, monkeypatch):
     result, _ = await _reach(hass, monkeypatch, "plant_values")
 
     assert [suggested(result, field) for field in (
-        "entity_curve_current", "entity_offset_current", "entity_heat_limit", "entity_outdoor_temp",
-    )] == [CURVE, OFFSET, HEAT_LIMIT, OUTDOOR]
+        "entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp",
+        "entity_flow_setpoint",
+    )] == [CURVE, ZONE, MIN_FLOW, HEAT_LIMIT, OUTDOOR, FLOW_SETPOINT]
     assert "myVAILLANT" in result["description_placeholders"]["origins"]
     assert result["data_schema"].schema["advanced"].options["collapsed"] is True
     assert suggested(result, "entity_operating_mode", section="advanced") is None
@@ -425,9 +428,13 @@ async def test_plant_value_selectors_filter_by_device_class(hass, monkeypatch):
     assert offers(result, "entity_heat_limit", "number")
     assert offers(result, "entity_heat_limit", "sensor", "temperature")
     assert not offers(result, "entity_heat_limit", "sensor")
-    for field in ("entity_curve_current", "entity_offset_current"):
+    for field in ("entity_curve_current", "entity_min_flow"):
         assert offers(result, field, "number")
         assert not offers(result, field, "sensor", "temperature")
+    assert offers(result, "entity_shift_current", "climate")
+    assert not offers(result, "entity_shift_current", "number")
+    assert offers(result, "entity_flow_setpoint", "sensor", "temperature")
+    assert not offers(result, "entity_flow_setpoint", "sensor")
 
 
 async def test_kpi_selectors_filter_by_device_class(hass, monkeypatch):
@@ -479,6 +486,29 @@ async def test_outdoor_equal_to_a_room_sensor_is_a_duplicate(hass, monkeypatch):
     assert result["errors"] == {"entity_outdoor_temp": "duplicate_entity"}
 
 
+async def test_zone_that_is_also_the_room_target_is_rejected(hass, monkeypatch):
+    """Raum-Soll `climate.z::temperature` und Zone `climate.z` sind dieselbe Entity: Das Add-on wuerde
+    die Parallelverschiebung in die Quelle des Kundenwunsches schreiben (Rueckkopplung)."""
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    result = await configure(hass, result, {**ROOMS_INPUT, "entity_room_target": ZONE})
+    assert result["step_id"] == "plant_values"
+
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert (result["step_id"], result["errors"]) == ("plant_values", {"entity_shift_current": "zone_is_room_target"})
+
+
+async def test_zone_current_temperature_as_room_sensor_stays_allowed(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    hass.states.async_set(ZONE, "auto", {"temperature": 20.0, "current_temperature": 20.8})
+    result = await configure(hass, result, {**ROOMS_INPUT, "room_sensors": ["sensor.wz_temperatur", ZONE]})
+    assert result["step_id"] == "plant_values"
+
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert result["step_id"] == "notifications"
+
+
 async def test_energy_role_needs_total_increasing(hass, monkeypatch):
     result, _ = await _reach(hass, monkeypatch, "plant_values")
     hass.states.async_set("sensor.gas", "123", {"state_class": "total"})
@@ -505,6 +535,52 @@ async def test_kpi_suggestions_from_the_catalog_land_in_the_advanced_section(has
     result = await configure(hass, result, ROOMS_INPUT)
 
     assert suggested(result, "entity_system_water_pressure", section="advanced") == "sensor.zuhause_system_water_pressure"
+
+
+async def _finish(hass, monkeypatch, result):
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+    calls = mock_addons(hass, monkeypatch, status="regelt")
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["type"] == "create_entry"
+    return calls.options["heizungsbruecke"]
+
+
+async def test_plant_values_writes_tp11_options(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    result = await configure(hass, result, PLANT_INPUT)
+    options = await _finish(hass, monkeypatch, result)
+    assert options["entity_shift_current"] == ZONE
+    assert options["entity_min_flow"] == MIN_FLOW
+    assert options["entity_flow_setpoint"] == FLOW_SETPOINT
+    assert "entity_offset_current" not in options
+
+
+async def test_flow_setpoint_is_optional(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    plant = {key: value for key, value in PLANT_INPUT.items() if key != "entity_flow_setpoint"}
+    result = await configure(hass, result, plant)
+    options = await _finish(hass, monkeypatch, result)
+    assert "entity_flow_setpoint" not in options
+
+
+async def test_shift_current_rejects_sensor_domain(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_shift_current": OUTDOOR})
+    assert result["errors"]["entity_shift_current"] == "wrong_domain"
+
+
+async def test_zone_and_flow_setpoint_suggested_from_catalog(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    assert suggested(result, "entity_shift_current") == ZONE
+    assert suggested(result, "entity_min_flow") == MIN_FLOW
+    assert suggested(result, "entity_flow_setpoint") == FLOW_SETPOINT
+
+
+async def test_zone_off_with_target_zero_is_accepted(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set(ZONE, "auto", {"temperature": 0.0})
+    result = await configure(hass, result, PLANT_INPUT)
+    assert result["step_id"] == "notifications"
 
 
 # --- G: Benachrichtigungen ---
@@ -614,8 +690,8 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
         "tenant_id": TENANT, "profile_id": "vaillant_gastherme_heizkoerper", "integration_domain": "mypyllant",
         "circuit": {"config_entry_id": result["data"]["circuit"]["config_entry_id"], "system_key": "SYSTEM", "circuit": "0"},
         "entities": {
-            "entity_curve_current": CURVE, "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT,
-            "entity_outdoor_temp": OUTDOOR,
+            "entity_curve_current": CURVE, "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW,
+            "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR, "entity_flow_setpoint": FLOW_SETPOINT,
         },
     }
     assert result["options"] == {
@@ -642,7 +718,8 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
         "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"],
         "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.wz_batterie"],
         "notify_hints_off": [], "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
-        "entity_offset_current": OFFSET, "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR,
+        "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW, "entity_heat_limit": HEAT_LIMIT,
+        "entity_outdoor_temp": OUTDOOR, "entity_flow_setpoint": FLOW_SETPOINT,
     }
     assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
 
@@ -702,10 +779,10 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     result = await configure(hass, result, ROOMS_INPUT)
     assert result["step_id"] == "plant_values"
     plant = {field: suggested(result, field) for field in (
-        "entity_curve_current", "entity_offset_current", "entity_heat_limit", "entity_outdoor_temp",
+        "entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp",
     )}
     assert plant == {
-        "entity_curve_current": "number.andere_kurve", "entity_offset_current": OFFSET,
+        "entity_curve_current": "number.andere_kurve", "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW,
         "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": "sensor.aussen",
     }
     assert suggested(result, "entity_energy_primary_heating", section="advanced") == "sensor.gas"
@@ -830,7 +907,7 @@ _EXPECTED_ERRORS = {
     "invalid_auth", "cannot_connect", "no_tenants", "profile_combination_unsupported", "unit_mismatch",
     "entity_not_found", "entity_unavailable", "not_numeric", "out_of_range", "duplicate_entity",
     "room_sensors_required", "advanced_invalid", "warnings_not_confirmed", "session_expired", "unknown",
-    "state_class_expected_measurement", "state_class_expected_total_increasing",
+    "state_class_expected_measurement", "state_class_expected_total_increasing", "zone_is_room_target",
 }
 _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",

@@ -32,12 +32,20 @@ ERROR_UNIT = "unit_mismatch"
 ERROR_RANGE = "out_of_range"
 ERROR_DUPLICATE = "duplicate_entity"
 ERROR_DOMAIN = "wrong_domain"
+ERROR_ZONE_IS_ROOM_TARGET = "zone_is_room_target"
 WARNING_STALE = "stale"
 WARNING_DEVIATION = "deviation"
 
 
 def entity_of(ref: str) -> str:
     return ref.partition("::")[0]
+
+
+def zone_is_room_target(shift_ref: str, room_target_ref: str) -> bool:
+    """Zone (Parallelverschiebung, geschrieben vom Add-on) und Raum-Soll (gelesen als Kundenwunsch) auf
+    derselben Entity waeren eine Rueckkopplung. `duplicate_fields` sieht das nicht, weil das Raum-Soll
+    als `climate.z::temperature`, die Zone als `climate.z` gespeichert ist."""
+    return bool(shift_ref) and entity_of(shift_ref) == entity_of(room_target_ref)
 
 
 def _domain(entity_id: str) -> str:

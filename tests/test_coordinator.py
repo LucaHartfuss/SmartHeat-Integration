@@ -172,7 +172,8 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
 
     _fire(hass, status_event(
         TENANT, "notbetrieb", notbetrieb=True, boost="notfall", datenfehler={"art": "lokal", "rollen": ["dat"]},
-        kurve=1.1, offset=24.0, letzte_serverantwort="2026-10-01T12:00:05+02:00", abo="inaktiv",
+        kurve=1.1, parallelverschiebung=24.0, mindestvorlauf=20.5, letzte_serverantwort="2026-10-01T12:00:05+02:00",
+        abo="inaktiv",
         abo_frist_ende="2026-10-31",
         hinweise={"raumfuehler_ausgefallen": ["sensor.a"], "batterie_niedrig": [], "manueller_eingriff": None},
     ))
@@ -186,7 +187,8 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
     assert (fault.state, fault.attributes["rollen"]) == ("lokal", ["dat"])
     assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "notfall"
     assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.1"
-    assert hass.states.get("sensor.smartheat_wohnung1_offset").state == "24.0"
+    assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung").state == "24.0"
+    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
     assert hass.states.get("sensor.smartheat_wohnung1_abo").attributes["frist_ende"] == "2026-10-31"
     assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "2026-10-01T10:00:05+00:00"
     assert hass.states.get("sensor.smartheat_wohnung1_addon_version").state == "0.20.0"
@@ -443,18 +445,36 @@ async def test_restore_ignores_an_out_of_options_value(hass, monkeypatch, clock)
     assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
 
 
-async def test_event_with_non_numeric_offset_and_curve_does_not_crash_entities(hass, monkeypatch, clock):
+async def test_event_with_non_numeric_shift_and_curve_does_not_crash_entities(hass, monkeypatch, clock):
     """Fix-Runde 2, Fund 2: wie bei Enum-/Zeitstempel-Feldern (M2) darf ein nicht-numerischer
-    oder nicht endlicher Wert bei offset (Device-Class TEMPERATURE, HA validiert das) oder
-    heizkurve (ohne Device-Class, aber aus Konsistenz genauso behandelt) nicht zu einer
-    haengenden bzw. kaputten Entity fuehren."""
+    oder nicht endlicher Wert bei parallelverschiebung/mindestvorlauf (Device-Class TEMPERATURE,
+    HA validiert das) oder heizkurve (ohne Device-Class, aber aus Konsistenz genauso behandelt)
+    nicht zu einer haengenden bzw. kaputten Entity fuehren."""
     await _setup(hass, monkeypatch, {})
 
-    _fire(hass, status_event(TENANT, "regelt", offset=float("nan"), kurve="ungueltig"))
+    _fire(hass, status_event(
+        TENANT, "regelt", parallelverschiebung=float("nan"), mindestvorlauf=float("nan"), kurve="ungueltig",
+    ))
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.smartheat_wohnung1_offset").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "unknown"
     assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+
+
+async def test_parallel_shift_and_min_flow_sensors(hass, monkeypatch, clock):
+    """Task 20: offset entfaellt, dessen Rolle uebernehmen die beiden neuen Temperatur-Sensoren
+    parallelverschiebung und mindestvorlauf; die alte offset-Entity wird nicht mehr erzeugt."""
+    await _setup(hass, monkeypatch, {})
+
+    _fire(hass, status_event(TENANT, "regelt", parallelverschiebung=21.0, mindestvorlauf=20.5))
+    await hass.async_block_till_done()
+
+    shift = hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung")
+    min_flow = hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf")
+    assert (shift.state, min_flow.state) == ("21.0", "20.5")
+    assert shift.attributes["unit_of_measurement"] == min_flow.attributes["unit_of_measurement"] == "°C"
+    assert hass.states.get("sensor.smartheat_wohnung1_offset") is None
 
 
 async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, monkeypatch, clock, notes):

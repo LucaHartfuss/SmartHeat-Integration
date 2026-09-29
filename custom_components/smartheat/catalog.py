@@ -12,7 +12,9 @@ from dataclasses import dataclass
 _LOGGER = logging.getLogger(__name__)
 
 CIRCUIT_PLACEHOLDER = "{circuit}"
-REQUIRED_CIRCUIT_ROLES = ("curve_current", "offset_current", "heat_limit")
+# shift_current bewusst nicht: der Zonen-Index entspricht nicht immer der Kreisnummer (Plan
+# TP11, Praezisierung 9); ohne Treffer waehlt der Kunde die Zone selbst.
+REQUIRED_CIRCUIT_ROLES = ("curve_current", "min_flow", "heat_limit")
 
 
 @dataclass(frozen=True)

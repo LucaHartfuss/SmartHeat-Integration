@@ -67,7 +67,8 @@ def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -
     event = {
         "schema": 1, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
-        "letzte_serverantwort": None, "kurve": None, "offset": None, "abo": "aktiv", "abo_frist_ende": None,
+        "letzte_serverantwort": None, "kurve": None, "parallelverschiebung": None, "mindestvorlauf": None,
+        "abo": "aktiv", "abo_frist_ende": None,
         "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None},
     }
     event.update(overrides)
@@ -83,7 +84,8 @@ def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry"
             "circuit": {"config_entry_id": circuit_entry_id, "system_key": "SYSTEM", "circuit": "0"},
             "entities": {
                 "entity_curve_current": "number.zuhause_circuit_0_heating_curve",
-                "entity_offset_current": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
+                "entity_shift_current": "climate.zuhause_zone_1_circuit_0_climate",
+                "entity_min_flow": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
                 "entity_heat_limit": "number.zuhause_circuit_0_heat_limit",
                 "entity_outdoor_temp": "sensor.zuhause_outdoor_temperature",
             },

@@ -60,7 +60,11 @@ FIELDS = (
     ),
     EventField(key="heizkurve", value=lambda d: d["kurve"], restore=_number),
     EventField(
-        key="offset", value=lambda d: d["offset"], restore=_number,
+        key="parallelverschiebung", value=lambda d: d["parallelverschiebung"], restore=_number,
+        device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS,
+    ),
+    EventField(
+        key="mindestvorlauf", value=lambda d: d["mindestvorlauf"], restore=_number,
         device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS,
     ),
     EventField(
@@ -133,11 +137,11 @@ class EventSensor(SmartHeatEntity, SensorEntity):
 
     def _safe_value(self, data: dict):
         """Ein fehlender Schluessel, ein Wert ausserhalb der Enum-Optionen, ein naiver Zeitstempel
-        oder ein nicht-numerischer/nicht endlicher Wert eines numerischen Feldes (offset hat dafuer
-        die Device-Class TEMPERATURE, die HA beim Schreiben validiert; heizkurve hat keine, wird
-        aus Konsistenz aber genauso behandelt) wuerden HA beim Schreiben des
-        States mit einer ValueError abbrechen lassen bzw. eine kaputte Zahl anzeigen; auf None
-        abbilden statt die Entity haengen zu lassen, analog zu `_restore`."""
+        oder ein nicht-numerischer/nicht endlicher Wert eines numerischen Feldes (parallelverschiebung
+        und mindestvorlauf haben dafuer die Device-Class TEMPERATURE, die HA beim Schreiben
+        validiert; heizkurve hat keine, wird aus Konsistenz aber genauso behandelt) wuerden HA beim
+        Schreiben des States mit einer ValueError abbrechen lassen bzw. eine kaputte Zahl anzeigen;
+        auf None abbilden statt die Entity haengen zu lassen, analog zu `_restore`."""
         try:
             value = self._field.value(data)
         except (KeyError, TypeError, ValueError, AttributeError):
@@ -147,7 +151,7 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         if self._field.device_class == SensorDeviceClass.TIMESTAMP and isinstance(value, datetime) and value.tzinfo is None:
             return None
         if self._field.restore is _number:
-            # Numerische Felder (heizkurve, offset): _number liefert None fuer nicht-numerische
+            # Numerische Felder (heizkurve, parallelverschiebung, mindestvorlauf): _number liefert None fuer nicht-numerische
             # Werte; NaN/Inf sind fuer float() gueltig, aber fuer HA-Sensoren nicht (isfinite).
             number = _number(value)
             return number if number is not None and isfinite(number) else None
