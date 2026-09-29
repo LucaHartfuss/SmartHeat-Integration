@@ -42,7 +42,7 @@ WAIT_TIMEOUT = "timeout"
 
 class StatusListener:
     """Hoert auf smartheat_status eines Tenants und merkt sich das letzte Event. So sieht auch ein
-    spaeteres "Erneut pruefen" ein Event, das zwischendurch kam (Praezisierung 12)."""
+    spaeteres "Erneut pruefen" ein Event, das zwischendurch kam."""
 
     def __init__(self, hass: HomeAssistant, tenant_id: str) -> None:
         self._tenant_id = tenant_id
@@ -58,9 +58,8 @@ class StatusListener:
             or data.get("schema") != STATUS_EVENT_SCHEMA
             or data.get("status") not in ADDON_STATUS_VALUES
         ):
-            # Ein unbekannter Status (Praezisierung 15) wird verworfen wie ein fremder Tenant/
-            # Schema -- ein kuenftiger, hier noch unbekannter Wert soll kein Warten faelschlich
-            # abschliessen.
+            # Ein unbekannter Status wird verworfen wie ein fremder Tenant/Schema -- ein
+            # kuenftiger, hier noch unbekannter Wert soll kein Warten faelschlich abschliessen.
             return
         self._latest = dict(data)
         self._changed.set()

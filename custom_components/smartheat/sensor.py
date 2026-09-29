@@ -135,7 +135,7 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         """Ein fehlender Schluessel, ein Wert ausserhalb der Enum-Optionen, ein naiver Zeitstempel
         oder ein nicht-numerischer/nicht endlicher Wert eines numerischen Feldes (offset hat dafuer
         die Device-Class TEMPERATURE, die HA beim Schreiben validiert; heizkurve hat keine, wird
-        aus Konsistenz aber genauso behandelt -- Fix-Runde 2, Fund 2) wuerden HA beim Schreiben des
+        aus Konsistenz aber genauso behandelt) wuerden HA beim Schreiben des
         States mit einer ValueError abbrechen lassen bzw. eine kaputte Zahl anzeigen; auf None
         abbilden statt die Entity haengen zu lassen (M2), analog zu `_restore`."""
         try:

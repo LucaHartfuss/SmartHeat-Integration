@@ -81,7 +81,7 @@ ORIGIN_WEATHER = "weather"
 
 
 def _has_credentials(bridge_options: dict, cloudflared_options: dict) -> bool:
-    """Beide Add-ons brauchen ihre Zugangsdaten (Fund 2, Fix-Runde 1): fehlen die Tunnel-Token,
+    """Beide Add-ons brauchen ihre Zugangsdaten: fehlen die Tunnel-Token,
     weil nur cloudflared neu installiert wurde, waeren sonst provision() uebersprungen und leere
     Token in _keep_access uebernommen worden (stiller setup_timeout, da der Tunnel nicht steht)."""
     return (
@@ -235,8 +235,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 elif self._entry is None:
                     return await self.async_step_tenant()
                 elif self._tenant_id not in {tenant["tenant_id"] for tenant in self._tenants}:
-                    # Fund 3, Fix-Runde 1: eine erfolgreiche Sitzung nicht offen lassen, obwohl der
-                    # Flow hier abbricht.
+                    # Eine erfolgreiche Sitzung nicht offen lassen, obwohl der Flow hier abbricht.
                     await self._logout()
                     return self.async_abort(reason="wrong_account")
                 elif self._reauth:
@@ -324,9 +323,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         options: list[selector.SelectOptionDict] = [
             {"value": d.domain, "label": d.label} for d in self._integrations
         ]
-        # Vorbelegung, kein Ueberspringen (Controller-Ruling, Fix-Runde 1): bei mehreren erkannten
-        # Integrationen muss der Kunde beim Neu konfigurieren weiterhin wechseln koennen, auch wenn
-        # die im Eintrag gespeicherte Integration noch installiert ist (Spec 2.3: "vorausgefuellt").
+        # Vorbelegung, kein Ueberspringen: bei mehreren erkannten Integrationen muss der Kunde
+        # beim Neu konfigurieren weiterhin wechseln koennen, auch wenn die im Eintrag gespeicherte
+        # Integration noch installiert ist (Spec 2.3: "vorausgefuellt").
         default = self._system_defaults.get("integration")
         integration_key = vol.Required("integration", default=default) if default in domains else vol.Required("integration")
         return self.async_show_form(

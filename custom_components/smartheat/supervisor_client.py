@@ -9,8 +9,7 @@ Der Unterschied zu jenen Integrationen: deren Add-ons kommen aus dem offiziellen
 Repository und haben stabile, unpraefigierte Slugs (z.B. "core_zwave_js"). Die beiden
 SmartHeat-Add-ons kommen aus einem eigenen Custom-Repository -- ein Supervisor praefigiert
 einen von dort installierten Add-on-Slug mit einem Repository-Hash (verifiziert gegen einen
-echten Supervisor, siehe Task 14 in .superpowers/sdd/2026-09-14-smartheat-config-integration/
-progress.md: "heizungsbruecke" wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst
+echten Supervisor: "heizungsbruecke" wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst
 loest das nicht auf -- sein addon_slug muss bereits der echte, installationsspezifische Slug
 sein. async_resolve_addons() schliesst genau diese Luecke: sie fragt den Supervisor nach
 allen installierten Add-ons und findet den passenden Eintrag anhand von Repository-URL +
@@ -45,7 +44,7 @@ class AddonNotFoundError(Exception):
 class AmbiguousAddonMatchError(Exception):
     """Mehrere installierte Add-ons passen auf dieselbe Repository-URL und dasselbe
     Slug-Suffix -- welches gemeint ist, ist echt mehrdeutig (z.B. eine uebrig gebliebene
-    Dev-Installation) und wird nicht per Listenreihenfolge geraten (Review-Fund si-4)."""
+    Dev-Installation) und wird nicht per Listenreihenfolge geraten."""
 
     def __init__(self, config_slug: str, matches: list[str]) -> None:
         super().__init__(f"Add-on '{config_slug}' ist mehrfach installiert: {matches}")
@@ -82,8 +81,8 @@ async def async_resolve_addons(
     hass: HomeAssistant, repository_url: str, min_versions: dict[str, str],
 ) -> dict[str, ResolvedAddon]:
     """Loest alle `min_versions`-Schluessel (bare config.yaml-Slugs) aus EINEM addons.list()
-    auf (Review-Fund si-3) und prueft die Mindestversion. Eine rohe SupervisorError wird
-    AddonError (Review-Fund si-1)."""
+    auf und prueft die Mindestversion. Eine rohe SupervisorError wird
+    AddonError."""
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:

@@ -110,7 +110,7 @@ def slug(tenant_id: str) -> str:
 
 
 def entity_id(platform: str, tenant_id: str, key: str) -> str:
-    """Feste Entity-IDs (Praezisierung 20): sensor.smartheat_<slug>_status wie in TP6."""
+    """Feste Entity-IDs: sensor.smartheat_<slug>_status wie in TP6."""
     return f"{platform}.smartheat_{slug(tenant_id)}_{key}"
 
 
@@ -175,8 +175,7 @@ def kpi_energy_role(channel: str) -> str:
 # Beide Add-ons kommen aus diesem einen Custom-Repository. Ein Supervisor praefigiert den
 # Slug eines von einem Custom-Repository installierten Add-ons mit einem Repository-Hash
 # (verifiziert gegen einen echten Supervisor, z.B. "f5f6325b_heizungsbruecke" statt nur
-# "heizungsbruecke" -- siehe Task 14 in .superpowers/sdd/2026-09-14-smartheat-config-
-# integration/progress.md). Die beiden Konstanten unten sind deshalb NICHT der tatsaechliche
+# "heizungsbruecke"). Die beiden Konstanten unten sind deshalb NICHT der tatsaechliche
 # API-Slug, sondern nur der bare config.yaml-Slug -- supervisor_client.py loest daraus zur
 # Laufzeit per ADDON_REPOSITORY_URL + Slug-Suffix den echten, installationsspezifischen Slug auf.
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"

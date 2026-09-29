@@ -1,8 +1,8 @@
 """Gemeinsame Fortschritts-Mechanik fuer Config- und Options-Flow: ein Hintergrund-Task je
 Fortschritts-Schritt, `async_show_progress`/`async_show_progress_done` je nach Task-Stand.
-Extrahiert aus dem urspruenglich in beiden Flows duplizierten `_progress` (Controller-Ruling F5,
-TP7 Task 16); Fehlertext und Folgeschritt bei einer unerwarteten Ausnahme bleiben Sache des
-jeweiligen Flows (`_progress_error_step`)."""
+Extrahiert aus dem urspruenglich in beiden Flows duplizierten `_progress`; Fehlertext und
+Folgeschritt bei einer unerwarteten Ausnahme bleiben Sache des jeweiligen Flows
+(`_progress_error_step`)."""
 from __future__ import annotations
 
 import asyncio
