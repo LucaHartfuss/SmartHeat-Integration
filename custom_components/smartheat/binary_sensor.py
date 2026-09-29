@@ -22,7 +22,7 @@ class NotbetriebSensor(SmartHeatEntity, BinarySensorEntity):
 
     def _apply(self) -> None:
         # Fehlt `notbetrieb` oder ist es kein bool (aelteres/fremdes Event), unbekannt statt eines
-        # KeyError im Update-Callback bzw. eines falschen "an" fuer den Text "false" (Final-Review M4).
+        # KeyError im Update-Callback bzw. eines falschen "an" fuer den Text "false".
         value = (self.coordinator.data or {}).get("notbetrieb")
         self._attr_is_on = value if isinstance(value, bool) else None
 

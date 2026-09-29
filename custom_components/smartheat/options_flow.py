@@ -74,7 +74,7 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         """Aktuell registrierte Handys plus gespeicherte, aber gerade nicht registrierte (Begleit-
         App kurz offline oder noch nicht geladen). Sonst wuerde das Feld beim Oeffnen entweder ganz
         verschwinden oder ein gespeichertes Handy aus der Auswahl fallen, und ein Speichern ohne
-        Absicht des Kunden wuerde es aus notify_services entfernen (Fund Review-Runde 1, 1)."""
+        Absicht des Kunden wuerde es aus notify_services entfernen."""
         stored = self.config_entry.options.get(OPTION_NOTIFY_SERVICES, [])
         return [*services, *[s for s in stored if s not in services]]
 

@@ -1,6 +1,6 @@
-# SmartHeat-HomeAssistant-Integration — Repo-Kontext
+# SmartHeat-Integration — Repo-Kontext
 
-HACS-Integration "SmartHeat" (Domain `smartheat`). **Achtung:** das GitHub-Repo heißt `SmartHeat-Integration`, der lokale Ordnername hier weicht bewusst ab — nicht verwechseln, z. B. bei Manifest-URLs. Self-Service-Onboarding-Wizard, konfiguriert automatisch die beiden Add-ons aus `SmartHeat-for-HomeAssistant`. Volle Beschreibung: `../docs/architecture.md`, Abschnitt 5.
+HACS-Integration "SmartHeat" (Domain `smartheat`; früher `SmartHeat-HomeAssistant-Integration` genannt, Ordner und GitHub-Repo heißen jetzt beide `SmartHeat-Integration`). Self-Service-Onboarding-Wizard, konfiguriert automatisch die beiden Add-ons aus `SmartHeat-for-HomeAssistant`. Volle Beschreibung: `../docs/architecture.md`, Abschnitt 5.
 
 ## Struktur
 

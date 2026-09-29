@@ -58,8 +58,8 @@ class Watchdog:
     Waehrend ein Befund aktiv ist (`incident_since` gesetzt), bleibt der zuletzt ermittelte Status
     aktiv -- auch wenn zwischenzeitlich wieder alles laeuft --, bis NACH dem Beginn des Vorfalls ein
     Event kam UND alle Add-ons laufen. Ohne diese Regel gaebe es eine falsche Entwarnung, sobald der
-    Supervisor-Neustart selbst schon "laeuft" meldet, obwohl das Add-on sich noch nicht gemeldet hat
-    (Review-Fund 1, Fix-Runde 1)."""
+    Supervisor-Neustart selbst schon "laeuft" meldet, obwohl das Add-on sich noch nicht gemeldet
+    hat."""
     started_at: float
     last_event_at: float | None = None
     not_running: dict[str, int] = field(default_factory=dict)
@@ -77,7 +77,7 @@ class Watchdog:
         Pruefungen in Folge (der Supervisor-Watchdog hat Vortritt); Stille zaehlt ab dem spaeteren
         von letztem Event und letztem eigenen (Neu-)Start eines Add-ons -- ein frisch gestartetes
         Add-on bekommt so eine Schonfrist, bevor es erneut als "reagiert nicht" gilt, statt sofort
-        wieder gemeldet zu werden (Review-Fund 1). Ohne Event und ohne eigenen Start zaehlt die
+        wieder gemeldet zu werden. Ohne Event und ohne eigenen Start zaehlt die
         Stille ab dem Setup (Anlaufschutz nach einem HA-Neustart). Ein einmal begonnener Vorfall
         bleibt aktiv, bis er nach `_incident_resolved` beendet ist (siehe dort)."""
         for config_slug, is_running in running.items():
@@ -97,8 +97,8 @@ class Watchdog:
             elif self.incident_since is not None:
                 # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der
                 # zuletzt ermittelte Status UND die dazugehoerigen Add-on-Namen bleiben bestehen
-                # (sonst waere der Grund leer, sobald der Zaehler zurueckgesetzt ist -- Fix-Runde 2,
-                # Fund 1), ohne neuen Startversuch.
+                # (sonst waere der Grund leer, sobald der Zaehler zurueckgesetzt ist), ohne neuen
+                # Startversuch.
                 status, revive, addons = self.incident_status, [], self.incident_addons
             else:
                 return None, []
@@ -124,7 +124,7 @@ class Watchdog:
         """Die Add-on-Slugs, um die es im aktuell aktiven Vorfall geht -- fuer den Meldungstext.
         Anders als `stopped_addons()` bleibt das erhalten, waehrend der Vorfall (noch ohne
         bestaetigendes Event) weiterlaeuft, auch wenn das Add-on zwischenzeitlich wieder laeuft
-        und der Zaehler dafuer schon zurueckgesetzt ist (Fix-Runde 2, Fund 1)."""
+        und der Zaehler dafuer schon zurueckgesetzt ist."""
         return list(self.incident_addons)
 
     def _silence_reference(self) -> float:
@@ -202,14 +202,14 @@ class SmartHeatCoordinator:
             self.entry.async_start_reauth(self.hass)
         if self.watchdog_status is not None:
             # Entwarnung pruefen: gilt erst, wenn auch beide Add-ons laufen. An den Eintrag
-            # gebunden (M1, Fix-Runde 1): wird beim Entladen/Entfernen storniert -- sonst koennte
-            # dieser Task nach async_sign_off noch Add-ons (neu) starten, die absichtlich gestoppt
-            # wurden, oder parallel zum Zeit-Takt laufen.
+            # gebunden: wird beim Entladen/Entfernen storniert -- sonst koennte dieser Task nach
+            # async_sign_off noch Add-ons (neu) starten, die absichtlich gestoppt wurden, oder
+            # parallel zum Zeit-Takt laufen.
             self.entry.async_create_task(self.hass, self.async_check(), f"smartheat_recheck_{self.tenant_id}")
         async_dispatcher_send(self.hass, self.signal)
 
     async def async_check(self, _now_dt=None) -> None:
-        """Eine Pruefung; nie zwei gleichzeitig (M1): der Zeit-Takt und der Event-ausgeloeste
+        """Eine Pruefung; nie zwei gleichzeitig: der Zeit-Takt und der Event-ausgeloeste
         Recheck koennen sonst ueberlappen und den Waechter-Zustand doppelt fortschreiben."""
         if self._checking:
             return
@@ -261,8 +261,7 @@ class SmartHeatCoordinator:
         Ende (kritisch -> None) eines Vorfalls. Eskaliert ein laufender Vorfall (z. B. gestoppt ->
         reagiert nicht oder umgekehrt), wird nur der Text der bestehenden persistent_notification
         aktualisiert (gleiche notification_id, kein neuer Eintrag) -- keine zweite Push-Meldung,
-        obwohl der Grund sich aendert: es ist derselbe Vorfall, keine zweite Stoerung (Review-Fund
-        1, Fix-Runde 1)."""
+        obwohl der Grund sich aendert: es ist derselbe Vorfall, keine zweite Stoerung."""
         if status == STATUS_ADDON_GESTOPPT:
             names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.incident_addon_slugs())
             reason = WATCHDOG_REASONS[status].format(addons=names)

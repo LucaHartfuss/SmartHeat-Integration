@@ -147,7 +147,7 @@ def deviating_room_sensors(values: dict[str, float]) -> list[str]:
 def collect_warnings(hass: HomeAssistant, stale_refs: list[str], room_sensor_refs: list[str]) -> dict[str, list[str]]:
     """Warnungen fuer den Bestaetigungsschritt (Wizard-Zusammenfassung bzw. Optionen-`confirm`):
     veraltete Quellen unter `stale_refs` und voneinander abweichende Raumfuehler unter
-    `room_sensor_refs`. Beide Flows teilen diese Pruefung (Controller-Ruling F5, TP7 Task 16)."""
+    `room_sensor_refs`. Beide Flows teilen diese Pruefung."""
     warnings: dict[str, list[str]] = {}
     stale = stale_entities(hass, stale_refs, dt_util.utcnow())
     if stale:
