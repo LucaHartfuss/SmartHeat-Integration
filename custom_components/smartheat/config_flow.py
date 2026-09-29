@@ -69,7 +69,9 @@ from .texts import async_hint
 
 _LOGGER = logging.getLogger(__name__)
 
-PLANT_FIELDS = ("entity_curve_current", "entity_offset_current", "entity_heat_limit", "entity_outdoor_temp")
+PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
+# Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
+OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
 ADVANCED_SECTION = "advanced"
 # Beide Karten immer, ohne Vorbelegung bei der Ersteinrichtung: das Verteilsystem bestimmt die
 # lokalen Sicherheits-Clamps (Spec TP6, Nutzer-Entscheidung 2026-09-25). Werte = Uebersetzungsschluessel.
@@ -182,8 +184,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             OPTION_ENTITY_ROOM_TARGET: validation.entity_of(options.get(OPTION_ENTITY_ROOM_TARGET, "")),
         }
         entities = entry.data.get("entities", {})
-        self._plant = {field: entities[field] for field in PLANT_FIELDS if field in entities}
-        self._kpi = {field: value for field, value in entities.items() if field not in PLANT_FIELDS}
+        plant_fields = PLANT_FIELDS + OPTIONAL_PLANT_FIELDS
+        self._plant = {field: entities[field] for field in plant_fields if field in entities}
+        self._kpi = {field: value for field, value in entities.items() if field not in plant_fields}
         self._notify_services = list(options.get(OPTION_NOTIFY_SERVICES, []))
         self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
@@ -452,7 +455,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         integration = self._integration
         assert integration is not None  # dieser Schritt folgt nur nach async_step_heating()
         lines = []
-        for field in PLANT_FIELDS:
+        for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS:
             role = await self._hint(f"role_{field}")
             origin = origins.get(field)
             if origin == ORIGIN_INTEGRATION:
@@ -469,7 +472,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
     def _check_plant(self, plant: dict[str, str]) -> dict[str, str]:
         checks = {
             "entity_curve_current": validation.check_numeric(self.hass, plant["entity_curve_current"]),
-            "entity_offset_current": validation.check_temperature(self.hass, plant["entity_offset_current"]),
+            # Climate-Zone: Wunschtemperatur-Attribut; bei abgeschalteter Zone 0, deshalb nur numerisch.
+            "entity_shift_current": validation.check_numeric(
+                self.hass, validation.room_target_ref(plant["entity_shift_current"]),
+            ),
+            "entity_min_flow": validation.check_temperature(self.hass, plant["entity_min_flow"]),
             "entity_heat_limit": validation.check_temperature(
                 self.hass, plant["entity_heat_limit"], PLAUSIBLE_RANGES["heat_limit"],
             ),
@@ -477,6 +484,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self.hass, plant["entity_outdoor_temp"], PLAUSIBLE_RANGES["outdoor"],
             ),
         }
+        if "entity_flow_setpoint" in plant:
+            checks["entity_flow_setpoint"] = validation.check_temperature(self.hass, plant["entity_flow_setpoint"])
         checks = {field: validation.check_domain(plant[field], field) or error for field, error in checks.items()}
         return {field: error for field, error in checks.items() if error}
 
@@ -491,6 +500,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         errors: dict[str, str] = {}
         if user_input is not None:
             plant = {field: user_input[field] for field in PLANT_FIELDS}
+            plant.update({field: user_input[field] for field in OPTIONAL_PLANT_FIELDS if user_input.get(field)})
             advanced = user_input.get(ADVANCED_SECTION) or {}
             errors = self._check_plant(plant)
             kpi, kpi_errors = _resolve_kpi_entities(self.hass, advanced, kpi_fields)
@@ -498,7 +508,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             if not errors:
                 duplicates = validation.duplicate_fields({
                     OPTION_ROOM_SENSORS: self._room_sensors, "entity_room_target": [room_target],
-                    **{field: [plant[field]] for field in PLANT_FIELDS},
+                    **{field: [value] for field, value in plant.items()},
                     **{field: [entity_id] for field, entity_id in kpi.items()},
                 })
                 errors = {field: error for field, error in duplicates.items() if field in plant or field in kpi}
@@ -507,22 +517,30 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             if not errors:
                 self._plant, self._kpi = plant, kpi
                 return await self.async_step_notifications()
-            suggested = {**{field: user_input.get(field) for field in PLANT_FIELDS}, ADVANCED_SECTION: advanced}
+            suggested = {
+                **{field: user_input.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
+                ADVANCED_SECTION: advanced,
+            }
         elif self._plant:
             # Zurueck nach setup_failed: die Auswahl des Kunden, nicht erneut die Erkennung (I-1).
             # KPI genau wie gewaehlt: ein bewusst leer gelassenes Feld bleibt leer.
             suggested = {
-                **{field: self._plant.get(field) or suggestions.get(field) for field in PLANT_FIELDS},
+                **{
+                    field: self._plant.get(field) or suggestions.get(field)
+                    for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS
+                },
                 ADVANCED_SECTION: {field: self._kpi[field] for field in kpi_fields if field in self._kpi},
             }
         else:
             suggested = {
-                **{field: suggestions.get(field) for field in PLANT_FIELDS},
+                **{field: suggestions.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
                 ADVANCED_SECTION: {field: suggestions[field] for field in kpi_fields if field in suggestions},
             }
         schema: dict[vol.Marker, Any] = {
             vol.Required(field): validation.entity_selector(field) for field in PLANT_FIELDS
         }
+        for field in OPTIONAL_PLANT_FIELDS:
+            schema[vol.Optional(field)] = validation.entity_selector(field)
         if kpi_fields:
             schema[vol.Required(ADVANCED_SECTION)] = section(
                 vol.Schema({
@@ -625,7 +643,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             "outdoor_temperature": _value(self._plant["entity_outdoor_temp"]),
             "outdoor_source": self._plant["entity_outdoor_temp"],
             "curve": _value(self._plant["entity_curve_current"]),
-            "offset": _value(self._plant["entity_offset_current"]),
+            "shift": _value(validation.room_target_ref(self._plant["entity_shift_current"])),
+            "min_flow": _value(self._plant["entity_min_flow"]),
             "heat_limit": _value(self._plant["entity_heat_limit"]),
             "profile": ", ".join([
                 profile["hersteller"],

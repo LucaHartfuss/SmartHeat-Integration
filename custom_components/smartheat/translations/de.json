@@ -28,12 +28,14 @@
       },
       "plant_values": {
         "title": "Anlagenwerte",
-        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“).",
+        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“). SmartHeat stellt die Heizzone auf „Manuell“ und regelt ihre Wunschtemperatur selbst; die Mindestvorlauftemperatur folgt deiner Wunschtemperatur am Raumthermostat.",
         "data": {
           "entity_curve_current": "Heizkurve",
-          "entity_offset_current": "Mindestvorlauftemperatur (Offset)",
+          "entity_shift_current": "Parallelverschiebung (Wunschtemperatur der Heizzone)",
+          "entity_min_flow": "Mindestvorlauftemperatur",
           "entity_heat_limit": "Heizgrenze",
-          "entity_outdoor_temp": "Außentemperatur"
+          "entity_outdoor_temp": "Außentemperatur",
+          "entity_flow_setpoint": "Vorlauf-Soll der Heizung (optional)"
         },
         "sections": {
           "advanced": {
@@ -62,7 +64,7 @@
       },
       "summary": {
         "title": "Zusammenfassung",
-        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nMindestvorlauf: {offset} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nParallelverschiebung: {shift} °C\nMindestvorlauf: {min_flow} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
@@ -210,9 +212,11 @@
   },
   "common": {
     "role_entity_curve_current": "Heizkurve",
-    "role_entity_offset_current": "Mindestvorlauf",
+    "role_entity_shift_current": "Parallelverschiebung",
+    "role_entity_min_flow": "Mindestvorlauf",
     "role_entity_heat_limit": "Heizgrenze",
     "role_entity_outdoor_temp": "Außentemperatur",
+    "role_entity_flow_setpoint": "Vorlauf-Soll",
     "origin_integration": "{role}: {entity} (erkannt aus {integration})",
     "origin_weather": "{role}: {entity} (Wetterdienst, deine Heizung hat keinen Außenfühler)",
     "origin_none": "{role}: nicht erkannt, bitte wählen",

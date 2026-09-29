@@ -83,7 +83,8 @@ def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry"
             "circuit": {"config_entry_id": circuit_entry_id, "system_key": "SYSTEM", "circuit": "0"},
             "entities": {
                 "entity_curve_current": "number.zuhause_circuit_0_heating_curve",
-                "entity_offset_current": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
+                "entity_shift_current": "climate.zuhause_zone_1_circuit_0_climate",
+                "entity_min_flow": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
                 "entity_heat_limit": "number.zuhause_circuit_0_heat_limit",
                 "entity_outdoor_temp": "sensor.zuhause_outdoor_temperature",
             },
