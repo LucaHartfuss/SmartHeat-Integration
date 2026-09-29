@@ -33,6 +33,12 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 - **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte (u. a. die Zone für die
   Parallelverschiebung, Mindestvorlauf-Entity, optional der Vorlauf-Istwert). Die Zugangsdaten bleiben
   (fehlen sie in den Add-ons, werden neue ausgestellt); Batterieauswahl und Handys aus den Optionen bleiben.
+- **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein, prüft alle
+  5 Minuten, ob sie laufen und sich melden, meldet Ausfälle und startet sie neu (höchstens dreimal pro Stunde).
+- **Entfernen:** Das Add-on wird abgemeldet (ein laufender Boost wird zurückgesetzt), beide Add-ons werden
+  gestoppt und ihre Zugangsdaten geleert. Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
+  es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
+  ebenfalls (Best Effort — scheitert das, bleiben sie bis zur nächsten Einrichtung gültig).
 
 ## Update von 0.7.x oder älter
 
@@ -42,12 +48,6 @@ bisherige Rolle „Offset“; der Sensor `sensor.smartheat_<anlage>_offset` entf
 Konfiguration aus einer älteren Version startet zwar noch, geht aber ohne Schreibzugriff auf die Anlage in
 den Ruhezustand „Konfiguration veraltet“ über. **Nach dem Update: Neu konfigurieren** ausführen und dabei
 die neuen Anlagenwerte-Felder ausfüllen.
-- **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein, prüft alle
-  5 Minuten, ob sie laufen und sich melden, meldet Ausfälle und startet sie neu (höchstens dreimal pro Stunde).
-- **Entfernen:** Das Add-on wird abgemeldet (ein laufender Boost wird zurückgesetzt), beide Add-ons werden
-  gestoppt und ihre Zugangsdaten geleert. Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
-  es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
-  ebenfalls (Best Effort — scheitert das, bleiben sie bis zur nächsten Einrichtung gültig).
 
 ## Änderungen
 
