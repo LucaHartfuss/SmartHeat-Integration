@@ -48,6 +48,8 @@ from .const import (
     OPTION_NOTIFY_SERVICES,
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
+    OPTIONAL_PLANT_FIELDS,
+    PLANT_FIELDS,
     PLAUSIBLE_RANGES,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
@@ -69,9 +71,6 @@ from .texts import async_hint
 
 _LOGGER = logging.getLogger(__name__)
 
-PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
-# Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
-OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
 ADVANCED_SECTION = "advanced"
 # Beide Karten immer, ohne Vorbelegung bei der Ersteinrichtung: das Verteilsystem bestimmt die
 # lokalen Sicherheits-Clamps (Spec TP6, Nutzer-Entscheidung 2026-09-25). Werte = Uebersetzungsschluessel.

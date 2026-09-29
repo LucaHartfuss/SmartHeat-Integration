@@ -145,6 +145,13 @@ ROLE_DOMAINS: dict[str, list[str]] = {
     "entity_flow_setpoint": ["sensor"],
 }
 
+# Felder des Schritts "Anlagenwerte" (Wizard). Hier statt in config_flow.py, damit der
+# Cross-Repo-Contract-Check (tools/contract_check.py, laedt nur const.py) sie mit den
+# Pflichtoptionen des Add-ons vergleichen kann.
+PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
+# Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
+OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
+
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt
 # (aus /catalog) als unterstuetzt ausweist -- siehe config_flow.py::async_step_plant_values
