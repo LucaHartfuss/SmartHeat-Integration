@@ -34,7 +34,8 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 - **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein, prüft alle
   5 Minuten, ob sie laufen und sich melden, meldet Ausfälle und startet sie neu (höchstens dreimal pro Stunde).
 - **Entfernen:** Das Add-on wird abgemeldet (ein laufender Boost wird zurückgesetzt), beide Add-ons werden
-  gestoppt und ihre Zugangsdaten geleert. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
+  gestoppt und ihre Zugangsdaten geleert. Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
+  es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
   ebenfalls (Best Effort — scheitert das, bleiben sie bis zur nächsten Einrichtung gültig).
 
 ## Änderungen
