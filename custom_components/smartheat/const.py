@@ -196,7 +196,7 @@ ADDON_SPECS: list[tuple[str, str]] = [
 # Kundensichtbare Anzeigenamen der Add-ons mit Umlauten (Controller-Entscheidung F7), fuer
 # WATCHDOG_REASONS. ADDON_SPECS bleibt ASCII: das ist der Anzeigename, den AddonManager in
 # Supervisor-Logs verwendet, kein Kundentext. Cloudflared hat im Namen keinen Umlaut; hier steht
-# absichtlich der echte config.yaml-Name (Fund M3), damit der Kunde das Add-on in Einstellungen ->
+# absichtlich der echte config.yaml-Name, damit der Kunde das Add-on in Einstellungen ->
 # Add-ons wiederfindet.
 ADDON_DISPLAY_NAMES: dict[str, str] = {
     HEIZUNGSBRUECKE_ADDON_SLUG: "Heizungsbrücke",

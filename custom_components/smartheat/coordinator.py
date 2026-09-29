@@ -209,7 +209,7 @@ class SmartHeatCoordinator:
         async_dispatcher_send(self.hass, self.signal)
 
     async def async_check(self, _now_dt=None) -> None:
-        """Eine Pruefung; nie zwei gleichzeitig (M1): der Zeit-Takt und der Event-ausgeloeste
+        """Eine Pruefung; nie zwei gleichzeitig: der Zeit-Takt und der Event-ausgeloeste
         Recheck koennen sonst ueberlappen und den Waechter-Zustand doppelt fortschreiben."""
         if self._checking:
             return

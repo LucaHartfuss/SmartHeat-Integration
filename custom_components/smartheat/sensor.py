@@ -92,7 +92,7 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
     def _apply(self) -> None:
         hints = (self.coordinator.data or {}).get("hinweise")
         if not isinstance(hints, dict):
-            hints = {}  # kein Objekt (aelteres/fremdes Event): Hinweise leer statt Absturz (Final-Review M4)
+            hints = {}  # kein Objekt (aelteres/fremdes Event): Hinweise leer statt Absturz
         self._attr_native_value = self.coordinator.status
         self._attr_extra_state_attributes = {
             "grund": self.coordinator.reason, **{hint: hints.get(hint) for hint in HINT_FIELDS},
@@ -106,7 +106,7 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
 
 class EventSensor(SmartHeatEntity, SensorEntity):
     # Wie HAs eigenes _attr_native_value (sensor/__init__.py): Default None, hier zusaetzlich
-    # explizit optional, da _apply() bei fehlenden Attributen bewusst None zuweist (M2).
+    # explizit optional, da _apply() bei fehlenden Attributen bewusst None zuweist.
     _attr_extra_state_attributes: dict[str, Any] | None = None
 
     def __init__(self, coordinator, event_field: EventField) -> None:
@@ -127,7 +127,7 @@ class EventSensor(SmartHeatEntity, SensorEntity):
             attributes = self._field.attributes(data) or None
         except (KeyError, TypeError, ValueError, AttributeError):
             # Ein fehlendes Feld in den Attributen (z. B. bei einem aelteren/fremden Event) soll
-            # nicht den Entity-Update-Callback crashen (M2).
+            # nicht den Entity-Update-Callback crashen.
             attributes = None
         self._attr_extra_state_attributes = attributes
 
@@ -137,7 +137,7 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         die Device-Class TEMPERATURE, die HA beim Schreiben validiert; heizkurve hat keine, wird
         aus Konsistenz aber genauso behandelt) wuerden HA beim Schreiben des
         States mit einer ValueError abbrechen lassen bzw. eine kaputte Zahl anzeigen; auf None
-        abbilden statt die Entity haengen zu lassen (M2), analog zu `_restore`."""
+        abbilden statt die Entity haengen zu lassen, analog zu `_restore`."""
         try:
             value = self._field.value(data)
         except (KeyError, TypeError, ValueError, AttributeError):

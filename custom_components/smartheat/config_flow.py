@@ -551,7 +551,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     async def async_step_notifications(self, user_input: dict | None = None):
         if self._stored_battery_entities is not None:
-            # Neu konfigurieren: die Auswahl aus den Optionen bleibt (Final-Review M2).
+            # Neu konfigurieren: die Auswahl aus den Optionen bleibt.
             self._battery_entities = list(self._stored_battery_entities)
         else:
             battery_candidates = [entry.entity_id for entry in self._entries if entry.device_class == "battery"]
