@@ -42,7 +42,11 @@
           "entity_domain": "number",
           "unique_id_suffix": "_circuit_{circuit}_heating_curve"
         },
-        "offset_current": {
+        "shift_current": {
+          "entity_domain": "climate",
+          "unique_id_suffix": "_zone_{circuit}_climate"
+        },
+        "min_flow": {
           "entity_domain": "number",
           "unique_id_suffix": "_circuit_{circuit}_min_flow_temperature_setpoint"
         },
@@ -53,6 +57,10 @@
         "flow_temperature": {
           "entity_domain": "sensor",
           "unique_id_suffix": "_circuit_{circuit}_flow_temperature"
+        },
+        "flow_setpoint": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "_circuit_{circuit}_flow_temperature_setpoint"
         }
       },
       "system_roles": {

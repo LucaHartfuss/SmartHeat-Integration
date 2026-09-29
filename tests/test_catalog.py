@@ -21,7 +21,12 @@ def test_real_catalog_yields_the_mypyllant_descriptor():
     [descriptor] = parse_integrations(CATALOG)
 
     assert (descriptor.domain, descriptor.label, descriptor.hersteller) == ("mypyllant", "myVAILLANT", "Vaillant")
-    assert {"curve_current", "offset_current", "heat_limit", "flow_temperature"} == set(descriptor.circuit_roles)
+    # TP11: offset_current entfaellt, shift_current (Zonen-Climate) und flow_setpoint kommen dazu
+    # (Ruling #12g: aus der regenerierten Fixture/den Server-Rollen abgeleitet, nicht mechanisch
+    # ersetzt).
+    assert {
+        "curve_current", "shift_current", "min_flow", "heat_limit", "flow_temperature", "flow_setpoint",
+    } == set(descriptor.circuit_roles)
     assert "outdoor_temp" in descriptor.system_roles
     assert descriptor.system_roles["energy_thermal_heating"].original_name_suffix == "Heat Generated Heating"
     assert descriptor.erzeuger_typ_hints[0].model_contains == "aroTHERM"

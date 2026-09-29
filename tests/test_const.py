@@ -24,8 +24,24 @@ def test_status_event_contract_and_watchdog_values():
     assert (const.MAX_RESTARTS_PER_WINDOW, const.RESTART_WINDOW_SECONDS) == (3, 3600)
 
 
-def test_min_addon_version_is_0_20_0():
-    assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.20.0"
+def test_role_domains_tp11():
+    # Ruling #11b (Controller): entity_shift_current ist nur climate (Zonen-Wunschtemperatur
+    # ueber die Vaillant-Climate-Entity), kein direkter number-Wert - anders als im urspruenglichen
+    # Task-18-Brief.
+    assert const.ROLE_DOMAINS["entity_shift_current"] == ["climate"]
+    assert const.ROLE_DOMAINS["entity_min_flow"] == ["number"]
+    assert const.ROLE_DOMAINS["entity_flow_setpoint"] == ["sensor"]
+    assert "entity_offset_current" not in const.ROLE_DOMAINS
+
+
+def test_status_fields_tp11():
+    assert "parallelverschiebung" in const.STATUS_EVENT_FIELDS
+    assert "mindestvorlauf" in const.STATUS_EVENT_FIELDS
+    assert "offset" not in const.STATUS_EVENT_FIELDS
+
+
+def test_min_addon_version():
+    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.24.0"
 
 
 def test_wait_seconds_are_the_plan_values():
