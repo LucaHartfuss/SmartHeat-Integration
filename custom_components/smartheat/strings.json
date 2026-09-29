@@ -23,12 +23,12 @@
       },
       "rooms": {
         "title": "Rooms",
-        "description": "Choose the room temperature sensors (several are averaged) and the entity holding your desired temperature. A thermostat can be both.",
+        "description": "Choose the room temperature sensors (several are averaged) and the entity holding your desired temperature. A thermostat can be both. Thermostats and sensors with the device class \"Temperature\" are offered.",
         "data": {"room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature"}
       },
       "plant_values": {
         "title": "Heating values",
-        "description": "Pre-filled from your heating system, please check:\n{origins}",
+        "description": "Pre-filled from your heating system, please check:\n{origins}\nOnly sensors with a matching device class (e.g. \"Temperature\") are offered.",
         "data": {
           "entity_curve_current": "Heating curve",
           "entity_offset_current": "Minimum flow temperature (offset)",
@@ -93,6 +93,7 @@
       "not_numeric": "This entity does not provide a number",
       "out_of_range": "The value is outside the physically plausible range",
       "duplicate_entity": "The same entity is used for two roles",
+      "wrong_domain": "This entity does not fit this field",
       "room_sensors_required": "Choose at least one room temperature sensor",
       "advanced_invalid": "Please check the fields under 'Advanced'",
       "warnings_not_confirmed": "Please confirm all notes",
@@ -129,7 +130,7 @@
     "step": {
       "init": {
         "title": "SmartHeat options",
-        "description": "Changes here need no sign-in. SmartHeat restarts the Heizungsbruecke add-on afterwards.",
+        "description": "Changes here need no sign-in. SmartHeat restarts the Heizungsbruecke add-on afterwards. Thermostats and sensors with the device class \"Temperature\" are offered.",
         "data": {
           "room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature",
           "notify_services": "Phones", "battery_entities": "Monitored batteries",
@@ -161,6 +162,7 @@
       "unit_mismatch": "Wrong unit, °C is required",
       "out_of_range": "The value is outside the physically plausible range",
       "duplicate_entity": "The same entity is used for two roles",
+      "wrong_domain": "This entity does not fit this field",
       "warnings_not_confirmed": "Please confirm all notes"
     },
     "abort": {"setup_incomplete": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure."}

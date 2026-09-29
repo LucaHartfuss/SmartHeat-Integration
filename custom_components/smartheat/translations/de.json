@@ -23,12 +23,12 @@
       },
       "rooms": {
         "title": "Räume",
-        "description": "Wähle die Raumtemperaturfühler (mehrere werden gemittelt) und die Entity mit deiner Wunschtemperatur. Ein Thermostat kann beides sein.",
+        "description": "Wähle die Raumtemperaturfühler (mehrere werden gemittelt) und die Entity mit deiner Wunschtemperatur. Ein Thermostat kann beides sein. Zur Auswahl stehen Thermostate und Sensoren mit der Geräteklasse „Temperatur“.",
         "data": {"room_sensors": "Raumtemperaturfühler", "entity_room_target": "Wunschtemperatur"}
       },
       "plant_values": {
         "title": "Anlagenwerte",
-        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}",
+        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“).",
         "data": {
           "entity_curve_current": "Heizkurve",
           "entity_offset_current": "Mindestvorlauftemperatur (Offset)",
@@ -93,6 +93,7 @@
       "not_numeric": "Diese Entity liefert keine Zahl",
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
       "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
+      "wrong_domain": "Diese Entity passt nicht zu diesem Feld",
       "room_sensors_required": "Mindestens einen Raumtemperaturfühler wählen",
       "advanced_invalid": "Bitte die Felder unter „Erweitert“ prüfen",
       "warnings_not_confirmed": "Bitte alle Hinweise bestätigen",
@@ -129,7 +130,7 @@
     "step": {
       "init": {
         "title": "SmartHeat-Optionen",
-        "description": "Änderungen hier brauchen keine Anmeldung. SmartHeat startet danach das Add-on Heizungsbrücke neu.",
+        "description": "Änderungen hier brauchen keine Anmeldung. SmartHeat startet danach das Add-on Heizungsbrücke neu. Zur Auswahl stehen Thermostate und Sensoren mit der Geräteklasse „Temperatur“.",
         "data": {
           "room_sensors": "Raumtemperatur-Fühler", "entity_room_target": "Wunschtemperatur",
           "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
@@ -161,6 +162,7 @@
       "unit_mismatch": "Falsche Einheit, benötigt wird °C",
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
       "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
+      "wrong_domain": "Diese Entity passt nicht zu diesem Feld",
       "warnings_not_confirmed": "Bitte alle Hinweise bestätigen"
     },
     "abort": {"setup_incomplete": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen."}

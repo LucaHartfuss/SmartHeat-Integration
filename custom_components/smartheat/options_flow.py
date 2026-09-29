@@ -27,8 +27,6 @@ from .const import (
     OPTION_NOTIFY_SERVICES,
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
-    ROLE_DOMAINS,
-    ROOM_SENSOR_DOMAINS,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
     STATUS_WAIT_SECONDS,
@@ -92,12 +90,8 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
     def _schema(self, notify_options: list[str]) -> vol.Schema:
         hints_off = self.config_entry.options.get(OPTION_NOTIFY_HINTS_OFF, [])
         schema: dict[vol.Marker, Any] = {
-            vol.Required(OPTION_ROOM_SENSORS): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=ROOM_SENSOR_DOMAINS, multiple=True),
-            ),
-            vol.Required(OPTION_ENTITY_ROOM_TARGET): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=ROLE_DOMAINS[OPTION_ENTITY_ROOM_TARGET]),
-            ),
+            vol.Required(OPTION_ROOM_SENSORS): validation.entity_selector(OPTION_ROOM_SENSORS, multiple=True),
+            vol.Required(OPTION_ENTITY_ROOM_TARGET): validation.entity_selector(OPTION_ENTITY_ROOM_TARGET),
             vol.Optional(OPTION_BATTERY_ENTITIES): selector.EntitySelector(selector.EntitySelectorConfig(
                 domain=["sensor", "binary_sensor"], device_class="battery", multiple=True,
             )),

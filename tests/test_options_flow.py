@@ -19,6 +19,7 @@ from .flow_helpers import (
     finish_progress,
     mock_addons,
     mock_server,
+    offers,
     register_phones,
     select_values,
     setup_mypyllant,
@@ -76,6 +77,25 @@ async def test_saving_merges_only_the_own_keys_and_restarts_only_the_bridge(hass
     assert "cloudflared_access_mqtt" not in calls.options
     server.login.assert_not_awaited()
     server.provision.assert_not_awaited()
+
+
+@pytest.mark.parametrize("field", ["room_sensors", "entity_room_target"])
+async def test_room_selectors_offer_only_temperature_sensors_and_thermostats(hass, monkeypatch, field):
+    result, _, _, _ = await _open(hass, monkeypatch)
+
+    assert offers(result, field, "sensor", "temperature")
+    assert offers(result, field, "climate")
+    assert not offers(result, field, "sensor")
+    assert not offers(result, field, "number")
+
+
+async def test_a_room_sensor_outside_the_offered_domains_is_rejected(hass, monkeypatch):
+    result, _, _, _ = await _open(hass, monkeypatch)
+    hass.states.async_set("input_number.raum", "21", {"unit_of_measurement": "°C"})
+
+    result = await configure(hass, result, {**NEW_ROOMS, "room_sensors": ["input_number.raum"]})
+
+    assert (result["step_id"], result["errors"]) == ("init", {"room_sensors": "wrong_domain"})
 
 
 async def test_a_dead_room_sensor_is_rejected(hass, monkeypatch):

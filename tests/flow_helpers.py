@@ -224,3 +224,20 @@ def has_default(result, field: str) -> bool:
 def select_values(result, field: str) -> list:
     config = result["data_schema"].schema[marker(result, field)].config
     return [option["value"] if isinstance(option, dict) else option for option in config["options"]]
+
+
+def offers(result, field: str, domain: str, device_class: str | None = None, section: str | None = None) -> bool:
+    """Bietet der Entity-Selektor eine Entity dieser Domain/Geraeteklasse an? Bildet die
+    Frontend-Auswertung von `filter` nach (Eintraege oder-verknuepft, Felder je Eintrag
+    und-verknuepft). Legacy-`domain` auf oberster Ebene ist bewusst ausgeschlossen: wie das
+    Frontend es mit `filter` kombiniert, ist nicht festgelegt."""
+    schema = result["data_schema"].schema
+    if section is not None:
+        schema = schema[section].schema.schema
+    config = schema[marker(result, field, section)].config
+    assert "domain" not in config and "device_class" not in config, config
+    return any(
+        domain in entry.get("domain", [domain])
+        and (not entry.get("device_class") or device_class in entry["device_class"])
+        for entry in config["filter"]
+    )

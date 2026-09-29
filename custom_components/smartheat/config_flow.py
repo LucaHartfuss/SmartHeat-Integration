@@ -49,8 +49,6 @@ from .const import (
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
     PLAUSIBLE_RANGES,
-    ROLE_DOMAINS,
-    ROOM_SENSOR_DOMAINS,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
     STATUS_WAIT_SECONDS,
@@ -422,12 +420,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self._room_sensors, self._room_target = refs, target
                 return await self.async_step_plant_values()
         schema = vol.Schema({
-            vol.Required(OPTION_ROOM_SENSORS): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=ROOM_SENSOR_DOMAINS, multiple=True),
-            ),
-            vol.Required(OPTION_ENTITY_ROOM_TARGET): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=ROLE_DOMAINS[OPTION_ENTITY_ROOM_TARGET]),
-            ),
+            vol.Required(OPTION_ROOM_SENSORS): validation.entity_selector(OPTION_ROOM_SENSORS, multiple=True),
+            vol.Required(OPTION_ENTITY_ROOM_TARGET): validation.entity_selector(OPTION_ENTITY_ROOM_TARGET),
         })
         return self.async_show_form(
             step_id="rooms", data_schema=self.add_suggested_values_to_schema(schema, self._rooms_input), errors=errors,
@@ -483,6 +477,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self.hass, plant["entity_outdoor_temp"], PLAUSIBLE_RANGES["outdoor"],
             ),
         }
+        checks = {field: validation.check_domain(plant[field], field) or error for field, error in checks.items()}
         return {field: error for field, error in checks.items() if error}
 
     async def async_step_plant_values(self, user_input: dict | None = None):
@@ -526,14 +521,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 ADVANCED_SECTION: {field: suggestions[field] for field in kpi_fields if field in suggestions},
             }
         schema: dict[vol.Marker, Any] = {
-            vol.Required(field): selector.EntitySelector(selector.EntitySelectorConfig(domain=ROLE_DOMAINS[field]))
-            for field in PLANT_FIELDS
+            vol.Required(field): validation.entity_selector(field) for field in PLANT_FIELDS
         }
         if kpi_fields:
             schema[vol.Required(ADVANCED_SECTION)] = section(
                 vol.Schema({
-                    vol.Optional(field): selector.EntitySelector(selector.EntitySelectorConfig(domain=["sensor"]))
-                    for field in kpi_fields
+                    vol.Optional(field): validation.entity_selector(field) for field in kpi_fields
                 }),
                 {"collapsed": True},
             )
@@ -987,6 +980,9 @@ def _resolve_kpi_entities(hass, user_input: dict, fields: list[str]) -> tuple[di
         state = hass.states.get(entity_id)
         if state is None:
             errors[field] = "entity_not_found"
+            continue
+        if error := validation.check_domain(entity_id, field):
+            errors[field] = error
             continue
         if field != "entity_operating_mode":
             expected = KPI_ROLE_STATE_CLASS_EXPECTATIONS.get(field, "total_increasing")
