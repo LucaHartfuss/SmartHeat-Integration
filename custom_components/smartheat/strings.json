@@ -198,7 +198,8 @@
       "boost": {"name": "Boost", "state": {"keiner": "None", "komfort": "Comfort", "notfall": "Emergency"}},
       "letzte_serverantwort": {"name": "Last server answer"},
       "heizkurve": {"name": "Learned heating curve"},
-      "offset": {"name": "Learned offset"},
+      "parallelverschiebung": {"name": "Learned parallel shift"},
+      "mindestvorlauf": {"name": "Minimum flow temperature"},
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
       "addon_version": {"name": "Add-on version"}
     },

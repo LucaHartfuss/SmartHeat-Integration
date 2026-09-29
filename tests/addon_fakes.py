@@ -67,7 +67,8 @@ def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -
     event = {
         "schema": 1, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
-        "letzte_serverantwort": None, "kurve": None, "offset": None, "abo": "aktiv", "abo_frist_ende": None,
+        "letzte_serverantwort": None, "kurve": None, "parallelverschiebung": None, "mindestvorlauf": None,
+        "abo": "aktiv", "abo_frist_ende": None,
         "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None},
     }
     event.update(overrides)

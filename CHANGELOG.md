@@ -3,6 +3,18 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.8.0
+
+- Regelkern 2.0 (TP11): Die Rolle „Offset“ (Parallelversatz) entfällt zugunsten von zwei eigenen Rollen —
+  „Parallelverschiebung“ (`entity_shift_current`, die Zonen-Wunschtemperatur-Entity) und „Mindestvorlauf“
+  (`entity_min_flow`); im Schritt „Anlagenwerte“ neu dazu der optionale Vorlauf-Istwert
+  (`entity_flow_setpoint`). Die Sensoren `sensor.smartheat_<anlage>_parallelverschiebung` und
+  `sensor.smartheat_<anlage>_mindestvorlauf` (beide °C) ersetzen `sensor.smartheat_<anlage>_offset`; die
+  alte `offset`-Entity wird nicht mehr erzeugt und bleibt als „nicht verfügbar“ in der Entity-Registry
+  zurück — kann von Hand gelöscht werden. Voraussetzung: `heizungsbruecke` ≥ 0.24.0.
+  **Nach dem Update: Neu konfigurieren ausführen**, sonst geht die Anlage mit „Konfiguration veraltet“
+  in den Ruhezustand (kein Schreibzugriff, bis die neuen Anlagenwerte-Felder ausgefüllt sind).
+
 ## 0.7.1
 
 - Wizard und Optionen: Die Entity-Auswahl zeigt nur noch passende Entities — Raumfühler und

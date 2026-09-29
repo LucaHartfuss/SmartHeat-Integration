@@ -198,7 +198,8 @@
       "boost": {"name": "Boost", "state": {"keiner": "Keiner", "komfort": "Komfort", "notfall": "Notfall"}},
       "letzte_serverantwort": {"name": "Letzte Serverantwort"},
       "heizkurve": {"name": "Gelernte Heizkurve"},
-      "offset": {"name": "Gelernter Offset"},
+      "parallelverschiebung": {"name": "Gelernte Parallelverschiebung"},
+      "mindestvorlauf": {"name": "Mindestvorlauftemperatur"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
       "addon_version": {"name": "Add-on-Version"}
     },
