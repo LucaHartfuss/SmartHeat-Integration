@@ -512,6 +512,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                     **{field: [entity_id] for field, entity_id in kpi.items()},
                 })
                 errors = {field: error for field, error in duplicates.items() if field in plant or field in kpi}
+                if validation.zone_is_room_target(plant["entity_shift_current"], room_target):
+                    errors["entity_shift_current"] = validation.ERROR_ZONE_IS_ROOM_TARGET
             if any(field in kpi_fields for field in errors):
                 errors["base"] = "advanced_invalid"
             if not errors:

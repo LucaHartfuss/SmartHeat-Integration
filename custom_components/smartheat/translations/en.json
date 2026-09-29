@@ -96,6 +96,7 @@
       "out_of_range": "The value is outside the physically plausible range",
       "duplicate_entity": "The same entity is used for two roles",
       "wrong_domain": "This entity does not fit this field",
+      "zone_is_room_target": "The heating zone cannot also provide the desired room temperature: SmartHeat writes the parallel shift into the zone. Choose a room thermostat or sensor for the desired temperature",
       "room_sensors_required": "Choose at least one room temperature sensor",
       "advanced_invalid": "Please check the fields under 'Advanced'",
       "warnings_not_confirmed": "Please confirm all notes",
@@ -137,7 +138,7 @@
           "room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature",
           "notify_services": "Phones", "battery_entities": "Monitored batteries",
           "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
-          "hint_manueller_eingriff": "Notify about a manual change of the heating curve",
+          "hint_manueller_eingriff": "Notify about a manual change of the heating curve or the parallel shift",
           "hint_quellwechsel": "Notify about a changed temperature source"
         }
       },
@@ -165,6 +166,7 @@
       "out_of_range": "The value is outside the physically plausible range",
       "duplicate_entity": "The same entity is used for two roles",
       "wrong_domain": "This entity does not fit this field",
+      "zone_is_room_target": "The heating zone cannot also provide the desired room temperature: SmartHeat writes the parallel shift into the zone. Choose a room thermostat or sensor for the desired temperature",
       "warnings_not_confirmed": "Please confirm all notes"
     },
     "abort": {"setup_incomplete": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure."}

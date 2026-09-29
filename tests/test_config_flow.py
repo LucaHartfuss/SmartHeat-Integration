@@ -486,6 +486,29 @@ async def test_outdoor_equal_to_a_room_sensor_is_a_duplicate(hass, monkeypatch):
     assert result["errors"] == {"entity_outdoor_temp": "duplicate_entity"}
 
 
+async def test_zone_that_is_also_the_room_target_is_rejected(hass, monkeypatch):
+    """Raum-Soll `climate.z::temperature` und Zone `climate.z` sind dieselbe Entity: Das Add-on wuerde
+    die Parallelverschiebung in die Quelle des Kundenwunsches schreiben (Rueckkopplung)."""
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    result = await configure(hass, result, {**ROOMS_INPUT, "entity_room_target": ZONE})
+    assert result["step_id"] == "plant_values"
+
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert (result["step_id"], result["errors"]) == ("plant_values", {"entity_shift_current": "zone_is_room_target"})
+
+
+async def test_zone_current_temperature_as_room_sensor_stays_allowed(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "rooms")
+    hass.states.async_set(ZONE, "auto", {"temperature": 20.0, "current_temperature": 20.8})
+    result = await configure(hass, result, {**ROOMS_INPUT, "room_sensors": ["sensor.wz_temperatur", ZONE]})
+    assert result["step_id"] == "plant_values"
+
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert result["step_id"] == "notifications"
+
+
 async def test_energy_role_needs_total_increasing(hass, monkeypatch):
     result, _ = await _reach(hass, monkeypatch, "plant_values")
     hass.states.async_set("sensor.gas", "123", {"state_class": "total"})
@@ -884,7 +907,7 @@ _EXPECTED_ERRORS = {
     "invalid_auth", "cannot_connect", "no_tenants", "profile_combination_unsupported", "unit_mismatch",
     "entity_not_found", "entity_unavailable", "not_numeric", "out_of_range", "duplicate_entity",
     "room_sensors_required", "advanced_invalid", "warnings_not_confirmed", "session_expired", "unknown",
-    "state_class_expected_measurement", "state_class_expected_total_increasing",
+    "state_class_expected_measurement", "state_class_expected_total_increasing", "zone_is_room_target",
 }
 _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",

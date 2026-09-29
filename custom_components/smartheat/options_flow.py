@@ -138,6 +138,8 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
                 **{field: [entity] for field, entity in plant.items()},
             })
             errors = {field: error for field, error in duplicates.items() if field in ROOM_FIELDS}
+            if validation.zone_is_room_target(plant.get("entity_shift_current", ""), target):
+                errors[OPTION_ENTITY_ROOM_TARGET] = validation.ERROR_ZONE_IS_ROOM_TARGET
         chosen = user_input.get(OPTION_NOTIFY_SERVICES) or []
         new = {
             OPTION_ROOM_SENSORS: refs,
