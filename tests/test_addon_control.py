@@ -128,10 +128,14 @@ class FakeServer:
         return _Client()
 
 
-def _addons(hass, monkeypatch, log, *, answer=True, bridge_error=None, server_status=204, bridge_options=None):
+def _addons(
+    hass, monkeypatch, log, *, answer=True, answer_boost="keiner", bridge_error=None, server_status=204,
+    bridge_options=None,
+):
     def _answer(addon):
         if answer:
-            hass.bus.async_fire("smartheat_status", status_event(TENANT, "abgemeldet"))
+            grund = None if answer_boost == "keiner" else "Zurücksetzen der Anlage scheitert, neuer Versuch in 300 s"
+            hass.bus.async_fire("smartheat_status", status_event(TENANT, "abgemeldet", grund=grund, boost=answer_boost))
 
     bridge = FakeAddon(
         "a_heizungsbruecke", log, on_restart=_answer, error=bridge_error,
@@ -169,6 +173,27 @@ async def test_sign_off_order(hass, monkeypatch, dismissed):
     assert bridge.options == {"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": "", "abgemeldet": True}
     assert cloudflared.options == {"hostname": "h", "local_port": 18830, "service_token_id": "", "service_token_secret": ""}
     assert dismissed == ["smartheat_wohnung1_addon"]
+
+
+@pytest.mark.parametrize("boost", ["komfort", "notfall"])
+async def test_sign_off_keeps_the_bridge_running_while_its_boost_is_not_reset(hass, monkeypatch, dismissed, caplog, boost):
+    """TP7-Gates: scheitert das Zuruecksetzen, bleibt die Heizungsbruecke samt Watchdog/Boot
+    laufen und wiederholt es selbst; Cloudflared, Widerruf und Leeren der Zugangsdaten laufen
+    trotzdem."""
+    log = []
+    bridge, cloudflared = _addons(hass, monkeypatch, log, answer_boost=boost)
+
+    await addon_control.async_sign_off(hass, TENANT)
+
+    assert [entry[:2] for entry in log] == [
+        ("options", "a_heizungsbruecke"), ("restart", "a_heizungsbruecke"),
+        ("stop", "a_cloudflared_access_mqtt"),
+        ("supervision", "a_cloudflared_access_mqtt"),
+        ("revoke", TENANT),
+        ("options", "a_heizungsbruecke"), ("options", "a_cloudflared_access_mqtt"),
+    ]
+    assert bridge.options == {"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": "", "abgemeldet": True}
+    assert "laeuft weiter" in caplog.text
 
 
 async def test_revoke_uses_the_base_url_from_the_bridge_options(hass, monkeypatch, dismissed):

@@ -18,6 +18,7 @@ from .api_client import HeizungsserverClient
 from .const import (
     ADDON_SPECS,
     ADDON_STATUS_VALUES,
+    BOOST_KEINER,
     BRIDGE_CREDENTIAL_OPTIONS,
     CLOUDFLARED_ADDON_SLUG,
     CLOUDFLARED_CREDENTIAL_OPTIONS,
@@ -63,6 +64,11 @@ class StatusListener:
             return
         self._latest = dict(data)
         self._changed.set()
+
+    @property
+    def latest(self) -> dict | None:
+        """Letztes passendes Event (jede setup_id), None vor dem ersten."""
+        return self._latest
 
     def _outcome(self, setup_id: str | None, done: frozenset, failed: frozenset) -> tuple[str, str | None] | None:
         data = self._latest
@@ -179,7 +185,9 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
     Boost wird zurueckgesetzt), hoechstens SIGN_OFF_WAIT_SECONDS auf `abgemeldet` warten, beide
     Add-ons stoppen (manuell, der Watchdog greift nicht), Watchdog/Boot aus, Zugangsdaten in den
     Optionen leeren, eigene Benachrichtigung entfernen. Nach dem Stoppen widerruft der Server die
-    Zugangsdaten (Spec TP8 4, best effort)."""
+    Zugangsdaten (Spec TP8 4, best effort). Scheitert das Zuruecksetzen eines Boosts, bleibt die
+    Heizungsbruecke samt Watchdog/Boot laufen: sie wiederholt es im Ruhezustand selbst, auch ohne
+    Zugangsdaten und nach einem Neustart, und meldet es dem Kunden (TP7-Gates 2026-09-29)."""
     try:
         managers = await async_find_addon_managers(hass, ADDON_SPECS)
     except AddonError as error:
@@ -188,9 +196,9 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
     bridge = managers.get(HEIZUNGSBRUECKE_ADDON_SLUG)
     cloudflared = managers.get(CLOUDFLARED_ADDON_SLUG)
     credentials = await _async_read_server_credentials(bridge)
-    if bridge is not None:
-        await _async_sign_off_bridge(hass, bridge, tenant_id)
-    present = [manager for manager in (bridge, cloudflared) if manager is not None]
+    keep_bridge = bridge is not None and await _async_sign_off_bridge(hass, bridge, tenant_id)
+    to_stop = [bridge, cloudflared] if not keep_bridge else [cloudflared]
+    present = [manager for manager in to_stop if manager is not None]
     for manager in present:
         try:
             await manager.async_stop_addon()
@@ -209,7 +217,9 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
     persistent_notification.async_dismiss(hass, watchdog_notification_id(tenant_id))
 
 
-async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tenant_id: str) -> None:
+async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tenant_id: str) -> bool:
+    """True, wenn die Heizungsbruecke weiterlaufen muss: abgemeldet, aber ihr Boost steht noch auf
+    der Anlage (das Zuruecksetzen scheitert, sie versucht es weiter)."""
     listener = StatusListener(hass, tenant_id)
     try:
         await async_update_addon_options(bridge, {OPTION_ABGEMELDET: True})
@@ -217,12 +227,20 @@ async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tena
         outcome, grund = await listener.async_wait(
             setup_id=None, done=frozenset({STATUS_ABGEMELDET}), failed=frozenset(), timeout=SIGN_OFF_WAIT_SECONDS,
         )
+        latest = listener.latest
     except AddonError as error:
         _LOGGER.warning("Entfernen: Heizungsbruecke nicht abgemeldet: %s", error)
-        return
+        return False
     finally:
         listener.close()
     if outcome != WAIT_DONE:
         _LOGGER.warning("Entfernen: keine Abmeldung der Heizungsbruecke innerhalb von %s s", SIGN_OFF_WAIT_SECONDS)
-    elif grund:
+        return False
+    if latest is not None and latest.get("boost") != BOOST_KEINER:
+        _LOGGER.warning(
+            "Entfernen: Heizungsbruecke laeuft weiter, bis sie die Anlage zurueckgesetzt hat: %s", grund,
+        )
+        return True
+    if grund:
         _LOGGER.warning("Entfernen: Heizungsbruecke abgemeldet, aber: %s", grund)
+    return False

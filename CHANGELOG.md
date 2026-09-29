@@ -10,6 +10,9 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 - HACS: Mindestversion Home Assistant 2026.4.0 (`hacs.json`) — ältere Versionen sind ungetestet.
 - Entfernen: Der Server widerruft die Zugangsdaten danach auch dort (`DELETE /tenants/<id>/installation`,
   Best Effort — nicht erreichbar/401/HTTP-Fehler laufen das Entfernen trotzdem zu Ende).
+- Entfernen: Scheitert das Zurücksetzen eines laufenden Boosts (Event `abgemeldet` mit `boost` ≠
+  `keiner`), bleibt die Heizungsbrücke laufen und wiederholt es selbst (auch nach einem Neustart,
+  ab `heizungsbruecke` 0.23.0); nur Cloudflared wird gestoppt.
 
 ## 0.6.0
 
