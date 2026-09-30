@@ -1,4 +1,5 @@
 """Neu konfigurieren und Reauth (Spec TP7 2.3, 2.4)."""
+from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -91,6 +92,31 @@ async def test_reconfigure_keeps_the_credentials_and_changes_only_the_profile(ha
     assert entry.options["room_sensors"] == ["sensor.wz_temperatur", "sensor.kz_temperatur"]
     assert entry.data["integration_domain"] == "mypyllant"
     assert [slug for _, slug, _ in calls.supervision] == ["heizungsbruecke", "cloudflared_access_mqtt"]
+
+
+async def test_reconfigure_with_notbetrieb_is_done_with_notes(hass, monkeypatch):
+    mypyllant, mocks, calls = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS, status="notbetrieb",
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+    assert (result["type"], result["reason"]) == ("abort", "reconfigure_successful")
+    assert result["description_placeholders"]["notes"].strip() == await async_hint(hass, "done_status_notbetrieb", grund="-")
+
+
+async def test_reconfigure_with_failed_watchdog_names_it_in_the_notes(hass, monkeypatch):
+    mypyllant, mocks, calls = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+        supervision_error=SupervisorError("weg"),
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+    assert (result["type"], result["reason"]) == ("abort", "reconfigure_successful")
+    assert result["description_placeholders"]["notes"] == "\n\n" + await async_hint(hass, "done_supervision")
 
 
 async def test_reconfigure_from_a_07x_entry(hass, monkeypatch):

@@ -125,15 +125,12 @@
       "setup_cancelled": "Einrichtung abgebrochen.",
       "wrong_account": "Dieses Konto enthält die Anlage dieses Eintrags nicht.",
       "reconfigure_first": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
-      "reconfigure_successful": "SmartHeat wurde neu konfiguriert. Die Zugangsdaten sind gleich geblieben.",
-      "reconfigure_successful_warning": "SmartHeat wurde neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
-      "reconfigure_successful_new_credentials": "SmartHeat wurde neu konfiguriert. Es wurden neue Zugangsdaten ausgestellt, weil in den Add-ons keine vollständigen standen.",
-      "reconfigure_successful_new_credentials_warning": "SmartHeat wurde mit neuen Zugangsdaten neu konfiguriert. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
-      "reauth_successful": "SmartHeat ist wieder angemeldet.",
-      "reauth_successful_warning": "SmartHeat ist wieder angemeldet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
+      "reconfigure_successful": "SmartHeat wurde neu konfiguriert. Die Zugangsdaten sind gleich geblieben.{notes}",
+      "reconfigure_successful_new_credentials": "SmartHeat wurde neu konfiguriert. Es wurden neue Zugangsdaten ausgestellt, weil in den Add-ons keine vollständigen standen.{notes}",
+      "reauth_successful": "SmartHeat ist wieder angemeldet.{notes}"
     },
     "create_entry": {
-      "supervision_warning": "SmartHeat ist eingerichtet. Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen."
+      "setup_notes": "SmartHeat ist eingerichtet.\n\n{notes}"
     }
   },
   "options": {
@@ -221,6 +218,11 @@
     }
   },
   "common": {
+    "done_status_datenfehler": "Das Add-on meldet einen Datenfehler ({grund}). SmartHeat regelt, sobald die Werte wieder stimmen; Details am SmartHeat-Gerät.",
+    "done_status_notbetrieb": "Das Add-on erreicht den SmartHeat-Server gerade nicht und arbeitet im Notbetrieb. Es verbindet sich selbst neu; der Status steht am SmartHeat-Gerät.",
+    "done_status_abo_inaktiv": "Dein Abo ist derzeit nicht aktiv. SmartHeat regelt wieder, sobald es aktiv ist.",
+    "done_status_abo_beendet": "Dein Abo ist beendet. Die Anlage behält ihre Grundwerte, bis das Abo verlängert wird.",
+    "done_supervision": "Der Watchdog der Add-ons ließ sich nicht einschalten, bitte das Log prüfen.",
     "access_denied": "Der SmartHeat-Server verweigert den Zugriff: {grund}",
     "profile_rejected": "Der SmartHeat-Server hat das gewählte Heizungsprofil abgelehnt. Bitte eine andere Kombination wählen oder den Support kontaktieren.",
     "role_entity_curve_current": "Heizkurve",

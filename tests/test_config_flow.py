@@ -18,6 +18,7 @@ from custom_components.smartheat.supervisor_client import (
     AddonOutdatedError,
     AmbiguousAddonMatchError,
 )
+from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import status_event
 from .flow_helpers import (
@@ -950,9 +951,8 @@ _EXPECTED_ERRORS = {
 _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "single_instance_allowed", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
-    "wrong_account", "reconfigure_first", "reconfigure_successful", "reconfigure_successful_warning",
-    "reconfigure_successful_new_credentials", "reconfigure_successful_new_credentials_warning",
-    "reauth_successful", "reauth_successful_warning", "access_denied",
+    "wrong_account", "reconfigure_first", "reconfigure_successful",
+    "reconfigure_successful_new_credentials", "reauth_successful", "access_denied",
 }
 
 
@@ -965,7 +965,7 @@ def test_every_error_and_abort_has_a_text(path):
     assert {"user", "tenant", "heating", "system", "rooms", "plant_values", "notifications", "summary",
             "setup_failed", "setup_timeout"} <= set(config["step"])
     assert "setup" in config["progress"]
-    assert "supervision_warning" in config["create_entry"]
+    assert "setup_notes" in config["create_entry"]
 
 
 def test_strings_json_equals_the_english_translation():
@@ -1008,13 +1008,33 @@ async def test_zugang_abgelehnt_is_a_setup_failure_with_reason(hass, monkeypatch
     )
 
 
+@pytest.mark.parametrize("status", ["datenfehler", "notbetrieb", "abo_inaktiv", "abo_beendet"])
+async def test_setup_is_done_with_a_warning_state(hass, monkeypatch, status):
+    result, _, _ = await _to_setup(hass, monkeypatch, status=status, grund="Außenfühler liefert keine Werte")
+
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    assert result["description"] == "setup_notes"
+    assert result["description_placeholders"]["notes"] == await async_hint(
+        hass, f"done_status_{status}", grund="Außenfühler liefert keine Werte",
+    )
+
+
+async def test_regelt_has_no_notes(hass, monkeypatch):
+    result, _, _ = await _to_setup(hass, monkeypatch)
+    result = await finish_progress(hass, result)
+    assert result["description"] is None
+
+
 async def test_failed_watchdog_setting_is_only_a_warning(hass, monkeypatch, caplog):
     result, _, _ = await _to_setup(hass, monkeypatch, supervision_error=SupervisorError("weg"))
 
     result = await finish_progress(hass, result)
 
     assert result["type"] == "create_entry"
-    assert result["description"] == "supervision_warning"
+    assert result["description"] == "setup_notes"
+    assert await async_hint(hass, "done_supervision") in result["description_placeholders"]["notes"]
     assert "Watchdog/Boot" in caplog.text
 
 

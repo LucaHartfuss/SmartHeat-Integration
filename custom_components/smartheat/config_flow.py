@@ -60,6 +60,7 @@ from .const import (
     PLANT_FIELDS,
     PLAUSIBLE_RANGES,
     POLL_INTERVAL_MAX_SECONDS,
+    SETUP_DONE_STATUSES,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
     STATUS_WAIT_SECONDS,
@@ -143,6 +144,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._system_defaults: dict = {}
         self._status: StatusListener | None = None
         self._supervision_failed = False
+        # Letzter Status des Add-ons beim Abschluss (TP12c 3.1), fuer den Abschlusstext.
+        self._final_status: str | None = None
+        self._final_grund: str | None = None
 
     @staticmethod
     @callback
@@ -889,10 +893,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         status = self._status
         assert status is not None  # _run_setup() setzt ihn, bevor dieser Schritt erreichbar ist
         outcome, grund = await status.async_wait(
-            setup_id=self._setup_id, done=frozenset({STATUS_REGELT}),
+            setup_id=self._setup_id, done=frozenset(SETUP_DONE_STATUSES),
             failed=frozenset({STATUS_KONFIGURATIONSFEHLER, STATUS_ZUGANG_ABGELEHNT}), timeout=STATUS_WAIT_SECONDS,
         )
         if outcome == WAIT_DONE:
+            latest = status.latest or {}
+            self._final_status = latest.get("status")
+            self._final_grund = latest.get("grund")
             return "finish"
         if outcome == WAIT_FAILED:
             self._setup_error = grund or ""
@@ -1001,27 +1008,35 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             OPTION_NOTIFY_HINTS_OFF: list(self._hints_off),
         }
 
-    def _done_reason(self, reason: str) -> str:
-        return f"{reason}_warning" if self._supervision_failed else reason
+    async def _notes(self) -> str:
+        """Hinweise zum Abschluss: Warnzustand des Add-ons und/oder nicht gesetzter Watchdog."""
+        lines = []
+        if self._final_status not in (None, STATUS_REGELT):
+            lines.append(await self._hint(f"done_status_{self._final_status}", grund=self._final_grund or "-"))
+        if self._supervision_failed:
+            lines.append(await self._hint("done_supervision"))
+        return "\n\n".join(lines)
 
     async def async_step_finish(self, user_input: dict | None = None):
         await self._logout()
+        notes = await self._notes()
         entry = self._entry
-        if self._reauth:
-            assert entry is not None  # Reauth setzt self._entry immer (async_step_reauth)
-            return self.async_update_reload_and_abort(entry, reason=self._done_reason("reauth_successful"))
         if entry is not None:
-            # Nach dem provision()-Rueckfall (Add-on ohne Zugangsdaten) nicht "gleich geblieben" melden.
-            reason = "reconfigure_successful_new_credentials" if self._new_credentials else "reconfigure_successful"
-            return self.async_update_reload_and_abort(
-                entry, data=self._entry_data(), options=self._entry_options(),
-                reason=self._done_reason(reason),
-            )
+            if self._reauth:
+                reason = "reauth_successful"
+            else:
+                # Nach dem provision()-Rueckfall (Add-on ohne Zugangsdaten) nicht "gleich geblieben" melden.
+                reason = "reconfigure_successful_new_credentials" if self._new_credentials else "reconfigure_successful"
+                self.hass.config_entries.async_update_entry(entry, data=self._entry_data(), options=self._entry_options())
+            # Wie async_update_reload_and_abort, aber mit Platzhaltern fuer die Hinweise.
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
+            return self.async_abort(reason=reason, description_placeholders={"notes": f"\n\n{notes}" if notes else ""})
         tenant_id = self._tenant_id
         assert tenant_id is not None  # Ersteinrichtung: async_step_tenant() setzt ihn vorher
         return self.async_create_entry(
             title=tenant_id, data=self._entry_data(), options=self._entry_options(),
-            description="supervision_warning" if self._supervision_failed else None,
+            description="setup_notes" if notes else None,
+            description_placeholders={"notes": notes} if notes else None,
         )
 
 

@@ -125,15 +125,12 @@
       "setup_cancelled": "Setup cancelled.",
       "wrong_account": "This account does not include the installation of this entry.",
       "reconfigure_first": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure.",
-      "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.",
-      "reconfigure_successful_warning": "SmartHeat was reconfigured. The watchdog of the add-ons could not be switched on, please check the log.",
-      "reconfigure_successful_new_credentials": "SmartHeat was reconfigured. New access credentials were issued, because the add-ons had no complete ones.",
-      "reconfigure_successful_new_credentials_warning": "SmartHeat was reconfigured with new access credentials. The watchdog of the add-ons could not be switched on, please check the log.",
-      "reauth_successful": "SmartHeat is signed in again.",
-      "reauth_successful_warning": "SmartHeat is signed in again. The watchdog of the add-ons could not be switched on, please check the log."
+      "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.{notes}",
+      "reconfigure_successful_new_credentials": "SmartHeat was reconfigured. New access credentials were issued, because the add-ons had no complete ones.{notes}",
+      "reauth_successful": "SmartHeat is signed in again.{notes}"
     },
     "create_entry": {
-      "supervision_warning": "SmartHeat is set up. The watchdog of the add-ons could not be switched on, please check the log."
+      "setup_notes": "SmartHeat is set up.\n\n{notes}"
     }
   },
   "options": {
@@ -221,6 +218,11 @@
     }
   },
   "common": {
+    "done_status_datenfehler": "The add-on reports a data error ({grund}). SmartHeat regulates as soon as the values are valid again; details on the SmartHeat device.",
+    "done_status_notbetrieb": "The add-on cannot reach the SmartHeat server right now and runs in emergency mode. It reconnects on its own; the status is shown on the SmartHeat device.",
+    "done_status_abo_inaktiv": "Your subscription is currently inactive. SmartHeat resumes as soon as it is active.",
+    "done_status_abo_beendet": "Your subscription has ended. The system keeps its base values until the subscription is renewed.",
+    "done_supervision": "The add-on watchdog could not be enabled, please check the log.",
     "access_denied": "The SmartHeat server denied access: {grund}",
     "profile_rejected": "The SmartHeat server rejected the chosen heating profile. Please choose another combination or contact support.",
     "role_entity_curve_current": "Heating curve",
