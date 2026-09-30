@@ -1,11 +1,11 @@
 """Audit 2026-09-30 (Teilsystem C): Belege fuer Zuordnungs- und Mehrfach-Eintrags-Befunde.
 
-Befunde AU-003, AU-004, AU-011 (behoben in TP12c).
-
-Jeder Test beschreibt das erwartete (sichere) Verhalten und ist als strict-xfail markiert, solange
-der Befund besteht."""
+Befunde AU-003, AU-004, AU-011 (behoben in TP12c). Die Tests dokumentieren das erwartete (sichere)
+Verhalten; kein xfail mehr, sie sichern die Behebung ab."""
 import json
 from pathlib import Path
+
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.smartheat.catalog import parse_integrations
 from custom_components.smartheat.const import PLANT_FIELDS
@@ -74,6 +74,10 @@ async def test_reconfigure_with_an_integration_change_uses_the_new_detection(has
     enable_supervisor(hass, monkeypatch)
     mock_server(monkeypatch)
     mypyllant = setup_mypyllant(hass)
+    er.async_get(hass).async_get_or_create(
+        "sensor", "mypyllant", "mypyllant_SYSTEM_home_water_pressure", config_entry=mypyllant,
+        suggested_object_id="zuhause_system_water_pressure",
+    )
     setup_rooms(hass)
     register_phones(hass, "mobile_app_pixel")
     fast_status_wait(monkeypatch)
@@ -81,7 +85,10 @@ async def test_reconfigure_with_an_integration_change_uses_the_new_detection(has
     entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
     hass.config_entries.async_update_entry(entry, data={
         **entry.data, "integration_domain": "andere",
-        "entities": {**entry.data["entities"], "entity_curve_current": "number.fremd"},
+        "entities": {
+            **entry.data["entities"], "entity_curve_current": "number.fremd",
+            "entity_system_water_pressure": "sensor.veralteter_druck",
+        },
     })
 
     result = await login(hass, await entry.start_reconfigure_flow(hass))
@@ -89,6 +96,8 @@ async def test_reconfigure_with_an_integration_change_uses_the_new_detection(has
     result = await configure(hass, result, ROOMS_INPUT)
 
     assert suggested(result, "entity_curve_current") == "number.zuhause_circuit_0_heating_curve"
+    # KPI genauso: Erkennung statt veraltetem Eintragswert.
+    assert suggested(result, "entity_system_water_pressure", section="advanced") == "sensor.zuhause_system_water_pressure"
 
 
 async def test_second_entry_on_the_same_home_assistant_is_refused(hass, monkeypatch):

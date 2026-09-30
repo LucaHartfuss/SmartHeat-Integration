@@ -1109,3 +1109,48 @@ async def test_summary_names_the_written_entities(hass, monkeypatch):
     text = result["description_placeholders"]["write_entities"]
     for entity in (CURVE, ZONE, MIN_FLOW, HEAT_LIMIT):
         assert entity in text
+
+
+
+async def test_write_role_without_detection_needs_confirmation(hass, monkeypatch):
+    """Spec 5.1: Zone ohne Erkennung (Name ohne Kreis) -> Warnung, Bestaetigung noetig."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    er.async_get(hass).async_update_entity(ZONE, original_name="Zuhause Zone 1 Climate")
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert suggested(result, "entity_shift_current") is None
+    result = await configure(hass, result, PLANT_INPUT)
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert ZONE in result["description_placeholders"]["warnings"]
+    assert "confirm_write_role_unmatched" in [str(key) for key in result["data_schema"].schema]
+
+
+async def test_optional_flow_setpoint_without_detection_gives_no_warning(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    entry = setup_mypyllant(hass)
+    er.async_get(hass).async_remove(FLOW_SETPOINT)
+    er.async_get(hass).async_get_or_create(
+        "sensor", "mypyllant", "mypyllant_eigener_vorlauf", config_entry=entry, suggested_object_id="eigener_vorlauf",
+    )
+    hass.states.async_set(
+        "sensor.eigener_vorlauf", "38", {"unit_of_measurement": "°C", "device_class": "temperature"},
+    )
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert suggested(result, "entity_flow_setpoint") is None
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_flow_setpoint": "sensor.eigener_vorlauf"})
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert "confirm_write_role_unmatched" not in [str(key) for key in result["data_schema"].schema]
