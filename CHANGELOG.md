@@ -14,10 +14,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   SmartHeat-Anlage unberührt; gescheiterte Schritte erscheinen als Benachrichtigung.
 - Einrichtung gilt auch bei Datenfehler, Notbetrieb oder inaktivem Abo als abgeschlossen (der
   Abschlusstext nennt den Zustand). Ein Abbruch nach dem Schreiben baut zurück: Ersteinrichtung wie
-  Entfernen, „Neu konfigurieren" stellt die bisherigen Add-on-Einstellungen und das bisherige Profil wieder
+  Entfernen, „Neu konfigurieren“ stellt die bisherigen Add-on-Einstellungen und das bisherige Profil wieder
   her. Die Optionen stellen bei Ablehnung durch das Add-on den vorigen Stand wieder her.
 - Klarere Fehlermeldungen bei Serverproblemen (Zeitlimit 30 s, Ablehnungsgrund des Servers).
-- Veraltete Einträge werden allgemein erkannt (Hinweis „Neu konfigurieren"); die alte Entity
+- Veraltete Einträge werden allgemein erkannt (Hinweis „Neu konfigurieren“); die alte Entity
   `sensor.smartheat_<anlage>_offset` wird automatisch entfernt.
 - Voraussetzung: SmartHeat-Server mit Katalog v2 (vor dem Update der Integration aktualisiert).
 

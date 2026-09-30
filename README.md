@@ -55,11 +55,11 @@ Schritte als Benachrichtigung.
 
 ### Update von 0.7.x oder älter
 
-Ab 0.8.0/`heizungsbruecke` 0.24.0 ersetzt die Rolle „Parallelverschiebung” (Zonen-Wunschtemperatur) die
-bisherige Rolle „Offset”; der Sensor `sensor.smartheat_<anlage>_offset` entfällt zugunsten von
+Ab 0.8.0/`heizungsbruecke` 0.24.0 ersetzt die Rolle „Parallelverschiebung“ (Zonen-Wunschtemperatur) die
+bisherige Rolle „Offset“; der Sensor `sensor.smartheat_<anlage>_offset` entfällt zugunsten von
 `sensor.smartheat_<anlage>_parallelverschiebung` und `sensor.smartheat_<anlage>_mindestvorlauf` und wird
 ab 0.9.0 automatisch aus der Entity-Registry entfernt. Eine Konfiguration aus einer älteren Version startet
-zwar noch, geht aber ohne Schreibzugriff auf die Anlage in den Ruhezustand „Konfiguration veraltet” über.
+zwar noch, geht aber ohne Schreibzugriff auf die Anlage in den Ruhezustand „Konfiguration veraltet“ über.
 **Nach dem Update: Neu konfigurieren** ausführen und dabei die neuen Anlagenwerte-Felder ausfüllen.
 
 ## Änderungen
