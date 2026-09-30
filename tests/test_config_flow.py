@@ -10,7 +10,7 @@ from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
+from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
@@ -902,19 +902,48 @@ async def test_created_entry_blocks_a_second_flow_for_the_tenant(hass, monkeypat
     assert (second["type"], second["reason"]) == ("abort", "single_instance_allowed")
 
 
+async def test_invalid_login_response_is_a_clear_error(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    mocks.login.side_effect = InvalidResponse("kaputt")
+    result = await login(hass, await start(hass))
+    assert result["errors"] == {"base": "invalid_response"}
+
+
+async def test_access_denied_at_provision_shows_the_server_text(hass, monkeypatch):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mocks.provision.side_effect = AccessDenied("Diese Anlage ist derzeit nicht aktiv (Abo abgelaufen/pausiert)")
+    mock_addons(hass, monkeypatch)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+    assert "Abo abgelaufen" in result["description_placeholders"]["grund"]
+
+
+async def test_access_denied_for_the_catalog_aborts_with_the_text(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    mocks.get_catalog.side_effect = AccessDenied("Tenant gehoert nicht zu diesem Account")
+    setup_mypyllant(hass)
+    result = await login(hass, await start(hass))
+    assert (result["type"], result["reason"]) == ("abort", "access_denied")
+    assert result["description_placeholders"]["grund"] == "Tenant gehoert nicht zu diesem Account"
+    mocks.logout.assert_awaited_once()
+
+
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 _EXPECTED_ERRORS = {
     "invalid_auth", "cannot_connect", "no_tenants", "profile_combination_unsupported", "unit_mismatch",
     "entity_not_found", "entity_unavailable", "not_numeric", "out_of_range", "duplicate_entity",
     "room_sensors_required", "advanced_invalid", "warnings_not_confirmed", "session_expired", "unknown",
     "state_class_expected_measurement", "state_class_expected_total_increasing", "zone_is_room_target",
+    "invalid_response",
 }
 _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "single_instance_allowed", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
     "wrong_account", "reconfigure_first", "reconfigure_successful", "reconfigure_successful_warning",
     "reconfigure_successful_new_credentials", "reconfigure_successful_new_credentials_warning",
-    "reauth_successful", "reauth_successful_warning",
+    "reauth_successful", "reauth_successful_warning", "access_denied",
 }
 
 

@@ -26,7 +26,15 @@ from homeassistant.helpers.hassio import is_hassio
 
 from . import detection, validation
 from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_set_supervision
-from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
+from .api_client import (
+    AccessDenied,
+    ApiError,
+    CannotConnect,
+    HeizungsserverClient,
+    InvalidAuth,
+    InvalidResponse,
+    ProfileRejected,
+)
 from .catalog import IntegrationDescriptor, parse_integrations, verified_profiles
 from .const import (
     ADDON_REPOSITORY_URL,
@@ -227,6 +235,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 errors["base"] = "invalid_auth"
             except CannotConnect:
                 errors["base"] = "cannot_connect"
+            except InvalidResponse:
+                errors["base"] = "invalid_response"
             except ApiError:
                 errors["base"] = "unknown"
             else:
@@ -294,8 +304,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self._catalog = await self._client().get_catalog(token)
             except InvalidAuth:
                 return await self._session_lost()
+            except AccessDenied as error:
+                await self._logout()
+                return self.async_abort(reason="access_denied", description_placeholders={"grund": error.reason or "-"})
             except CannotConnect:
                 errors["base"] = "cannot_connect"
+            except InvalidResponse:
+                errors["base"] = "invalid_response"
             except ApiError:
                 errors["base"] = "unknown"
             if errors:
@@ -751,6 +766,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             provisioning = await self._client().provision(token, tenant_id, profile_id)
         except InvalidAuth:
             return self._expire_session()
+        except AccessDenied as error:
+            self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
+            return "setup_failed"
         except ApiError:
             self._setup_error = await self._hint("provisioning_failed")
             return "setup_failed"
@@ -778,6 +796,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             profile_params = await self._client().update_profile(token, tenant_id, profile["profile_id"])
         except InvalidAuth:
             return self._expire_session()
+        except AccessDenied as error:
+            self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
+            return "setup_failed"
+        except ProfileRejected:
+            self._setup_error = await self._hint("profile_rejected")
+            return "setup_failed"
         except ApiError:
             self._setup_error = await self._hint("profile_update_failed")
             return "setup_failed"

@@ -6,11 +6,20 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from typing import Any
 
 import aiohttp
 
-from .const import INSTALLATION_PATH, PROFILE_PATH, REVOKE_TIMEOUT_SECONDS
+from .const import (
+    ACCESS_DENIED_REASON_MAX,
+    INSTALLATION_PATH,
+    PROFILE_PATH,
+    REQUEST_TIMEOUT_SECONDS,
+    REVOKE_TIMEOUT_SECONDS,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _basic_auth_header(username: str, password: str) -> str:
@@ -36,6 +45,26 @@ class InvalidAuth(ApiError):
     """Zugangsdaten oder Sitzungstoken wurden vom Server abgelehnt (401)."""
 
 
+class InvalidResponse(ApiError):
+    """Der Server antwortete mit 200, aber unverstaendlich (kein JSON, Pflichtfeld fehlt)."""
+
+
+class AccessDenied(ApiError):
+    """403: Zugriff verweigert; reason = Text des Servers (angezeigt, nicht gedeutet)."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason or "Zugriff verweigert")
+        self.reason = reason
+
+
+class ProfileRejected(ApiError):
+    """400 beim Profilwechsel: der Server lehnt das Profil ab."""
+
+
+def _bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
 class HeizungsserverClient:
     def __init__(self, session: aiohttp.ClientSession, base_url: str) -> None:
         self._session = session
@@ -43,75 +72,52 @@ class HeizungsserverClient:
 
     async def login(self, email: str, password: str) -> str:
         try:
-            async with self._session.post(
-                f"{self._base_url}/auth/login", json={"email": email, "password": password}
-            ) as response:
-                if response.status == 401:
-                    raise InvalidAuth("Ungueltige Zugangsdaten")
-                if response.status != 200:
-                    raise ApiError(f"Login fehlgeschlagen (HTTP {response.status})")
-                body = await response.json()
-                return body["token"]
-        except aiohttp.ClientError as error:
-            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+            body = await self._request("POST", "/auth/login", "Login", json={"email": email, "password": password})
+        except InvalidAuth as error:
+            raise InvalidAuth("Ungueltige Zugangsdaten") from error
+        token = body.get("token") if isinstance(body, dict) else None
+        if not isinstance(token, str) or not token:
+            raise InvalidResponse("Login-Antwort ohne Token")
+        return token
 
     async def list_tenants(self, token: str) -> list[dict]:
-        return await self._get_authenticated("/accounts/me/tenants", token)
+        tenants = await self._request("GET", "/accounts/me/tenants", "Tenant-Liste", headers=_bearer(token))
+        if not isinstance(tenants, list) or not all(
+            isinstance(t, dict) and isinstance(t.get("tenant_id"), str) for t in tenants
+        ):
+            raise InvalidResponse("Tenant-Liste hat ein unerwartetes Format")
+        return tenants
 
     async def get_catalog(self, token: str) -> dict:
-        catalog = await self._get_authenticated("/catalog", token)
+        catalog = await self._request("GET", "/catalog", "Katalog", headers=_bearer(token))
         if not isinstance(catalog, dict) or not isinstance(catalog.get("profiles"), list):
-            raise ApiError("Katalog-Antwort ohne 'profiles'-Liste")
+            raise InvalidResponse("Katalog-Antwort ohne 'profiles'-Liste")
         return catalog
 
     async def provision(self, token: str, tenant_id: str, profile_id: str) -> dict:
-        try:
-            async with self._session.post(
-                f"{self._base_url}/tenants/{tenant_id}/provision",
-                json={"profile_id": profile_id},
-                headers={"Authorization": f"Bearer {token}"},
-            ) as response:
-                if response.status == 401:
-                    raise InvalidAuth("Sitzung abgelaufen")
-                if response.status != 200:
-                    raise ApiError(f"Provisioning fehlgeschlagen (HTTP {response.status})")
-                return await self._read_json(response, "Provisioning-Antwort ist kein gueltiges JSON")
-        except aiohttp.ClientError as error:
-            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+        body = await self._request(
+            "POST", f"/tenants/{tenant_id}/provision", "Provisioning",
+            json={"profile_id": profile_id}, headers=_bearer(token),
+        )
+        if not isinstance(body, dict):
+            raise InvalidResponse("Provisioning-Antwort ist kein Objekt")
+        return body
 
     async def update_profile(self, token: str, tenant_id: str, profile_id: str) -> dict:
         """Profilwechsel ohne neue Zugangsdaten (Neu konfigurieren, Spec TP7 4.1). Liefert die
         profile_params fuer die Add-on-Optionen."""
-        try:
-            async with self._session.post(
-                f"{self._base_url}{PROFILE_PATH.format(tenant_id=tenant_id)}",
-                json={"profile_id": profile_id},
-                headers={"Authorization": f"Bearer {token}"},
-            ) as response:
-                if response.status == 401:
-                    raise InvalidAuth("Sitzung abgelaufen")
-                if response.status != 200:
-                    raise ApiError(f"Profilwechsel fehlgeschlagen (HTTP {response.status})")
-                body = await self._read_json(response, "Profil-Antwort ist kein gueltiges JSON")
-        except aiohttp.ClientError as error:
-            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+        body = await self._request(
+            "POST", PROFILE_PATH.format(tenant_id=tenant_id), "Profilwechsel",
+            json={"profile_id": profile_id}, headers=_bearer(token), on_400=ProfileRejected,
+        )
         if not isinstance(body, dict) or not isinstance(body.get("profile_params"), dict):
-            raise ApiError("Profil-Antwort ohne gueltiges 'profile_params'")
+            raise InvalidResponse("Profil-Antwort ohne gueltiges 'profile_params'")
         return body["profile_params"]
 
     async def logout(self, token: str) -> None:
         """Beendet die Login-Sitzung (I5). Der Wizard ruft das nach erfolgreicher Einrichtung;
         ein Fehler dort wird nur geloggt."""
-        try:
-            async with self._session.post(
-                f"{self._base_url}/auth/logout", headers={"Authorization": f"Bearer {token}"},
-            ) as response:
-                if response.status == 401:
-                    raise InvalidAuth("Sitzung abgelaufen")
-                if response.status not in (200, 204):
-                    raise ApiError(f"Logout fehlgeschlagen (HTTP {response.status})")
-        except aiohttp.ClientError as error:
-            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+        await self._request("POST", "/auth/logout", "Logout", ok=(200, 204), expect_json=False, headers=_bearer(token))
 
     async def delete_installation(self, tenant_id: str, username: str, password: str) -> int | None:
         """Widerruft die MQTT-Zugangsdaten dieser Anlage auf dem Server (Spec TP8 4), angemeldet mit
@@ -127,26 +133,54 @@ class HeizungsserverClient:
         except (aiohttp.ClientError, TimeoutError):
             return None
 
+    async def _error_text(self, response: aiohttp.ClientResponse) -> str:
+        try:
+            body = await response.json(content_type=None)
+        except (aiohttp.ClientError, ValueError):
+            return ""
+        error = body.get("error") if isinstance(body, dict) else None
+        return error[:ACCESS_DENIED_REASON_MAX] if isinstance(error, str) else ""
+
+    async def _check_status(
+        self, response: aiohttp.ClientResponse, what: str, ok: tuple[int, ...], on_400: type[ApiError],
+    ) -> None:
+        if response.status in ok:
+            return
+        if response.status == 401:
+            raise InvalidAuth("Sitzung abgelaufen")
+        text = await self._error_text(response)
+        # Nie Tokens/Passwoerter loggen: nur Status und der Fehlertext des Servers.
+        _LOGGER.warning("%s abgelehnt (HTTP %s): %s", what, response.status, text or "-")
+        if response.status == 403:
+            raise AccessDenied(text)
+        if response.status == 400:
+            raise on_400(f"{what} abgelehnt (HTTP 400): {text}")
+        raise ApiError(f"{what} fehlgeschlagen (HTTP {response.status})")
+
+    async def _request(
+        self, method: str, path: str, what: str, *, ok: tuple[int, ...] = (200,),
+        on_400: type[ApiError] = ApiError, expect_json: bool = True, **kwargs: Any,
+    ) -> Any:
+        """Eine Anfrage mit Zeitlimit; liefert den JSON-Body (None bei 204 oder expect_json=False)."""
+        try:
+            async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
+                async with self._session.request(method, f"{self._base_url}{path}", **kwargs) as response:
+                    await self._check_status(response, what, ok, on_400)
+                    if response.status == 204 or not expect_json:
+                        return None
+                    return await self._read_json(response, f"{what}: Antwort ist kein gueltiges JSON")
+        except TimeoutError as error:
+            raise CannotConnect(f"Abo-Service antwortet nicht ({what})") from error
+        except aiohttp.ClientError as error:
+            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+
     async def _read_json(self, response: aiohttp.ClientResponse, error_message: str) -> Any:
-        """Liest den JSON-Body einer bereits als 200 akzeptierten Antwort. Ein falscher
-        Content-Type oder ungueltiges JSON ist eine kaputte Antwort (ApiError), keine
+        """Liest den JSON-Body einer bereits als erfolgreich akzeptierten Antwort. Ein falscher
+        Content-Type oder ungueltiges JSON ist eine kaputte Antwort (InvalidResponse), keine
         Verbindungsstoerung -- ohne diesen Fang wuerde aiohttp.ContentTypeError (Unterklasse von
         aiohttp.ClientError) faelschlich als CannotConnect ankommen, und ein reines
         JSONDecodeError (ValueError) gar nicht gefangen."""
         try:
             return await response.json()
         except (aiohttp.ContentTypeError, ValueError) as error:
-            raise ApiError(f"{error_message}: {error}") from error
-
-    async def _get_authenticated(self, path: str, token: str) -> Any:
-        try:
-            async with self._session.get(
-                f"{self._base_url}{path}", headers={"Authorization": f"Bearer {token}"}
-            ) as response:
-                if response.status == 401:
-                    raise InvalidAuth("Sitzung abgelaufen")
-                if response.status != 200:
-                    raise ApiError(f"Anfrage an '{path}' fehlgeschlagen (HTTP {response.status})")
-                return await response.json()
-        except aiohttp.ClientError as error:
-            raise CannotConnect(f"Abo-Service nicht erreichbar: {error}") from error
+            raise InvalidResponse(f"{error_message}: {error}") from error

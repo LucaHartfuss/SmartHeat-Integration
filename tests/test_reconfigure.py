@@ -2,8 +2,9 @@
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.api_client import ApiError, InvalidAuth
+from custom_components.smartheat.api_client import ApiError, InvalidAuth, ProfileRejected
 from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import make_entry, status_event
 from .flow_helpers import (
@@ -347,6 +348,20 @@ async def test_reconfigure_profile_update_failure_is_a_setup_failure(hass, monke
 
     assert result["step_id"] == "setup_failed"
     assert result["description_placeholders"]["grund"]
+
+
+async def test_profile_rejected_is_a_setup_failure_with_its_own_text(hass, monkeypatch):
+    mypyllant, mocks, _ = _prepare(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    mocks.update_profile.side_effect = ProfileRejected("400")
+
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "profile_rejected")
 
 
 async def test_reconfigure_session_expiry_during_profile_update_goes_back_to_login(hass, monkeypatch):

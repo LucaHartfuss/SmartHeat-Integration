@@ -25,6 +25,10 @@ INSTALLATION_PATH = "/tenants/{tenant_id}/installation"
 # Entfernen widerruft damit dort, wo auch das Add-on fragt (Spec TP8 4).
 OPTION_ACCOUNTS_API_BASE_URL = "accounts_api_base_url"
 REVOKE_TIMEOUT_SECONDS = 10
+# Zeitlimit je Anfrage an die accounts-api; laenger gilt der Dienst als nicht erreichbar (AU-036).
+REQUEST_TIMEOUT_SECONDS = 30
+# Laenge des vom Server gemeldeten Ablehnungsgrunds (403), der dem Nutzer angezeigt wird.
+ACCESS_DENIED_REASON_MAX = 200
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
 # Vom Wizard nicht verwaltet: bleiben beim erneuten Einrichten aus den bestehenden Optionen
 # erhalten (I3). Alles andere setzt der Wizard vollstaendig neu.

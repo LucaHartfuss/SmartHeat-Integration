@@ -86,6 +86,7 @@
     },
     "error": {
       "invalid_auth": "E-Mail oder Passwort falsch",
+      "invalid_response": "Die Antwort des SmartHeat-Servers war unverständlich. Bitte später erneut versuchen.",
       "cannot_connect": "SmartHeat-Dienst nicht erreichbar",
       "no_tenants": "Schließe auf unserer Website ein Abo ab, um Zugang zum Heizungsserver zu erhalten.",
       "profile_combination_unsupported": "Diese Kombination wird noch nicht unterstützt",
@@ -106,6 +107,7 @@
       "state_class_expected_total_increasing": "State-Class 'total_increasing' erwartet. Zähler mit 'total' sind nicht möglich."
     },
     "abort": {
+      "access_denied": "Der SmartHeat-Server verweigert den Zugriff: {grund}",
       "not_supervisor": "Diese Integration funktioniert nur mit einem Home Assistant mit Supervisor (Home Assistant OS oder Supervised), weil sie echte MQTT-Zugangsdaten ausstellt und die Add-ons über die Supervisor-API einrichtet.",
       "already_configured": "Diese Anlage ist bereits eingerichtet. Zum Ändern den SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
       "single_instance_allowed": "SmartHeat ist in diesem Home Assistant bereits eingerichtet. Zum Ändern den SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
@@ -215,6 +217,8 @@
     }
   },
   "common": {
+    "access_denied": "Der SmartHeat-Server verweigert den Zugriff: {grund}",
+    "profile_rejected": "Der SmartHeat-Server hat das gewählte Heizungsprofil abgelehnt. Bitte eine andere Kombination wählen oder den Support kontaktieren.",
     "role_entity_curve_current": "Heizkurve",
     "role_entity_shift_current": "Parallelverschiebung",
     "role_entity_min_flow": "Mindestvorlauf",

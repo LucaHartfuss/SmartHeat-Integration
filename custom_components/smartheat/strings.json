@@ -86,6 +86,7 @@
     },
     "error": {
       "invalid_auth": "Invalid email or password",
+      "invalid_response": "The SmartHeat server sent an unreadable answer. Please try again later.",
       "cannot_connect": "Could not reach the SmartHeat service",
       "no_tenants": "Subscribe on our website to get access to our heating control server.",
       "profile_combination_unsupported": "This combination is not supported yet",
@@ -106,6 +107,7 @@
       "state_class_expected_total_increasing": "Expected state class 'total_increasing'. Counters with 'total' cannot be used."
     },
     "abort": {
+      "access_denied": "The SmartHeat server denied access: {grund}",
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",
       "already_configured": "This installation is already set up. To change it, open the SmartHeat entry and choose ⋮ → Reconfigure.",
       "single_instance_allowed": "SmartHeat is already set up in this Home Assistant. To change it, open the SmartHeat entry and choose ⋮ → “Reconfigure”.",
@@ -215,6 +217,8 @@
     }
   },
   "common": {
+    "access_denied": "The SmartHeat server denied access: {grund}",
+    "profile_rejected": "The SmartHeat server rejected the chosen heating profile. Please choose another combination or contact support.",
     "role_entity_curve_current": "Heating curve",
     "role_entity_shift_current": "Parallel shift",
     "role_entity_min_flow": "Minimum flow temperature",
