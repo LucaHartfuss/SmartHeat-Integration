@@ -154,7 +154,7 @@
           "confirm_deviation": "I checked the room sensors deviating by more than 3 K"
         }
       },
-      "failed": {"title": "Not applied", "description": "{grund}\n\nSubmit to go back to the options."},
+      "failed": {"title": "Not applied", "description": "{grund}\n\n{restore}\n\nSubmit to go back to the options."},
       "timeout": {
         "title": "No response from the add-on",
         "description": "The Heizungsbruecke add-on did not report within 3 minutes. The options are saved anyway; its status is shown at the SmartHeat device."
@@ -255,6 +255,8 @@
     "new_credentials": "New access credentials will be issued.",
     "profile_update_failed": "The SmartHeat server could not change the heating profile. Please try again later.",
     "options_addon_failed": "The Heizungsbruecke add-on could not be updated. Please check the Supervisor and try again.",
+    "options_restored": "The previous Heizungsbrücke settings have been restored.",
+    "options_restore_failed": "The previous Heizungsbrücke settings could not be restored. Please save the options again.",
     "removal_incomplete": "SmartHeat was removed, but not every step succeeded:",
     "rollback_first_setup": "The SmartHeat setup was cancelled. The add-ons were stopped and the issued credentials revoked.",
     "rollback_reconfigure": "“Reconfigure” was cancelled. The previous add-on settings and heating profile have been restored.",

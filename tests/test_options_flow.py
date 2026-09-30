@@ -10,7 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.texts import async_hint
 
-from .addon_fakes import make_entry
+from .addon_fakes import make_entry, status_event
 from .flow_helpers import (
     BRIDGE_OPTIONS,
     configure,
@@ -313,3 +313,65 @@ def test_every_options_step_has_a_text(path):
     assert "setup_incomplete" in options["abort"]
     assert {"room_sensors_required", "entity_unavailable", "duplicate_entity", "warnings_not_confirmed",
             "zone_is_room_target"} <= set(options["error"])
+
+
+async def test_failed_options_restore_the_previous_addon_options(hass, monkeypatch):
+    result, entry, calls, _ = await _open(hass, monkeypatch, status="konfigurationsfehler", grund="Entity fehlt")
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert result["step_id"] == "failed"
+    assert calls.history[-1] == ("heizungsbruecke", BRIDGE_OPTIONS)
+    assert calls.restarts == ["heizungsbruecke", "heizungsbruecke"]
+    assert result["description_placeholders"]["restore"] == await async_hint(hass, "options_restored")
+
+
+async def test_write_failure_needs_no_restore(hass, monkeypatch):
+    result, _, calls, _ = await _open(hass, monkeypatch, set_error=AddonError("x"))
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert calls.restarts == []
+    assert result["description_placeholders"]["restore"] == ""
+
+
+async def test_restart_failure_after_write_restores_the_options(hass, monkeypatch):
+    result, _, calls, _ = await _open(hass, monkeypatch)
+    restarts = []
+
+    async def restart(manager):
+        restarts.append(manager.addon_slug)
+        if len(restarts) == 1:
+            raise AddonError("kaputt")  # erster Neustart scheitert, Optionen sind schon geschrieben
+        hass.bus.async_fire("smartheat_status", status_event(
+            "wohnung1", "regelt", setup_id=calls.options["heizungsbruecke"].get("setup_id"),
+        ))
+
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_restart_addon", restart)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert result["step_id"] == "failed"
+    assert calls.history[-1] == ("heizungsbruecke", BRIDGE_OPTIONS)
+    assert restarts == ["heizungsbruecke", "heizungsbruecke"]
+    assert result["description_placeholders"]["restore"] == await async_hint(hass, "options_restored")
+
+
+async def test_restore_failure_is_named(hass, monkeypatch):
+    result, _, calls, _ = await _open(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+    restarts = []
+
+    async def restart(manager):
+        restarts.append(manager.addon_slug)
+        if len(restarts) > 1:
+            raise AddonError("weg")  # Neustart nach dem Wiederherstellen scheitert
+        hass.bus.async_fire("smartheat_status", status_event(
+            "wohnung1", "konfigurationsfehler", setup_id=calls.options["heizungsbruecke"]["setup_id"], grund="x",
+        ))
+
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_restart_addon", restart)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert result["step_id"] == "failed"
+    assert result["description_placeholders"]["restore"] == await async_hint(hass, "options_restore_failed")

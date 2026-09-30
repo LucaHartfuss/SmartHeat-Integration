@@ -16,7 +16,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from . import detection, validation
-from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_update_addon_options
+from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener
 from .const import (
     ADDON_SPECS,
     DATA_INCOMPLETE,
@@ -58,6 +58,7 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         self._setup_id: str | None = None
         self._status: StatusListener | None = None
         self._error = ""
+        self._restore_note = ""
 
     @callback
     def async_remove(self) -> None:
@@ -183,14 +184,22 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         self._setup_id = uuid.uuid4().hex
         if self._status is None:
             self._status = StatusListener(self.hass, self.config_entry.data["tenant_id"])
+        self._restore_note = ""
+        heizungsbruecke = None
+        previous: dict = {}
+        written = False
         try:
             heizungsbruecke, _ = await async_get_addon_managers(self.hass, ADDON_SPECS)
-            await async_update_addon_options(heizungsbruecke, {**new, OPTION_SETUP_ID: self._setup_id})
+            previous = dict((await heizungsbruecke.async_get_addon_info()).options)
+            await heizungsbruecke.async_set_addon_options({**previous, **new, OPTION_SETUP_ID: self._setup_id})
+            written = True
             await heizungsbruecke.async_restart_addon()
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
             # Nicht den Supervisor-Text zeigen: er kann Optionswerte zitieren.
             _LOGGER.warning("Optionen konnten nicht ins Add-on geschrieben werden: %s", type(error).__name__)
             self._error = await async_hint(self.hass, "options_addon_failed")
+            if written:  # geschrieben, aber der Neustart scheiterte: nichts Abgelehntes stehen lassen
+                self._restore_note = await self._restore(heizungsbruecke, previous)
             return "failed"
         outcome, grund = await self._status.async_wait(
             setup_id=self._setup_id, done=frozenset({STATUS_REGELT}),
@@ -198,8 +207,19 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         )
         if outcome == WAIT_FAILED:
             self._error = grund or ""
+            self._restore_note = await self._restore(heizungsbruecke, previous)
             return "failed"
         return "save" if outcome == WAIT_DONE else "timeout"
+
+    async def _restore(self, heizungsbruecke, previous: dict) -> str:
+        """AU-020.3: abgelehnte Optionen nicht im Add-on stehen lassen."""
+        try:
+            await heizungsbruecke.async_set_addon_options(previous)
+            await heizungsbruecke.async_restart_addon()
+        except AddonError as error:
+            _LOGGER.warning("Vorige Optionen nicht wiederhergestellt: %s", type(error).__name__)
+            return await async_hint(self.hass, "options_restore_failed")
+        return await async_hint(self.hass, "options_restored")
 
     async def async_step_save(self, user_input: dict | None = None):
         new = self._new
@@ -218,5 +238,5 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         if user_input is not None:
             return await self.async_step_init()
         return self.async_show_form(
-            step_id="failed", data_schema=vol.Schema({}), description_placeholders={"grund": self._error},
+            step_id="failed", data_schema=vol.Schema({}), description_placeholders={"grund": self._error, "restore": self._restore_note},
         )

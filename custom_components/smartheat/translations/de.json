@@ -154,7 +154,7 @@
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
         }
       },
-      "failed": {"title": "Nicht übernommen", "description": "{grund}\n\nAbsenden führt zurück zu den Optionen."},
+      "failed": {"title": "Nicht übernommen", "description": "{grund}\n\n{restore}\n\nAbsenden führt zurück zu den Optionen."},
       "timeout": {
         "title": "Keine Antwort vom Add-on",
         "description": "Das Add-on Heizungsbrücke hat sich nicht innerhalb von 3 Minuten gemeldet. Die Optionen werden trotzdem gespeichert; der Status steht am SmartHeat-Gerät."
@@ -255,6 +255,8 @@
     "new_credentials": "Es werden neue Zugangsdaten ausgestellt.",
     "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",
     "options_addon_failed": "Das Add-on Heizungsbrücke konnte nicht aktualisiert werden. Bitte den Supervisor prüfen und erneut versuchen.",
+    "options_restored": "Die bisherigen Einstellungen der Heizungsbrücke sind wiederhergestellt.",
+    "options_restore_failed": "Die bisherigen Einstellungen der Heizungsbrücke ließen sich nicht wiederherstellen. Bitte die Optionen erneut speichern.",
     "removal_incomplete": "SmartHeat wurde entfernt, aber nicht alle Schritte sind gelungen:",
     "rollback_first_setup": "Die Einrichtung von SmartHeat wurde abgebrochen. Die Add-ons wurden gestoppt und die ausgestellten Zugangsdaten zurückgezogen.",
     "rollback_reconfigure": "„Neu konfigurieren“ wurde abgebrochen. Die bisherigen Add-on-Einstellungen und das bisherige Heizungsprofil sind wiederhergestellt.",
