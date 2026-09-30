@@ -1,6 +1,6 @@
 """Profilkatalog des Servers lesen (GET /catalog, Spec TP6 2.1; Suchregeln verbindlich in
 docs/superpowers/specs/2026-09-26-profilkatalog-design.md, 3.1). Der Server liefert nur Daten,
-keine Regex: Suffixe sind Literale mit hoechstens einem Platzhalter {circuit}. Eine ungueltige
+keine Regex: Suffixe sind Literale mit hoechstens einem Platzhalter {circuit} oder (Katalog v2) {index} samt circuit_in_name. Eine ungueltige
 Integrations-Beschreibung wird verworfen und geloggt, nicht der ganze Katalog. Unbekannte Felder
 werden ignoriert."""
 from __future__ import annotations
