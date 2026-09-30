@@ -144,7 +144,8 @@
           "notify_services": "Phones", "battery_entities": "Monitored batteries",
           "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
           "hint_manueller_eingriff": "Notify about a manual change of the heating curve or the parallel shift",
-          "hint_quellwechsel": "Notify about a changed temperature source"
+          "hint_quellwechsel": "Notify about a changed temperature source",
+          "hint_therme": "Notify when the boiler delivers no heat"
         }
       },
       "confirm": {

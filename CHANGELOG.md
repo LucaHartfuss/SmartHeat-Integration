@@ -24,6 +24,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   `sensor.smartheat_<anlage>_offset` wird automatisch entfernt.
 - Voraussetzung: SmartHeat-Server mit Katalog v2 (vor dem Update der Integration aktualisiert); mit
   einem älteren Server bricht der Assistent mit einem Hinweis ab.
+- Neuer abschaltbarer Hinweis „Benachrichtigen, wenn die Therme keine Heizwärme liefert“ (Option
+  `notify_hints_off` kennt jetzt `therme`) und das Status-Attribut `waerme_fehlt` am SmartHeat-Status-Sensor
+  (Zeitpunkt, seit dem die Therme trotz Wärmeanforderung nichts liefert, sonst leer). Passt zum Add-on 0.26.0.
+- Setzt Add-on 0.26.0 voraus (Mindestversion angehoben, weil ältere Add-ons die neue Option `therme` der Hinweis-Auswahl ablehnen).
 
 ## 0.8.0
 

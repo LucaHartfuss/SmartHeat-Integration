@@ -7,7 +7,7 @@ Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor (Hass.io/HAOS).
-- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.24.0
+- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.26.0
   und `cloudflared_access_mqtt` ≥ 1.0.0 (nicht manuell konfigurieren — der Wizard prueft die
   Mindestversion vor jedem Setup und bricht sonst mit einer Fehlermeldung ab).
 - Eine unterstuetzte Heizungs-Integration in Home Assistant eingerichtet (z. B. myVAILLANT).
@@ -28,8 +28,8 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 
 - **Gerät „SmartHeat <Anlage>“:** Status (regelt, Notbetrieb, Datenfehler, Abo, Add-on gestoppt …), Notbetrieb,
   Datenfehler mit Quelle, Boost, letzte Serverantwort, gelernte Heizkurve, gelernte Parallelverschiebung,
-  Mindestvorlauftemperatur, Abo, Add-on-Version. Ausgefallene Raumfühler, schwache Batterien und manuelle
-  Eingriffe stehen als Attribute am Status.
+  Mindestvorlauftemperatur, Abo, Add-on-Version. Ausgefallene Raumfühler, schwache Batterien, manuelle
+  Eingriffe und eine Therme ohne Heizwärme (`waerme_fehlt`) stehen als Attribute am Status.
 - **Optionen** (ohne Anmeldung): Raumfühler, Wunschtemperatur, Handys, Batterien, Hinweise einzeln abschalten.
 - **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte (u. a. die Zone für die
   Parallelverschiebung, Mindestvorlauf-Entity, optional das Vorlauf-Soll). Die Zugangsdaten bleiben

@@ -14,7 +14,7 @@ OPTION_ENTITY_ROOM_TARGET = "entity_room_target"
 OPTION_ABGEMELDET = "abgemeldet"
 OPTION_NOTIFY_HINTS_OFF = "notify_hints_off"
 # Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
-HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
+HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme")
 # Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
 # entfallen), er bleibt als Merkmal fuer entry_incomplete().
 DATA_INCOMPLETE = "unvollstaendig"
@@ -94,7 +94,7 @@ BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
 DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
-HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
+HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff", "waerme_fehlt")
 
 STATUS_WAIT_SECONDS = 180
 SIGN_OFF_WAIT_SECONDS = 60
@@ -263,7 +263,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.24.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.26.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 
