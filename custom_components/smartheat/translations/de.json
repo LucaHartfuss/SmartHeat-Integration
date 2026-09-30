@@ -64,10 +64,11 @@
       },
       "summary": {
         "title": "Zusammenfassung",
-        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nParallelverschiebung: {shift} °C\nMindestvorlauf: {min_flow} °C\nHeizgrenze: {heat_limit} °C\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nParallelverschiebung: {shift} °C\nMindestvorlauf: {min_flow} °C\nHeizgrenze: {heat_limit} °C\n\nSmartHeat schreibt auf:\n{write_entities}\n\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
-          "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen"
+          "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen",
+          "confirm_write_role_unmatched": "Ich habe geprüft, dass diese Entities zum gewählten Heizkreis gehören"
         }
       },
       "setup_failed": {
@@ -92,6 +93,8 @@
       "profile_combination_unsupported": "Diese Kombination wird noch nicht unterstützt",
       "unit_mismatch": "Falsche Einheit, benötigt wird °C",
       "entity_not_found": "Diese Entity existiert nicht",
+      "entity_wrong_integration": "Diese Entity gehört nicht zur gewählten Heizungs-Integration",
+      "entity_wrong_installation": "Diese Entity gehört zu einer anderen Anlage der Heizungs-Integration",
       "entity_unavailable": "Diese Entity hat gerade keinen Wert",
       "not_numeric": "Diese Entity liefert keine Zahl",
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
@@ -230,6 +233,7 @@
     "origin_none": "{role}: nicht erkannt, bitte wählen",
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
     "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
+    "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities.",
     "none": "keine",
     "notifications_phones": "SmartHeat benachrichtigt die ausgewählten Handys, wenn die Regelung stoppt, ein Raumfühler ausfällt oder eine Batterie schwach wird.",
     "notifications_no_phones": "Es wurde keine Home-Assistant-Companion-App gefunden. SmartHeat kann wichtige Meldungen (z. B. wenn die Regelung stoppt) deshalb nur als Benachrichtigung in Home Assistant anzeigen. Mit der Companion-App auf einem Handy kommen zusätzlich Push-Nachrichten, z. B. bei ausgefallenem Raumfühler oder schwacher Batterie.",

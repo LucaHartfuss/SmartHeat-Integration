@@ -174,6 +174,9 @@ ROLE_DOMAINS: dict[str, list[str]] = {
 PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
 # Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
 OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
+# Vom Add-on beschriebene bzw. dem Heizkreis zugeordnete Anlagen-Felder: nur aus dem Config-Entry
+# des gewaehlten Kreises waehlbar (TP12c, AU-019). Aussentemperatur bleibt frei (Wetter-Ersatz).
+WRITE_ROLE_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_flow_setpoint")
 
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import cast
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
@@ -33,8 +34,11 @@ ERROR_RANGE = "out_of_range"
 ERROR_DUPLICATE = "duplicate_entity"
 ERROR_DOMAIN = "wrong_domain"
 ERROR_ZONE_IS_ROOM_TARGET = "zone_is_room_target"
+ERROR_WRONG_INTEGRATION = "entity_wrong_integration"
+ERROR_WRONG_INSTALLATION = "entity_wrong_installation"
 WARNING_STALE = "stale"
 WARNING_DEVIATION = "deviation"
+WARNING_WRITE_ROLE_UNMATCHED = "write_role_unmatched"
 
 
 def entity_of(ref: str) -> str:
@@ -52,11 +56,27 @@ def _domain(entity_id: str) -> str:
     return entity_id.split(".", 1)[0]
 
 
-def entity_selector(field: str, *, multiple: bool = False) -> selector.EntitySelector:
-    """Entity-Selektor eines Felds, gefiltert nach const.ENTITY_FILTERS (Wizard und Optionen)."""
+def entity_selector(field: str, *, multiple: bool = False, integration: str | None = None) -> selector.EntitySelector:
+    """Entity-Selektor eines Felds, gefiltert nach const.ENTITY_FILTERS (Wizard und Optionen); mit
+    integration zusaetzlich auf die Plattform der Heizungs-Integration beschraenkt (TP12c)."""
+    entries = [dict(entry) for entry in ENTITY_FILTERS[field]]
+    if integration is not None:
+        for entry in entries:
+            entry["integration"] = integration
     # Nur fuer Pyright; als String wird der Typ zur Laufzeit nie aufgeloest (HA-Versionsunabhaengig).
-    filters = cast("list[selector.EntityWithDeviceFilterSelectorConfig]", ENTITY_FILTERS[field])
+    filters = cast("list[selector.EntityWithDeviceFilterSelectorConfig]", entries)
     return selector.EntitySelector(selector.EntitySelectorConfig(filter=filters, multiple=multiple))
+
+
+def check_installation(hass: HomeAssistant, entity_id: str, platform: str, config_entry_id: str | None) -> str | None:
+    """Backend-Bindung einer Schreibrolle (AU-019): Registry-Eintrag der gewaehlten Integration und
+    desselben Config-Entrys wie der Heizkreis. Ohne Registry-Eintrag (YAML/Template) nicht zulaessig."""
+    entry = er.async_get(hass).async_get(entity_id)
+    if entry is None or entry.platform != platform:
+        return ERROR_WRONG_INTEGRATION
+    if entry.config_entry_id != config_entry_id:
+        return ERROR_WRONG_INSTALLATION
+    return None
 
 
 def check_domain(entity_id: str, field: str) -> str | None:

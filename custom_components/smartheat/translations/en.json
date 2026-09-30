@@ -64,10 +64,11 @@
       },
       "summary": {
         "title": "Summary",
-        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\nHeating curve: {curve}\nParallel shift: {shift} °C\nMinimum flow temperature: {min_flow} °C\nHeating limit: {heat_limit} °C\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
+        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\nHeating curve: {curve}\nParallel shift: {shift} °C\nMinimum flow temperature: {min_flow} °C\nHeating limit: {heat_limit} °C\n\nSmartHeat writes to:\n{write_entities}\n\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "I checked the sources without an update for more than 6 hours",
-          "confirm_deviation": "I checked the room sensors deviating by more than 3 K"
+          "confirm_deviation": "I checked the room sensors deviating by more than 3 K",
+          "confirm_write_role_unmatched": "I checked that these entities belong to the chosen heating circuit"
         }
       },
       "setup_failed": {
@@ -92,6 +93,8 @@
       "profile_combination_unsupported": "This combination is not supported yet",
       "unit_mismatch": "Wrong unit, °C is required",
       "entity_not_found": "This entity does not exist",
+      "entity_wrong_integration": "This entity does not belong to the chosen heating integration",
+      "entity_wrong_installation": "This entity belongs to another installation of the heating integration",
       "entity_unavailable": "This entity currently has no value",
       "not_numeric": "This entity does not provide a number",
       "out_of_range": "The value is outside the physically plausible range",
@@ -230,6 +233,7 @@
     "origin_none": "{role}: not detected, please choose",
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
+    "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
     "none": "none",
     "notifications_phones": "SmartHeat notifies the selected phones when the control stops, a room sensor fails or a battery runs low.",
     "notifications_no_phones": "No Home Assistant companion app was found, so SmartHeat can only show its important messages (e.g. when the control stops) as notifications in Home Assistant. Install the companion app on a phone to also receive push messages, e.g. about a failed room sensor or a low battery.",

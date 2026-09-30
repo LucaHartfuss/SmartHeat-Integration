@@ -64,6 +64,7 @@ from .const import (
     STATUS_WAIT_SECONDS,
     STATUS_ZUGANG_ABGELEHNT,
     UNMANAGED_ADDON_OPTIONS,
+    WRITE_ROLE_FIELDS,
     kpi_energy_role,
 )
 from .flow_progress import ProgressFlowMixin
@@ -119,6 +120,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._room_target: str | None = None
         self._plant: dict[str, str] = {}
         self._kpi: dict[str, str] = {}
+        # (Integration, Kreis-Schluessel), zu denen _plant/_kpi gehoeren; None = keine Auswahl (AU-003).
+        self._plant_binding: tuple[str | None, str] | None = None
         # None = Schritt notifications noch nicht bestaetigt (dann alle Handys vorbelegen).
         self._notify_services: list[str] | None = None
         self._battery_entities: list[str] = []
@@ -194,6 +197,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         plant_fields = PLANT_FIELDS + OPTIONAL_PLANT_FIELDS
         self._plant = {field: entities[field] for field in plant_fields if field in entities}
         self._kpi = {field: value for field, value in entities.items() if field not in plant_fields}
+        stored = entry.data.get("circuit") or {}
+        self._plant_binding = (
+            entry.data.get("integration_domain"),
+            f"{stored.get('config_entry_id')}|{stored.get('system_key')}|{stored.get('circuit')}",
+        )
         self._notify_services = list(options.get(OPTION_NOTIFY_SERVICES, []))
         self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
@@ -446,6 +454,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     # --- Schritt 6: Anlagenwerte ---
 
+    def _binding(self) -> tuple[str, str]:
+        """Integration und Kreis, zu denen eine Auswahl im Schritt Anlagenwerte gehoert (AU-003)."""
+        integration, circuit = self._integration, self._circuit
+        assert integration is not None and circuit is not None  # erst nach async_step_system()
+        return integration.domain, circuit.key
+
     def _suggestions(self) -> tuple[dict[str, str], dict[str, str]]:
         integration = self._integration
         circuit = self._circuit
@@ -501,6 +515,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if "entity_flow_setpoint" in plant:
             checks["entity_flow_setpoint"] = validation.check_temperature(self.hass, plant["entity_flow_setpoint"])
         checks = {field: validation.check_domain(plant[field], field) or error for field, error in checks.items()}
+        integration, circuit = self._integration, self._circuit
+        assert integration is not None and circuit is not None  # erst nach async_step_system()
+        for field in WRITE_ROLE_FIELDS:
+            if field in plant and not checks.get(field):
+                checks[field] = validation.check_installation(
+                    self.hass, plant[field], integration.domain, circuit.config_entry_id,
+                )
         return {field: error for field, error in checks.items() if error}
 
     async def async_step_plant_values(self, user_input: dict | None = None):
@@ -532,12 +553,14 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 errors["base"] = "advanced_invalid"
             if not errors:
                 self._plant, self._kpi = plant, kpi
+                self._plant_binding = self._binding()
                 return await self.async_step_notifications()
             suggested = {
                 **{field: user_input.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
                 ADVANCED_SECTION: advanced,
             }
-        elif self._plant:
+        elif self._plant and self._plant_binding == self._binding():
+            # Nur fuer dieselbe Integration und denselben Kreis (AU-003); sonst gilt die Erkennung.
             # Zurueck nach setup_failed: die Auswahl des Kunden, nicht erneut die Erkennung (I-1).
             # KPI genau wie gewaehlt: ein bewusst leer gelassenes Feld bleibt leer.
             suggested = {
@@ -552,11 +575,15 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 **{field: suggestions.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
                 ADVANCED_SECTION: {field: suggestions[field] for field in kpi_fields if field in suggestions},
             }
-        schema: dict[vol.Marker, Any] = {
-            vol.Required(field): validation.entity_selector(field) for field in PLANT_FIELDS
-        }
+        integration = self._integration
+        assert integration is not None  # erst nach async_step_system()
+
+        def _selector(field: str):
+            return validation.entity_selector(field, integration=integration.domain if field in WRITE_ROLE_FIELDS else None)
+
+        schema: dict[vol.Marker, Any] = {vol.Required(field): _selector(field) for field in PLANT_FIELDS}
         for field in OPTIONAL_PLANT_FIELDS:
-            schema[vol.Optional(field)] = validation.entity_selector(field)
+            schema[vol.Optional(field)] = _selector(field)
         if kpi_fields:
             schema[vol.Required(ADVANCED_SECTION)] = section(
                 vol.Schema({
@@ -618,7 +645,31 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     def _warnings(self) -> dict[str, list[str]]:
         refs = [*self._room_sensors, self._room_target, *self._plant.values(), *self._kpi.values()]
-        return validation.collect_warnings(self.hass, refs, self._room_sensors)
+        warnings = validation.collect_warnings(self.hass, refs, self._room_sensors)
+        unmatched = self._unmatched_write_roles()
+        if unmatched:
+            warnings[validation.WARNING_WRITE_ROLE_UNMATCHED] = unmatched
+        return warnings
+
+    def _unmatched_write_roles(self) -> list[str]:
+        """Gebundene Felder, die nicht der Erkennung fuer den gewaehlten Kreis entsprechen (AU-019);
+        das optionale Vorlauf-Soll nur, wenn es eine abweichende Erkennung gibt."""
+        suggestions, origins = self._suggestions()
+        result = []
+        for field in WRITE_ROLE_FIELDS:
+            chosen = self._plant.get(field)
+            detected = suggestions.get(field) if origins.get(field) == ORIGIN_INTEGRATION else None
+            if chosen is None or chosen == detected:
+                continue
+            if field in OPTIONAL_PLANT_FIELDS and detected is None:
+                continue
+            result.append(chosen)
+        return result
+
+    def _entity_label(self, entity_id: str) -> str:
+        state = self.hass.states.get(entity_id)
+        name = state.name if state is not None else entity_id
+        return f"{name} ({entity_id})" if name != entity_id else entity_id
 
     async def _credentials_note(self) -> str:
         """Neu konfigurieren ohne Zugangsdaten im Add-on (neu installiert, zuvor abgemeldet): der
@@ -662,6 +713,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             "shift": _value(validation.room_target_ref(self._plant["entity_shift_current"])),
             "min_flow": _value(self._plant["entity_min_flow"]),
             "heat_limit": _value(self._plant["entity_heat_limit"]),
+            "write_entities": "\n".join([
+                f"- {await self._hint(f'role_{field}')}: {self._entity_label(self._plant[field])}"
+                for field in WRITE_ROLE_FIELDS if field in self._plant
+            ]),
             "profile": ", ".join([
                 profile["hersteller"],
                 await self._hint(f"erzeuger_typ_{profile['erzeuger_typ'].lower()}"),

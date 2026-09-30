@@ -52,6 +52,9 @@ from .flow_helpers import (
     suggested,
 )
 
+# Die abweichende Heizkurve dieses Tests loest die Warnung "nicht als Teil des Kreises erkannt" aus.
+CONFIRM_UNMATCHED = {"confirm_write_role_unmatched": True}
+
 
 async def _reach(hass, monkeypatch, step: str, *, phones=("mobile_app_pixel",), **server):
     """Normalfall bis zum genannten Schritt. Liefert (result, server_mocks)."""
@@ -763,6 +766,11 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     vor, nicht erneut mit der Erkennung. Durchklicken schreibt die Korrekturen, nicht die Erkennung."""
     result, _ = await _reach(hass, monkeypatch, "plant_values", phones=("mobile_app_pixel", "mobile_app_iphone"))
     hass.states.async_set("sensor.aussen", "5.0", {"unit_of_measurement": "°C"})
+    # Schreibrollen muessen zur Heizungs-Integration des Kreises gehoeren (TP12c).
+    er.async_get(hass).async_get_or_create(
+        "number", "mypyllant", "andere_kurve", config_entry=hass.config_entries.async_entries("mypyllant")[0],
+        suggested_object_id="andere_kurve",
+    )
     hass.states.async_set("number.andere_kurve", "1.3")
     hass.states.async_set("sensor.gas", "123", {"state_class": "total_increasing"})
     corrected = {
@@ -772,7 +780,7 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     result = await configure(hass, result, corrected)
     result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
     mock_addons(hass, monkeypatch, status="konfigurationsfehler", grund="x")
-    result = await finish_progress(hass, await configure(hass, result, {}))
+    result = await finish_progress(hass, await configure(hass, result, CONFIRM_UNMATCHED))
     assert result["step_id"] == "setup_failed"
 
     result = await configure(hass, result, {"next_step_id": "rooms"})
@@ -791,7 +799,7 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     assert suggested(result, "notify_services") == ["notify.mobile_app_pixel"]
     result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
     calls = mock_addons(hass, monkeypatch, status="regelt")
-    result = await finish_progress(hass, await configure(hass, result, {}))
+    result = await finish_progress(hass, await configure(hass, result, CONFIRM_UNMATCHED))
 
     assert result["type"] == "create_entry"
     options = calls.options["heizungsbruecke"]
@@ -936,7 +944,7 @@ _EXPECTED_ERRORS = {
     "entity_not_found", "entity_unavailable", "not_numeric", "out_of_range", "duplicate_entity",
     "room_sensors_required", "advanced_invalid", "warnings_not_confirmed", "session_expired", "unknown",
     "state_class_expected_measurement", "state_class_expected_total_increasing", "zone_is_room_target",
-    "invalid_response",
+    "invalid_response", "entity_wrong_integration", "entity_wrong_installation",
 }
 _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "single_instance_allowed", "no_verified_profiles", "addon_missing", "addon_ambiguous",
@@ -1020,3 +1028,84 @@ async def test_already_configured_abort_points_to_reconfigure(hass, monkeypatch)
     assert result["reason"] == "single_instance_allowed"
     text = json.loads((_COMPONENT / "translations/de.json").read_text())["config"]["abort"]["single_instance_allowed"]
     assert "Neu konfigurieren" in text
+
+
+# --- Schreibrollen gebunden (TP12c, AU-003, AU-019) ---
+
+async def test_write_role_from_another_integration_is_rejected(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    other = MockConfigEntry(domain="shelly")
+    other.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create("number", "shelly", "x1", config_entry=other, suggested_object_id="fremd")
+    hass.states.async_set("number.fremd", "1.2")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.fremd"})
+
+    assert result["errors"]["entity_curve_current"] == "entity_wrong_integration"
+
+
+async def test_write_role_without_registry_entry_is_rejected(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set("number.yaml_kurve", "1.2")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.yaml_kurve"})
+
+    assert result["errors"]["entity_curve_current"] == "entity_wrong_integration"
+
+
+async def test_write_role_from_another_installation_is_rejected(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    second = MockConfigEntry(domain="mypyllant", title="Nachbar")
+    second.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create(
+        "number", "mypyllant", "mypyllant N_circuit_0_heating_curve", config_entry=second, suggested_object_id="nachbar_kurve",
+    )
+    hass.states.async_set("number.nachbar_kurve", "1.2")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.nachbar_kurve"})
+
+    assert result["errors"]["entity_curve_current"] == "entity_wrong_installation"
+
+
+async def test_outdoor_temperature_stays_free(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set("sensor.aussen_fremd", "7", {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_outdoor_temp": "sensor.aussen_fremd"})
+
+    assert result["step_id"] == "notifications"
+
+
+async def test_plant_selectors_filter_write_roles_by_integration(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    schema = result["data_schema"].schema
+
+    for field in ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit"):
+        assert all(entry.get("integration") == "mypyllant" for entry in schema[marker(result, field)].config["filter"])
+    assert all("integration" not in entry for entry in schema[marker(result, "entity_outdoor_temp")].config["filter"])
+
+
+async def test_write_role_of_another_circuit_needs_confirmation(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, circuits=("0", "1"))
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    circuit_0 = next(v for v in select_values(result, "circuit") if v.endswith("|0"))
+    result = await configure(hass, result, {**SYSTEM_INPUT, "circuit": circuit_0})
+    result = await configure(hass, result, ROOMS_INPUT)
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.zuhause_circuit_1_heating_curve"})
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert "number.zuhause_circuit_1_heating_curve" in result["description_placeholders"]["warnings"]
+    assert "confirm_write_role_unmatched" in [str(key) for key in result["data_schema"].schema]
+
+
+async def test_summary_names_the_written_entities(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "summary")
+
+    text = result["description_placeholders"]["write_entities"]
+    for entity in (CURVE, ZONE, MIN_FLOW, HEAT_LIMIT):
+        assert entity in text

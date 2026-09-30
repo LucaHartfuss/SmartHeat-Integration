@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 from homeassistant.util import dt as dt_util
 
+from custom_components.smartheat import validation
 from custom_components.smartheat.validation import (
     ERROR_DUPLICATE,
     ERROR_NOT_FOUND,
@@ -118,3 +119,8 @@ async def test_check_rooms_returns_refs_and_field_errors(hass):
     assert check_rooms(hass, ["sensor.wz"], "sensor.wz")[2] == {
         "room_sensors": "duplicate_entity", "entity_room_target": "duplicate_entity",
     }
+
+
+def test_entity_selector_adds_the_integration_to_every_filter():
+    config = validation.entity_selector("entity_heat_limit", integration="mypyllant").config
+    assert [entry["integration"] for entry in config["filter"]] == ["mypyllant", "mypyllant"]

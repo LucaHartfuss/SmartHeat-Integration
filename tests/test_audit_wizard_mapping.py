@@ -7,8 +7,6 @@ der Befund besteht."""
 import json
 from pathlib import Path
 
-import pytest
-
 from custom_components.smartheat.catalog import parse_integrations
 from custom_components.smartheat.const import PLANT_FIELDS
 from custom_components.smartheat.detection import RegistryEntry, find_circuits
@@ -39,11 +37,6 @@ FIXTURES = Path(__file__).parent / "fixtures"
 [MYPYLLANT] = parse_integrations(json.loads((FIXTURES / "catalog.json").read_text()))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "AUDIT: Neu konfigurieren mit Kreiswechsel belegt 'Anlagenwerte' mit den Entities des alten Kreises "
-    "vor (config_flow.py:525-534, _prefill_from_entry); ein Durchklicken speichert Kreis 1 mit den "
-    "Schreib-Entities von Kreis 0"
-))
 async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entities(hass, monkeypatch):
     enable_supervisor(hass, monkeypatch)
     mock_server(monkeypatch)
@@ -74,6 +67,28 @@ async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entit
     assert written["entity_curve_current"] == "number.zuhause_circuit_1_heating_curve"
     assert written["entity_min_flow"] == "number.zuhause_circuit_1_min_flow_temperature_setpoint"
     assert written["entity_shift_current"] == "climate.zuhause_zone_1_circuit_1_climate"
+
+
+async def test_reconfigure_with_an_integration_change_uses_the_new_detection(hass, monkeypatch):
+    """AU-003: Eintrag auf einer anderen Integration -> keine Vorbelegung aus dem Eintrag."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    mypyllant = setup_mypyllant(hass)
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    fast_status_wait(monkeypatch)
+    mock_addons(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    hass.config_entries.async_update_entry(entry, data={
+        **entry.data, "integration_domain": "andere",
+        "entities": {**entry.data["entities"], "entity_curve_current": "number.fremd"},
+    })
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert suggested(result, "entity_curve_current") == "number.zuhause_circuit_0_heating_curve"
 
 
 async def test_second_entry_on_the_same_home_assistant_is_refused(hass, monkeypatch):
