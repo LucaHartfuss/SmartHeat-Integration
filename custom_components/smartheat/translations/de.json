@@ -139,7 +139,8 @@
           "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
           "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
           "hint_manueller_eingriff": "Bei manueller Änderung von Heizkurve oder Parallelverschiebung benachrichtigen",
-          "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen"
+          "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen",
+          "hint_therme": "Benachrichtigen, wenn die Therme keine Heizwärme liefert"
         }
       },
       "confirm": {
