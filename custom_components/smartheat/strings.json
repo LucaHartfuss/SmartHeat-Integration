@@ -68,7 +68,8 @@
         "data": {
           "confirm_stale": "I checked the sources without an update for more than 6 hours",
           "confirm_deviation": "I checked the room sensors deviating by more than 3 K",
-          "confirm_write_role_unmatched": "I checked that these entities belong to the chosen heating circuit"
+          "confirm_write_role_unmatched": "I checked that these entities belong to the chosen heating circuit",
+          "confirm_poll_interval": "I checked the heating integration's update interval"
         }
       },
       "setup_failed": {
@@ -234,6 +235,7 @@
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
     "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
+    "warning_poll_interval": "The heating integration only polls its values every {entities}. SmartHeat may then not see its own changes in time and treat them as a manual change. Please set the heating integration's update interval to 30 minutes or less.",
     "none": "none",
     "notifications_phones": "SmartHeat notifies the selected phones when the control stops, a room sensor fails or a battery runs low.",
     "notifications_no_phones": "No Home Assistant companion app was found, so SmartHeat can only show its important messages (e.g. when the control stops) as notifications in Home Assistant. Install the companion app on a phone to also receive push messages, e.g. about a failed room sensor or a low battery.",

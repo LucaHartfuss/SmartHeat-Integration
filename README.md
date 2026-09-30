@@ -11,6 +11,7 @@ Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
   und `cloudflared_access_mqtt` ≥ 1.0.0 (nicht manuell konfigurieren — der Wizard prueft die
   Mindestversion vor jedem Setup und bricht sonst mit einer Fehlermeldung ab).
 - Eine unterstuetzte Heizungs-Integration in Home Assistant eingerichtet (z. B. myVAILLANT).
+- **Aktualisierungsintervall der Heizungs-Integration:** hoechstens 30 Minuten (myVAILLANT: Standard 30 Minuten). Bei einem laengeren Intervall erkennt SmartHeat eigene Aenderungen womoeglich zu spaet; der Wizard weist darauf hin.
 
 ## Installation
 

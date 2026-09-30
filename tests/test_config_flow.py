@@ -1,4 +1,5 @@
 """Config-Flow 2.0 (Spec TP6, Tests laut Spec 6)."""
+import copy
 import json
 import logging
 from datetime import timedelta
@@ -1154,3 +1155,47 @@ async def test_optional_flow_setpoint_without_detection_gives_no_warning(hass, m
 
     assert result["step_id"] == "summary"
     assert "confirm_write_role_unmatched" not in [str(key) for key in result["data_schema"].schema]
+
+
+async def _summary_with_mypyllant_options(hass, monkeypatch, options, catalog=CATALOG):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=catalog)
+    mypyllant = setup_mypyllant(hass)
+    hass.config_entries.async_update_entry(mypyllant, options=options)
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    for data in (SYSTEM_INPUT, ROOMS_INPUT, PLANT_INPUT, {"notify_services": ["notify.mobile_app_pixel"]}):
+        result = await configure(hass, result, data)
+    assert result["step_id"] == "summary"
+    return result
+
+
+def _asks_for(result, kind: str) -> bool:
+    return f"confirm_{kind}" in [str(key) for key in result["data_schema"].schema]
+
+
+@pytest.mark.parametrize("options, warned", [({}, False), ({"update_interval": 1800}, False), ({"update_interval": 3600}, True)])
+async def test_poll_interval_warning(hass, monkeypatch, options, warned):
+    result = await _summary_with_mypyllant_options(hass, monkeypatch, options)
+
+    assert _asks_for(result, "poll_interval") is warned
+    if warned:
+        assert "60 min" in result["description_placeholders"]["warnings"]
+
+
+@pytest.mark.parametrize("options", [{"update_interval": "3600"}, {"update_interval": None}, {"update_interval": True}])
+async def test_unreadable_poll_interval_gives_no_warning(hass, monkeypatch, options):
+    """Review Focus 4."""
+    result = await _summary_with_mypyllant_options(hass, monkeypatch, options)
+
+    assert not _asks_for(result, "poll_interval")
+
+
+async def test_catalog_without_poll_interval_option_checks_nothing(hass, monkeypatch):
+    catalog = copy.deepcopy(CATALOG)
+    del catalog["integrations"][0]["poll_interval_option"]
+
+    result = await _summary_with_mypyllant_options(hass, monkeypatch, {"update_interval": 7200}, catalog=catalog)
+
+    assert not _asks_for(result, "poll_interval")

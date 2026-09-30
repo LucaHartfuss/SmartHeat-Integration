@@ -27,6 +27,9 @@ OPTION_ACCOUNTS_API_BASE_URL = "accounts_api_base_url"
 REVOKE_TIMEOUT_SECONDS = 10
 # Zeitlimit je Anfrage an die accounts-api; laenger gilt der Dienst als nicht erreichbar (AU-036).
 REQUEST_TIMEOUT_SECONDS = 30
+# mypyllant-Pollintervall, auf das OWN_WRITE_SETTLE_SECONDS (2100 s) im Add-on abgestimmt ist (client1:
+# 30 min, 5 min Reserve). Laenger -> Warnung im Wizard (TP12c, AU-017); das Add-on bleibt fest.
+POLL_INTERVAL_MAX_SECONDS = 1800
 # Laenge des vom Server gemeldeten Ablehnungsgrunds (403), der dem Nutzer angezeigt wird.
 ACCESS_DENIED_REASON_MAX = 200
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)

@@ -68,7 +68,8 @@
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen",
-          "confirm_write_role_unmatched": "Ich habe geprüft, dass diese Entities zum gewählten Heizkreis gehören"
+          "confirm_write_role_unmatched": "Ich habe geprüft, dass diese Entities zum gewählten Heizkreis gehören",
+          "confirm_poll_interval": "Ich habe das Aktualisierungsintervall der Heizungs-Integration geprüft"
         }
       },
       "setup_failed": {
@@ -234,6 +235,7 @@
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
     "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
     "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities.",
+    "warning_poll_interval": "Die Heizungs-Integration fragt ihre Werte nur alle {entities} ab. SmartHeat erkennt eigene Änderungen dann womöglich nicht rechtzeitig und hält sie für einen manuellen Eingriff. Bitte das Aktualisierungsintervall der Heizungs-Integration auf höchstens 30 Minuten stellen.",
     "none": "keine",
     "notifications_phones": "SmartHeat benachrichtigt die ausgewählten Handys, wenn die Regelung stoppt, ein Raumfühler ausfällt oder eine Batterie schwach wird.",
     "notifications_no_phones": "Es wurde keine Home-Assistant-Companion-App gefunden. SmartHeat kann wichtige Meldungen (z. B. wenn die Regelung stoppt) deshalb nur als Benachrichtigung in Home Assistant anzeigen. Mit der Companion-App auf einem Handy kommen zusätzlich Push-Nachrichten, z. B. bei ausgefallenem Raumfühler oder schwacher Batterie.",

@@ -59,6 +59,7 @@ from .const import (
     OPTIONAL_PLANT_FIELDS,
     PLANT_FIELDS,
     PLAUSIBLE_RANGES,
+    POLL_INTERVAL_MAX_SECONDS,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
     STATUS_WAIT_SECONDS,
@@ -649,6 +650,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         unmatched = self._unmatched_write_roles()
         if unmatched:
             warnings[validation.WARNING_WRITE_ROLE_UNMATCHED] = unmatched
+        seconds = self._poll_interval_seconds()
+        if seconds is not None and seconds > POLL_INTERVAL_MAX_SECONDS:
+            warnings[validation.WARNING_POLL_INTERVAL] = [f"{seconds / 60:g} min"]
         return warnings
 
     def _unmatched_write_roles(self) -> list[str]:
@@ -670,6 +674,15 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         state = self.hass.states.get(entity_id)
         name = state.name if state is not None else entity_id
         return f"{name} ({entity_id})" if name != entity_id else entity_id
+
+    def _poll_interval_seconds(self) -> float | None:
+        integration, circuit = self._integration, self._circuit
+        assert integration is not None and circuit is not None
+        option = integration.poll_interval_option
+        if option is None or circuit.config_entry_id is None:
+            return None
+        entry = self.hass.config_entries.async_get_entry(circuit.config_entry_id)
+        return None if entry is None else option.seconds(entry.options)
 
     async def _credentials_note(self) -> str:
         """Neu konfigurieren ohne Zugangsdaten im Add-on (neu installiert, zuvor abgemeldet): der

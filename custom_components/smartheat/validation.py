@@ -39,6 +39,7 @@ ERROR_WRONG_INSTALLATION = "entity_wrong_installation"
 WARNING_STALE = "stale"
 WARNING_DEVIATION = "deviation"
 WARNING_WRITE_ROLE_UNMATCHED = "write_role_unmatched"
+WARNING_POLL_INTERVAL = "poll_interval"
 
 
 def entity_of(ref: str) -> str:
