@@ -520,6 +520,22 @@ async def test_reconfigure_with_new_credentials_hands_them_to_the_rollback(hass,
     assert rollback.reconfigure.await_args.kwargs["new_credentials"] == (PROVISIONING["username"], MQTT_PASSWORD)
 
 
+async def test_closing_the_dialog_after_a_failed_reconfigure_rolls_back_once(hass, monkeypatch, rollback):
+    mypyllant, mocks, _ = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+                                   status="konfigurationsfehler", grund="x")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    assert reconfigure_snapshot(rollback).bridge_options == BRIDGE_OPTIONS
+    assert rollback.reconfigure.await_args.kwargs["token"] == "tok123"  # Rueckbau vor dem Logout
+    mocks.logout.assert_awaited_once()
+
+
 async def test_reauth_cancel_is_not_rolled_back(hass, monkeypatch, rollback):
     mypyllant, _, _ = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
                                status="konfigurationsfehler", grund="x")

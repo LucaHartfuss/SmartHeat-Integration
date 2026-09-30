@@ -258,6 +258,8 @@
     "removal_incomplete": "SmartHeat was removed, but not every step succeeded:",
     "rollback_first_setup": "The SmartHeat setup was cancelled. The add-ons were stopped and the issued credentials revoked.",
     "rollback_reconfigure": "“Reconfigure” was cancelled. The previous add-on settings and heating profile have been restored.",
+    "rollback_first_setup_incomplete": "The SmartHeat setup was cancelled, but not every step of the rollback succeeded:",
+    "rollback_reconfigure_incomplete": "“Reconfigure” was cancelled, but not every step of the restore succeeded:",
     "open_step_supervisor": "The Supervisor was unreachable. Please stop the add-ons Heizungsbrücke and Cloudflared Access TCP-Bridge manually under Settings → Add-ons.",
     "open_step_foreign_tenant": "The add-ons belong to another SmartHeat installation and were left untouched.",
     "open_step_no_sign_off": "Heizungsbrücke did not confirm the sign-off and was stopped anyway. Please check heating curve and zone in the manufacturer's app: boost values (curve 1.5, shift 25) may have been left in place.",

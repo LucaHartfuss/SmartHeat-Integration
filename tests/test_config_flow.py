@@ -944,6 +944,33 @@ async def test_closing_the_dialog_during_setup_rolls_back_once(hass, monkeypatch
     rollback.first.assert_awaited_once_with(hass, TENANT)
 
 
+async def test_failed_write_is_rolled_back_on_cancel(hass, monkeypatch, rollback):
+    """_written steht vor dem Schreiben: auch ein gescheiterter Aufruf kann geschrieben haben."""
+    result, _, calls = await _to_setup(hass, monkeypatch, set_error=AddonError("abgelehnt"))
+    result = await finish_progress(hass, result)
+    assert result["step_id"] == "setup_failed"
+    assert calls.options == {}
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+
+
+async def test_unexpected_rollback_error_still_cancels_and_logs_out(hass, monkeypatch, rollback, caplog):
+    result, mocks, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+    result = await finish_progress(hass, result)
+    rollback.first.side_effect = RuntimeError("kaputt geheim-pw-4711")
+
+    result = await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
+    mocks.logout.assert_awaited_once_with("tok123")
+    assert "RuntimeError" in caplog.text
+    assert "geheim-pw-4711" not in caplog.text
+
+
 async def test_finished_setup_is_not_rolled_back(hass, monkeypatch, rollback):
     result, _, _ = await _to_setup(hass, monkeypatch)
     result = await finish_progress(hass, result)

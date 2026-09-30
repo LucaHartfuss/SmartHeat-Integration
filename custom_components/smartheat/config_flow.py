@@ -167,7 +167,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._status = None
         if self._needs_rollback() or self._token is not None:
             # Dialog geschlossen oder Flow abgebrochen: Rueckbau/Logout im Hintergrund (TP12c 3.2).
-            self.hass.async_create_background_task(self._async_cleanup(), "smartheat_setup_cleanup")
+            self.hass.async_create_background_task(self._async_rollback_then_logout(), "smartheat_setup_cleanup")
 
     def _needs_rollback(self) -> bool:
         return self._written and not self._finished and not self._rolled_back and not self._reauth
@@ -197,9 +197,15 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         await self._logout()
         return self.async_abort(reason=reason, description_placeholders=placeholders or None)
 
-    async def _async_cleanup(self) -> None:
-        await self._async_rollback()
-        await self._logout()
+    async def _async_rollback_then_logout(self) -> None:
+        """Ein unerwarteter Fehler im Rueckbau darf den Logout nicht verhindern; er wird nur mit
+        dem Typnamen protokolliert (der Text koennte Optionswerte zitieren)."""
+        try:
+            await self._async_rollback()
+        except Exception as error:  # noqa: BLE001 -- best effort, der Abbruch laeuft weiter
+            _LOGGER.warning("Rueckbau unerwartet fehlgeschlagen: %s", type(error).__name__)
+        finally:
+            await self._logout()
 
     def _client(self) -> HeizungsserverClient:
         return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
@@ -825,7 +831,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self._snapshot = ReconfigureSnapshot(
                     dict((await heizungsbruecke.async_get_addon_info()).options),
                     dict((await cloudflared.async_get_addon_info()).options),
-                    self._entry.data["profile_id"],
+                    self._entry.data.get("profile_id"),
                 )
             if self._provisioning is None:
                 next_step = await self._obtain_access(heizungsbruecke, cloudflared)
@@ -1026,8 +1032,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return self.async_show_menu(step_id="setup_timeout", menu_options=["wait_status", "cancel"])
 
     async def async_step_cancel(self, user_input: dict | None = None):
-        await self._async_rollback()
-        return await self._abort("setup_cancelled")
+        await self._async_rollback_then_logout()
+        return self.async_abort(reason="setup_cancelled")
 
     def _entry_data(self) -> dict:
         profile = self._profile
