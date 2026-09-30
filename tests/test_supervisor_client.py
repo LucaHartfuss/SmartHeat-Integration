@@ -101,9 +101,9 @@ async def test_supervisor_error_becomes_addon_error(monkeypatch):
 
 
 async def test_get_addon_managers_keeps_order_and_uses_resolved_slugs(monkeypatch):
-    # Reale Mindestversion aus const.MIN_ADDON_VERSIONS (0.24.0, Task 18 TP11); dieser Test
+    # Reale Mindestversion aus const.MIN_ADDON_VERSIONS (0.26.0, TP12f); dieser Test
     # prueft nur die Reihenfolge/Aufloesung, nicht die Versionsgrenze selbst.
-    _patch_supervisor_client(monkeypatch, _both(hb_version="0.24.0"))
+    _patch_supervisor_client(monkeypatch, _both(hb_version="0.26.0"))
 
     managers = await async_get_addon_managers(
         None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],

@@ -7,7 +7,7 @@ Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor (Hass.io/HAOS).
-- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.24.0
+- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.26.0
   und `cloudflared_access_mqtt` ≥ 1.0.0 (nicht manuell konfigurieren — der Wizard prueft die
   Mindestversion vor jedem Setup und bricht sonst mit einer Fehlermeldung ab).
 - Eine unterstuetzte Heizungs-Integration in Home Assistant eingerichtet (z. B. myVAILLANT).
