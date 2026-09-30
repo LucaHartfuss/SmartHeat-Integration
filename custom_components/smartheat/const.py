@@ -240,7 +240,8 @@ def kpi_energy_role(channel: str) -> str:
 _TEMPERATURE_SENSOR = {"domain": "sensor", "device_class": "temperature"}
 ENTITY_FILTERS: dict[str, list[dict[str, str]]] = {
     OPTION_ROOM_SENSORS: [_TEMPERATURE_SENSOR, {"domain": "climate"}],
-    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen, Heizgrenze).
+    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen). Die Heizgrenze ist
+    # seit TP12h nur noch number (SmartHeat schreibt sie), hier greift also nur der number-Filter.
     **{role: [_TEMPERATURE_SENSOR if domain == "sensor" else {"domain": domain} for domain in domains]
        for role, domains in ROLE_DOMAINS.items()},
     "entity_flow_temperature": [_TEMPERATURE_SENSOR],
