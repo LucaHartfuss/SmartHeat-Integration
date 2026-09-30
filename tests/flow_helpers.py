@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import voluptuous as vol
+from homeassistant.components.hassio import AddonError, AddonManager
 from homeassistant.data_entry_flow import UnknownFlow
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -75,8 +76,11 @@ def mock_server(monkeypatch, *, tenants=(TENANT,), catalog=CATALOG, provisioning
         provision=AsyncMock(return_value=provisioning),
         update_profile=AsyncMock(return_value=PROFILE_PARAMS),
         logout=AsyncMock(return_value=None),
+        delete_installation=AsyncMock(return_value=204),
     )
-    for name in ("login", "list_tenants", "get_catalog", "provision", "update_profile", "logout"):
+    for name in (
+        "login", "list_tenants", "get_catalog", "provision", "update_profile", "logout", "delete_installation",
+    ):
         monkeypatch.setattr(f"{FLOW}.HeizungsserverClient.{name}", getattr(mocks, name))
     return mocks
 
@@ -103,6 +107,7 @@ def setup_mypyllant(hass, *, circuits=("0",), model="ecoTEC plus VC 206/5-5", ou
         ent_reg.async_get_or_create(
             "climate", "mypyllant", f"mypyllant_SYSTEM_zone_{circuit}_climate",
             config_entry=entry, device_id=device.id, suggested_object_id=f"zuhause_zone_1_circuit_{circuit}_climate",
+            original_name=f"Zuhause Zone 1 (Circuit {circuit}) Climate",
         )
         hass.states.async_set(
             f"climate.zuhause_zone_1_circuit_{circuit}_climate", "auto", {"temperature": 20.0},
@@ -157,17 +162,18 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
                 set_error=None, status_setup_id=None, supervision_error=None) -> SimpleNamespace:
     """AddonManager-Aufrufe aufzeichnen. Der Neustart der Heizungsbruecke feuert das Status-Event
     wie das echte Add-on (mit der setup_id aus den gesetzten Optionen, ausser status_setup_id)."""
-    calls = SimpleNamespace(options={}, restarts=[], supervision=[])
+    calls = SimpleNamespace(options={}, restarts=[], supervision=[], history=[])
 
     async def set_options(manager, config):
         if set_error is not None:
             raise set_error
         calls.options[manager.addon_slug] = config
+        calls.history.append((manager.addon_slug, dict(config)))
 
     async def restart(manager):
         calls.restarts.append(manager.addon_slug)
         if manager.addon_slug == "heizungsbruecke" and status is not None:
-            setup_id = status_setup_id or calls.options["heizungsbruecke"]["setup_id"]
+            setup_id = status_setup_id or calls.options["heizungsbruecke"].get("setup_id")
             hass.bus.async_fire("smartheat_status", status_event(TENANT, status, setup_id=setup_id, grund=grund))
 
     async def info(manager):
@@ -184,6 +190,19 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
     )
     calls.supervision = supervisor_log
     return calls
+
+
+def fail_addon_reads_after(monkeypatch, server_call) -> None:
+    """Jede Add-on-Abfrage nach dem ersten Serveraufruf `server_call` scheitert: der Server ist
+    geaendert, in die Add-ons ist noch nichts geschrieben (nach mock_addons() aufrufen)."""
+    read = AddonManager.async_get_addon_info
+
+    async def info(manager):
+        if server_call.await_count:
+            raise AddonError("weg")
+        return await read(manager)
+
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_get_addon_info", info)
 
 
 def fast_status_wait(monkeypatch, wait_seconds: float = 0.2) -> None:

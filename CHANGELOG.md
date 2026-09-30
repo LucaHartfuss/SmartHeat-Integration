@@ -5,6 +5,25 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## 0.9.0
 
+- Wizard-Zuordnung sicher (TP12c): Die Heizzone wird nur noch vorgeschlagen, wenn ihr Name den gewählten
+  Heizkreis nennt; Schreib-Entities (Heizkurve, Zone, Mindestvorlauf, Heizgrenze, Vorlauf-Soll) müssen zur
+  gewählten Heizungs-Integration und Anlage gehören; Abweichungen von der Erkennung und ein
+  Aktualisierungsintervall der Heizungs-Integration über 30 Minuten müssen in der Zusammenfassung
+  bestätigt werden, die die beschriebenen Entities mit Namen zeigt.
+- Pro Home Assistant nur noch ein SmartHeat-Eintrag. Beim Entfernen bleiben Add-ons einer anderen
+  SmartHeat-Anlage unberührt; gescheiterte Schritte erscheinen als Benachrichtigung.
+- Einrichtung gilt auch bei Datenfehler, Notbetrieb oder inaktivem Abo als abgeschlossen (der
+  Abschlusstext nennt den Zustand), ebenso eine Änderung der Optionen. Ein Abbruch nach dem Schreiben
+  baut zurück: Ersteinrichtung wie Entfernen, „Neu konfigurieren“ stellt die bisherigen
+  Add-on-Einstellungen und das bisherige Profil wieder her. Ein Abbruch vor dem Schreiben nimmt nur die
+  Änderungen auf dem Server zurück (neu ausgestellte Zugangsdaten, Profilwechsel), ohne die Add-ons
+  anzufassen. Ein erfolgreicher Abschluss entfernt eine Rückbau-Meldung eines früheren Abbruchs. Die
+  Optionen stellen bei Ablehnung durch das Add-on den vorigen Stand wieder her.
+- Klarere Fehlermeldungen bei Serverproblemen (Zeitlimit 30 s, Ablehnungsgrund des Servers).
+- Veraltete Einträge werden allgemein erkannt (Hinweis „Neu konfigurieren“); die alte Entity
+  `sensor.smartheat_<anlage>_offset` wird automatisch entfernt.
+- Voraussetzung: SmartHeat-Server mit Katalog v2 (vor dem Update der Integration aktualisiert); mit
+  einem älteren Server bricht der Assistent mit einem Hinweis ab.
 - Neuer abschaltbarer Hinweis „Benachrichtigen, wenn die Therme keine Heizwärme liefert“ (Option
   `notify_hints_off` kennt jetzt `therme`) und das Status-Attribut `waerme_fehlt` am SmartHeat-Status-Sensor
   (Zeitpunkt, seit dem die Therme trotz Wärmeanforderung nichts liefert, sonst leer). Passt zum Add-on 0.26.0.

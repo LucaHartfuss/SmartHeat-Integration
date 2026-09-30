@@ -1,5 +1,6 @@
 """Gemeinsame Konstanten fuer die SmartHeat-Integration."""
 import re
+from collections.abc import Mapping
 
 DOMAIN = "smartheat"
 DEFAULT_HEIZUNGSSERVER_BASE_URL = "https://accounts.hartfussha.org"
@@ -14,7 +15,8 @@ OPTION_ABGEMELDET = "abgemeldet"
 OPTION_NOTIFY_HINTS_OFF = "notify_hints_off"
 # Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
 HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme")
-# Alter Eintrag (v1, client1): Einrichtung ueber "Neu konfigurieren" abschliessen.
+# Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
+# entfallen), er bleibt als Merkmal fuer entry_incomplete().
 DATA_INCOMPLETE = "unvollstaendig"
 BRIDGE_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
 CLOUDFLARED_CREDENTIAL_OPTIONS = ("service_token_id", "service_token_secret")
@@ -25,6 +27,17 @@ INSTALLATION_PATH = "/tenants/{tenant_id}/installation"
 # Entfernen widerruft damit dort, wo auch das Add-on fragt (Spec TP8 4).
 OPTION_ACCOUNTS_API_BASE_URL = "accounts_api_base_url"
 REVOKE_TIMEOUT_SECONDS = 10
+# Zeitlimit je Anfrage an die accounts-api; laenger gilt der Dienst als nicht erreichbar (AU-036).
+REQUEST_TIMEOUT_SECONDS = 30
+# mypyllant-Pollintervall, auf das OWN_WRITE_SETTLE_SECONDS (2100 s) im Add-on abgestimmt ist (client1:
+# 30 min, 5 min Reserve). Laenger -> Warnung im Wizard (TP12c, AU-017); das Add-on bleibt fest.
+POLL_INTERVAL_MAX_SECONDS = 1800
+# Katalog-Version, die diese Integration voraussetzt (TP12c: circuit_in_name, poll_interval_option).
+# Ein aelterer Server-Katalog bricht den Wizard ab (catalog_outdated), statt still auf die alte
+# Zonensuche zurueckzufallen.
+REQUIRED_CATALOG_VERSION = 2
+# Laenge des vom Server gemeldeten Ablehnungsgrunds (403), der dem Nutzer angezeigt wird.
+ACCESS_DENIED_REASON_MAX = 200
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
 # Vom Wizard nicht verwaltet: bleiben beim erneuten Einrichten aus den bestehenden Optionen
 # erhalten (I3). Alles andere setzt der Wizard vollstaendig neu.
@@ -70,6 +83,9 @@ ADDON_STATUS_VALUES = (
     STATUS_ABO_INAKTIV, STATUS_NOTBETRIEB, STATUS_DATENFEHLER, STATUS_ABGEMELDET,
 )
 # Nur die Integration (zweiter Waechter, Spec TP7 1.3).
+# Setup gilt als fertig (TP12c 3.1, Nutzer-Entscheidung 3): Eintrag und Waechter entstehen auch mit
+# Warnzustand; der Abschlusstext nennt ihn.
+SETUP_DONE_STATUSES = (STATUS_REGELT, STATUS_DATENFEHLER, STATUS_NOTBETRIEB, STATUS_ABO_INAKTIV, STATUS_ABO_BEENDET)
 STATUS_ADDON_GESTOPPT = "addon_gestoppt"
 STATUS_REAGIERT_NICHT = "reagiert_nicht"
 STATUS_SENSOR_VALUES = ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT)
@@ -119,6 +135,25 @@ def watchdog_notification_id(tenant_id: str) -> str:
     return f"smartheat_{slug(tenant_id)}_addon"
 
 
+# Offene Schritte beim Entfernen/Rueckbau (TP12c); Hinweistexte common.open_step_<problem>.
+PROBLEM_SUPERVISOR = "supervisor"
+PROBLEM_FOREIGN_TENANT = "foreign_tenant"
+PROBLEM_NO_SIGN_OFF = "no_sign_off"
+PROBLEM_STOP = "stop"
+PROBLEM_REVOKE = "revoke"
+PROBLEM_CLEAR = "clear"
+PROBLEM_PROFILE = "profile"
+PROBLEM_ADDONS = "addons"
+
+
+def removal_notification_id(tenant_id: str) -> str:
+    return f"smartheat_{slug(tenant_id)}_removal"
+
+
+def setup_notification_id(tenant_id: str) -> str:
+    return f"smartheat_{slug(tenant_id)}_setup"
+
+
 def repair_issue_id(entry_id: str) -> str:
     return f"complete_setup_{entry_id}"
 
@@ -151,6 +186,16 @@ ROLE_DOMAINS: dict[str, list[str]] = {
 PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
 # Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
 OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
+
+
+def entry_incomplete(data: Mapping) -> bool:
+    """Eintrag, der fuer den aktuellen Stand nicht reicht (AU-037): markiert oder ohne Profil oder
+    ohne ein Pflichtfeld der Anlagenwerte. Weg: Neu konfigurieren."""
+    entities = data.get("entities") or {}
+    return bool(data.get(DATA_INCOMPLETE)) or not data.get("profile_id") or any(f not in entities for f in PLANT_FIELDS)
+# Vom Add-on beschriebene bzw. dem Heizkreis zugeordnete Anlagen-Felder: nur aus dem Config-Entry
+# des gewaehlten Kreises waehlbar (TP12c, AU-019). Aussentemperatur bleibt frei (Wetter-Ersatz).
+WRITE_ROLE_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_flow_setpoint")
 
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt

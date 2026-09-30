@@ -93,7 +93,14 @@ def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry
             match = pattern.search(entry.unique_id)
             if match is None:
                 continue
-            key = (entry.config_entry_id, _normalize(entry.unique_id[:match.start()], descriptor.domain), match.group(1))
+            if matcher.circuit_in_name is not None:
+                # Katalog v2 (TP12c, AU-004): der Index in der unique_id ist nicht die Kreisnummer.
+                circuit = matcher.name_circuit(entry.original_name)
+                if circuit is None:
+                    continue
+            else:
+                circuit = match.group(1)
+            key = (entry.config_entry_id, _normalize(entry.unique_id[:match.start()], descriptor.domain), circuit)
             groups.setdefault(key, {}).setdefault(role, []).append(entry.entity_id)
             if role == "curve_current":
                 curve_devices[key] = entry.device_id

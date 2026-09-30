@@ -8,6 +8,7 @@ from homeassistant.components.hassio import AddonError
 
 from custom_components.smartheat import addon_control
 from custom_components.smartheat.addon_control import WAIT_DONE, WAIT_FAILED, WAIT_TIMEOUT, StatusListener
+from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import FakeAddon, FakeSupervisor, status_event
 
@@ -108,6 +109,16 @@ def dismissed(monkeypatch):
     monkeypatch.setattr(
         "homeassistant.components.persistent_notification.async_dismiss",
         lambda hass, notification_id: calls.append(notification_id),
+    )
+    return calls
+
+
+@pytest.fixture
+def created(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "homeassistant.components.persistent_notification.async_create",
+        lambda hass, message, title=None, notification_id=None: calls.append((notification_id, message)),
     )
     return calls
 
@@ -257,7 +268,7 @@ async def test_no_revoke_without_credentials(hass, monkeypatch, dismissed, caplo
     assert "revoke" not in [entry[0] for entry in log]
 
 
-async def test_remove_succeeds_when_the_addon_never_answers(hass, monkeypatch, dismissed, caplog):
+async def test_remove_succeeds_when_the_addon_never_answers(hass, monkeypatch, dismissed, created, caplog):
     monkeypatch.setattr(f"{AC}.SIGN_OFF_WAIT_SECONDS", 0.05)
     log = []
     bridge, cloudflared = _addons(hass, monkeypatch, log, answer=False)
@@ -269,7 +280,7 @@ async def test_remove_succeeds_when_the_addon_never_answers(hass, monkeypatch, d
     assert "keine Abmeldung" in caplog.text
 
 
-async def test_remove_succeeds_when_the_bridge_fails_everywhere(hass, monkeypatch, dismissed):
+async def test_remove_succeeds_when_the_bridge_fails_everywhere(hass, monkeypatch, dismissed, created):
     log = []
     _, cloudflared = _addons(hass, monkeypatch, log, bridge_error=AddonError("kaputt"))
 
@@ -316,3 +327,86 @@ async def test_listener_ignores_an_unknown_status(hass):
 
     assert outcome == (WAIT_TIMEOUT, None)
     listener.close()
+
+
+# --- Ein Eintrag je HA, Meldung offener Schritte (TP12c, AU-011/AU-021) ---
+
+async def test_sign_off_leaves_an_addon_of_another_tenant_alone(hass, monkeypatch, dismissed, created):
+    log = []
+    _addons(hass, monkeypatch, log, bridge_options={"tenant_id": "haus2", "mqtt_username": "u", "mqtt_password": "p"})
+
+    problems = await addon_control.async_sign_off(hass, TENANT)
+
+    assert problems == ["foreign_tenant"]
+    assert log == []  # nichts abgemeldet, gestoppt, widerrufen oder geleert
+    notification_id, message = created[0]
+    assert notification_id == "smartheat_wohnung1_removal"
+    assert message.splitlines() == [
+        await async_hint(hass, "removal_incomplete"), f"- {await async_hint(hass, 'open_step_foreign_tenant')}",
+    ]
+    assert dismissed == ["smartheat_wohnung1_addon"]
+
+
+async def test_sign_off_without_tenant_id_in_the_addon_is_not_foreign(hass, monkeypatch, dismissed, created):
+    """Review Focus 5."""
+    log = []
+    _addons(hass, monkeypatch, log, bridge_options={"mqtt_username": "u", "mqtt_password": "p"})
+
+    problems = await addon_control.async_sign_off(hass, TENANT)
+
+    assert problems == []
+    assert ("stop", "a_heizungsbruecke") in [entry[:2] for entry in log]
+    assert created == []
+
+
+async def test_successful_sign_off_creates_no_notification(hass, monkeypatch, dismissed, created):
+    _addons(hass, monkeypatch, [])
+
+    assert await addon_control.async_sign_off(hass, TENANT) == []
+    assert created == []
+
+
+async def test_sign_off_without_supervisor_reports_it(hass, monkeypatch, dismissed, created):
+    monkeypatch.setattr(f"{AC}.async_find_addon_managers", AsyncMock(side_effect=AddonError("weg")))
+
+    assert await addon_control.async_sign_off(hass, TENANT) == ["supervisor"]
+    assert created[0][0] == "smartheat_wohnung1_removal"
+
+
+async def test_unconfirmed_sign_off_warns_about_boost_values(hass, monkeypatch, dismissed, created):
+    monkeypatch.setattr(f"{AC}.SIGN_OFF_WAIT_SECONDS", 0.05)
+    _addons(hass, monkeypatch, [], answer=False)
+
+    assert await addon_control.async_sign_off(hass, TENANT) == ["no_sign_off"]
+    text = created[0][1]
+    assert ("1,5" in text or "1.5" in text) and "25" in text
+
+
+async def test_unreadable_bridge_options_report_the_revoke(hass, monkeypatch, dismissed, created):
+    """Ohne lesbare Optionen kennt die Integration die Zugangsdaten nicht: der Widerruf bleibt offen."""
+    log = []
+    bridge, _ = _addons(hass, monkeypatch, log)
+
+    async def unreadable():
+        raise AddonError("kaputt")
+
+    bridge.async_get_addon_info = unreadable
+
+    problems = await addon_control.async_sign_off(hass, TENANT, notify=False)
+
+    assert "revoke" not in [entry[0] for entry in log]
+    assert "revoke" in problems
+
+
+@pytest.mark.parametrize("server_status, problems", [(204, []), (401, []), (500, ["revoke"]), (None, ["revoke"])])
+async def test_revoke_outcome_is_reported(hass, monkeypatch, dismissed, created, server_status, problems):
+    _addons(hass, monkeypatch, [], server_status=server_status)
+
+    assert await addon_control.async_sign_off(hass, TENANT) == problems
+
+
+async def test_sign_off_can_leave_the_notification_to_the_caller(hass, monkeypatch, dismissed, created):
+    monkeypatch.setattr(f"{AC}.async_find_addon_managers", AsyncMock(side_effect=AddonError("weg")))
+
+    assert await addon_control.async_sign_off(hass, TENANT, notify=False) == ["supervisor"]
+    assert created == []

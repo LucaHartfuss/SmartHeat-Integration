@@ -17,23 +17,31 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components import persistent_notification
 from homeassistant.components.hassio import AddonError
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import section
+from homeassistant.data_entry_flow import AbortFlow, section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
 
 from . import detection, validation
 from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_set_supervision
-from .api_client import ApiError, CannotConnect, HeizungsserverClient, InvalidAuth
+from .api_client import (
+    AccessDenied,
+    ApiError,
+    CannotConnect,
+    HeizungsserverClient,
+    InvalidAuth,
+    InvalidResponse,
+    ProfileRejected,
+)
 from .catalog import IntegrationDescriptor, parse_integrations, verified_profiles
 from .const import (
     ADDON_REPOSITORY_URL,
     ADDON_SPECS,
     BRIDGE_CREDENTIAL_OPTIONS,
     CLOUDFLARED_CREDENTIAL_OPTIONS,
-    DATA_INCOMPLETE,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
     KPI_ENERGY_CHANNELS,
@@ -51,15 +59,27 @@ from .const import (
     OPTIONAL_PLANT_FIELDS,
     PLANT_FIELDS,
     PLAUSIBLE_RANGES,
+    POLL_INTERVAL_MAX_SECONDS,
+    REQUIRED_CATALOG_VERSION,
+    SETUP_DONE_STATUSES,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
     STATUS_WAIT_SECONDS,
     STATUS_ZUGANG_ABGELEHNT,
     UNMANAGED_ADDON_OPTIONS,
+    WRITE_ROLE_FIELDS,
+    entry_incomplete,
     kpi_energy_role,
+    setup_notification_id,
 )
 from .flow_progress import ProgressFlowMixin
 from .options_flow import SmartHeatOptionsFlow
+from .setup_rollback import (
+    ReconfigureSnapshot,
+    async_rollback_first_setup,
+    async_rollback_reconfigure,
+    async_rollback_server_only,
+)
 from .supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
@@ -111,6 +131,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._room_target: str | None = None
         self._plant: dict[str, str] = {}
         self._kpi: dict[str, str] = {}
+        # (Integration, Kreis-Schluessel), zu denen _plant/_kpi gehoeren; None = keine Auswahl (AU-003).
+        self._plant_binding: tuple[str | None, str] | None = None
         # None = Schritt notifications noch nicht bestaetigt (dann alle Handys vorbelegen).
         self._notify_services: list[str] | None = None
         self._battery_entities: list[str] = []
@@ -131,6 +153,18 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._system_defaults: dict = {}
         self._status: StatusListener | None = None
         self._supervision_failed = False
+        # Letzter Status des Add-ons beim Abschluss (TP12c 3.1), fuer den Abschlusstext.
+        self._final_status: str | None = None
+        self._final_grund: str | None = None
+        # Rueckbau ohne Abschluss (TP12c 3.2): in die Add-ons geschrieben, abgeschlossen, Rueckbau
+        # gelaufen; beim Neu konfigurieren der Stand vor dem ersten Schreiben. Aenderungen auf dem
+        # Server vor dem ersten Schreiben: _new_credentials (provision) und _profile_changed
+        # (update_profile beim Neu konfigurieren).
+        self._written = False
+        self._profile_changed = False
+        self._finished = False
+        self._rolled_back = False
+        self._snapshot: ReconfigureSnapshot | None = None
 
     @staticmethod
     @callback
@@ -142,6 +176,63 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if self._status is not None:
             self._status.close()
             self._status = None
+        if self._needs_rollback() or self._token is not None:
+            # Dialog geschlossen oder Flow abgebrochen: Rueckbau/Logout im Hintergrund (TP12c 3.2).
+            self.hass.async_create_background_task(self._async_rollback_then_logout(), "smartheat_setup_cleanup")
+
+    def _needs_rollback(self) -> bool:
+        changed = self._written or self._new_credentials or self._profile_changed
+        return changed and not self._finished and not self._rolled_back and not self._reauth
+
+    async def _async_rollback(self) -> None:
+        """Genau einmal (async_remove laeuft bei jedem Flow-Ende); vor dem Logout, weil der
+        Profil-Rueckbau das Token braucht. Ohne Schreiben in die Add-ons nur auf dem Server."""
+        if not self._needs_rollback():
+            return
+        self._rolled_back = True
+        tenant_id = self._tenant_id
+        assert tenant_id is not None  # geaendert wird erst nach der Tenant-Auswahl
+        provisioning = self._provisioning or {}
+        new_credentials = (provisioning["username"], provisioning["password"]) if self._new_credentials else None
+        if self._entry is None:
+            if self._written:
+                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke.
+                await async_rollback_first_setup(self.hass, tenant_id)
+            else:
+                await async_rollback_server_only(
+                    self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=True,
+                    new_credentials=new_credentials, previous_profile_id=None, profile_id=None,
+                )
+            return
+        snapshot, profile = self._snapshot, self._profile
+        # _run_setup setzt den Snapshot vor _obtain_access, also vor jeder Aenderung.
+        assert snapshot is not None and profile is not None
+        if self._written:
+            await async_rollback_reconfigure(
+                self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
+                profile_id=profile["profile_id"], new_credentials=new_credentials,
+            )
+        else:
+            await async_rollback_server_only(
+                self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=False,
+                new_credentials=new_credentials, previous_profile_id=snapshot.profile_id,
+                profile_id=profile["profile_id"],
+            )
+
+    async def _abort(self, reason: str, **placeholders: str):
+        """Jeder Abbruch nach dem Login meldet die Sitzung ab (AU-036)."""
+        await self._logout()
+        return self.async_abort(reason=reason, description_placeholders=placeholders or None)
+
+    async def _async_rollback_then_logout(self) -> None:
+        """Ein unerwarteter Fehler im Rueckbau darf den Logout nicht verhindern; er wird nur mit
+        dem Typnamen protokolliert (der Text koennte Optionswerte zitieren)."""
+        try:
+            await self._async_rollback()
+        except Exception as error:  # noqa: BLE001 -- best effort, der Abbruch laeuft weiter
+            _LOGGER.warning("Rueckbau unerwartet fehlgeschlagen: %s", type(error).__name__)
+        finally:
+            await self._logout()
 
     def _client(self) -> HeizungsserverClient:
         return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
@@ -162,7 +253,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
     async def async_step_reauth(self, entry_data):
         """Spec TP7 2.4: das Add-on meldet zugang_abgelehnt -> Login, dann neue Zugangsdaten."""
         self._entry = self._get_reauth_entry()
-        if self._entry.data.get(DATA_INCOMPLETE) or not self._entry.data.get("profile_id"):
+        if entry_incomplete(self._entry.data):
             return self.async_abort(reason="reconfigure_first")
         self._reauth = True
         self._tenant_id = self._entry.data["tenant_id"]
@@ -175,7 +266,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         # _prefill_from_entry() laeuft nur aus async_step_reconfigure(), das self._entry vorher
         # setzt (async_step_reauth() ruft es nicht auf).
         assert entry is not None
-        if entry.data.get(DATA_INCOMPLETE):
+        if entry_incomplete(entry.data):
             return
         options = entry.options
         self._rooms_input = {
@@ -186,6 +277,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         plant_fields = PLANT_FIELDS + OPTIONAL_PLANT_FIELDS
         self._plant = {field: entities[field] for field in plant_fields if field in entities}
         self._kpi = {field: value for field, value in entities.items() if field not in plant_fields}
+        stored = entry.data.get("circuit") or {}
+        self._plant_binding = (
+            entry.data.get("integration_domain"),
+            f"{stored.get('config_entry_id')}|{stored.get('system_key')}|{stored.get('circuit')}",
+        )
         self._notify_services = list(options.get(OPTION_NOTIFY_SERVICES, []))
         self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
@@ -227,6 +323,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 errors["base"] = "invalid_auth"
             except CannotConnect:
                 errors["base"] = "cannot_connect"
+            except InvalidResponse:
+                errors["base"] = "invalid_response"
             except ApiError:
                 errors["base"] = "unknown"
             else:
@@ -235,9 +333,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 elif self._entry is None:
                     return await self.async_step_tenant()
                 elif self._tenant_id not in {tenant["tenant_id"] for tenant in self._tenants}:
-                    # Eine erfolgreiche Sitzung nicht offen lassen, obwohl der Flow hier abbricht.
-                    await self._logout()
-                    return self.async_abort(reason="wrong_account")
+                    return await self._abort("wrong_account")
                 elif self._reauth:
                     return await self.async_step_setup()
                 else:
@@ -277,7 +373,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._tenant_id = user_input["tenant_id"]
             # Single-Instance-Guard: zwei Eintraege wuerden dieselben Add-ons beanspruchen.
             await self.async_set_unique_id(self._tenant_id)
-            self._abort_if_unique_id_configured()
+            try:
+                self._abort_if_unique_id_configured()
+            except AbortFlow:
+                await self._logout()
+                raise
             return await self.async_step_heating()
         return self.async_show_form(
             step_id="tenant", data_schema=vol.Schema({vol.Required("tenant_id"): _select(tenant_ids)}),
@@ -294,8 +394,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self._catalog = await self._client().get_catalog(token)
             except InvalidAuth:
                 return await self._session_lost()
+            except AccessDenied as error:
+                return await self._abort("access_denied", grund=error.reason or "-")
             except CannotConnect:
                 errors["base"] = "cannot_connect"
+            except InvalidResponse:
+                errors["base"] = "invalid_response"
             except ApiError:
                 errors["base"] = "unknown"
             if errors:
@@ -304,13 +408,15 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             # wurde also gerade erfolgreich gesetzt.
             catalog = self._catalog
             assert catalog is not None
+            version = catalog.get("catalog_version")
+            if not isinstance(version, int) or version < REQUIRED_CATALOG_VERSION:
+                return await self._abort("catalog_outdated")
             descriptors = parse_integrations(catalog)
             entry_domains = {entry.domain for entry in self.hass.config_entries.async_entries()}
             self._integrations = detection.installed_integrations(descriptors, entry_domains)
             if not self._integrations:
-                return self.async_abort(
-                    reason="no_supported_integration",
-                    description_placeholders={"supported": ", ".join(sorted(d.label for d in descriptors))},
+                return await self._abort(
+                    "no_supported_integration", supported=", ".join(sorted(d.label for d in descriptors)),
                 )
             user_input = None
         domains = [descriptor.domain for descriptor in self._integrations]
@@ -360,12 +466,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._entries, self._devices = detection.registry_snapshot(self.hass)
             self._circuits = detection.find_circuits(integration, self._entries, self._devices)
             if not self._circuits:
-                return self.async_abort(
-                    reason="no_heating_circuit", description_placeholders={"integration": integration.label},
-                )
+                return await self._abort("no_heating_circuit", integration=integration.label)
         profiles = [p for p in verified_profiles(catalog) if p["hersteller"] == integration.hersteller]
         if not profiles:
-            return self.async_abort(reason="no_verified_profiles")
+            return await self._abort("no_verified_profiles")
         erzeuger_typen = _erzeuger_typen(catalog)
 
         errors: dict[str, str] = {}
@@ -431,6 +535,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     # --- Schritt 6: Anlagenwerte ---
 
+    def _binding(self) -> tuple[str, str]:
+        """Integration und Kreis, zu denen eine Auswahl im Schritt Anlagenwerte gehoert (AU-003)."""
+        integration, circuit = self._integration, self._circuit
+        assert integration is not None and circuit is not None  # erst nach async_step_system()
+        return integration.domain, circuit.key
+
     def _suggestions(self) -> tuple[dict[str, str], dict[str, str]]:
         integration = self._integration
         circuit = self._circuit
@@ -486,6 +596,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if "entity_flow_setpoint" in plant:
             checks["entity_flow_setpoint"] = validation.check_temperature(self.hass, plant["entity_flow_setpoint"])
         checks = {field: validation.check_domain(plant[field], field) or error for field, error in checks.items()}
+        integration, circuit = self._integration, self._circuit
+        assert integration is not None and circuit is not None  # erst nach async_step_system()
+        for field in WRITE_ROLE_FIELDS:
+            if field in plant and not checks.get(field):
+                checks[field] = validation.check_installation(
+                    self.hass, plant[field], integration.domain, circuit.config_entry_id,
+                )
         return {field: error for field, error in checks.items() if error}
 
     async def async_step_plant_values(self, user_input: dict | None = None):
@@ -517,12 +634,14 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 errors["base"] = "advanced_invalid"
             if not errors:
                 self._plant, self._kpi = plant, kpi
+                self._plant_binding = self._binding()
                 return await self.async_step_notifications()
             suggested = {
                 **{field: user_input.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
                 ADVANCED_SECTION: advanced,
             }
-        elif self._plant:
+        elif self._plant and self._plant_binding == self._binding():
+            # Nur fuer dieselbe Integration und denselben Kreis (AU-003); sonst gilt die Erkennung.
             # Zurueck nach setup_failed: die Auswahl des Kunden, nicht erneut die Erkennung (I-1).
             # KPI genau wie gewaehlt: ein bewusst leer gelassenes Feld bleibt leer.
             suggested = {
@@ -537,11 +656,15 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 **{field: suggestions.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
                 ADVANCED_SECTION: {field: suggestions[field] for field in kpi_fields if field in suggestions},
             }
-        schema: dict[vol.Marker, Any] = {
-            vol.Required(field): validation.entity_selector(field) for field in PLANT_FIELDS
-        }
+        integration = self._integration
+        assert integration is not None  # erst nach async_step_system()
+
+        def _selector(field: str):
+            return validation.entity_selector(field, integration=integration.domain if field in WRITE_ROLE_FIELDS else None)
+
+        schema: dict[vol.Marker, Any] = {vol.Required(field): _selector(field) for field in PLANT_FIELDS}
         for field in OPTIONAL_PLANT_FIELDS:
-            schema[vol.Optional(field)] = validation.entity_selector(field)
+            schema[vol.Optional(field)] = _selector(field)
         if kpi_fields:
             schema[vol.Required(ADVANCED_SECTION)] = section(
                 vol.Schema({
@@ -603,7 +726,43 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     def _warnings(self) -> dict[str, list[str]]:
         refs = [*self._room_sensors, self._room_target, *self._plant.values(), *self._kpi.values()]
-        return validation.collect_warnings(self.hass, refs, self._room_sensors)
+        warnings = validation.collect_warnings(self.hass, refs, self._room_sensors)
+        unmatched = self._unmatched_write_roles()
+        if unmatched:
+            warnings[validation.WARNING_WRITE_ROLE_UNMATCHED] = unmatched
+        seconds = self._poll_interval_seconds()
+        if seconds is not None and seconds > POLL_INTERVAL_MAX_SECONDS:
+            warnings[validation.WARNING_POLL_INTERVAL] = [f"{seconds / 60:g} min"]
+        return warnings
+
+    def _unmatched_write_roles(self) -> list[str]:
+        """Gebundene Felder, die nicht der Erkennung fuer den gewaehlten Kreis entsprechen (AU-019);
+        das optionale Vorlauf-Soll nur, wenn es eine abweichende Erkennung gibt."""
+        suggestions, origins = self._suggestions()
+        result = []
+        for field in WRITE_ROLE_FIELDS:
+            chosen = self._plant.get(field)
+            detected = suggestions.get(field) if origins.get(field) == ORIGIN_INTEGRATION else None
+            if chosen is None or chosen == detected:
+                continue
+            if field in OPTIONAL_PLANT_FIELDS and detected is None:
+                continue
+            result.append(chosen)
+        return result
+
+    def _entity_label(self, entity_id: str) -> str:
+        state = self.hass.states.get(entity_id)
+        name = state.name if state is not None else entity_id
+        return f"{name} ({entity_id})" if name != entity_id else entity_id
+
+    def _poll_interval_seconds(self) -> float | None:
+        integration, circuit = self._integration, self._circuit
+        assert integration is not None and circuit is not None
+        option = integration.poll_interval_option
+        if option is None or circuit.config_entry_id is None:
+            return None
+        entry = self.hass.config_entries.async_get_entry(circuit.config_entry_id)
+        return None if entry is None else option.seconds(entry.options)
 
     async def _credentials_note(self) -> str:
         """Neu konfigurieren ohne Zugangsdaten im Add-on (neu installiert, zuvor abgemeldet): der
@@ -647,6 +806,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             "shift": _value(validation.room_target_ref(self._plant["entity_shift_current"])),
             "min_flow": _value(self._plant["entity_min_flow"]),
             "heat_limit": _value(self._plant["entity_heat_limit"]),
+            "write_entities": "\n".join([
+                f"- {await self._hint(f'role_{field}')}: {self._entity_label(self._plant[field])}"
+                for field in WRITE_ROLE_FIELDS if field in self._plant
+            ]),
             "profile": ", ".join([
                 profile["hersteller"],
                 await self._hint(f"erzeuger_typ_{profile['erzeuger_typ'].lower()}"),
@@ -693,6 +856,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
         try:
             heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
+            if self._entry is not None and not self._reauth and self._snapshot is None:
+                # Stand vor dem ERSTEN Schreiben dieses Laufs (auch nach "Zurueck zur Auswahl").
+                self._snapshot = ReconfigureSnapshot(
+                    dict((await heizungsbruecke.async_get_addon_info()).options),
+                    dict((await cloudflared.async_get_addon_info()).options),
+                    self._entry.data.get("profile_id"),
+                )
             if self._provisioning is None:
                 next_step = await self._obtain_access(heizungsbruecke, cloudflared)
                 if next_step is not None:
@@ -701,7 +871,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             if self._status is None:
                 self._status = StatusListener(self.hass, tenant_id)
             existing = (await heizungsbruecke.async_get_addon_info()).options
-            await heizungsbruecke.async_set_addon_options(self._heizungsbruecke_options(existing))
+            options = self._heizungsbruecke_options(existing)
+            # Vor dem Aufruf: auch ein abgebrochener oder gescheiterter Aufruf kann geschrieben haben.
+            self._written = True
+            await heizungsbruecke.async_set_addon_options(options)
             await cloudflared.async_set_addon_options(self._cloudflared_options())
             failed = await async_set_supervision(
                 self.hass, [heizungsbruecke.addon_slug, cloudflared.addon_slug], enabled=True,
@@ -751,6 +924,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             provisioning = await self._client().provision(token, tenant_id, profile_id)
         except InvalidAuth:
             return self._expire_session()
+        except AccessDenied as error:
+            self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
+            return "setup_failed"
         except ApiError:
             self._setup_error = await self._hint("provisioning_failed")
             return "setup_failed"
@@ -774,10 +950,22 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert token is not None
         assert tenant_id is not None
         assert profile is not None
+        # Vor dem Aufruf (wie _written): auch ein abgebrochener Aufruf oder einer ohne gueltige
+        # Antwort kann das Profil gewechselt haben. Nur eine klare Ablehnung laesst es unveraendert.
+        self._profile_changed = True
         try:
             profile_params = await self._client().update_profile(token, tenant_id, profile["profile_id"])
         except InvalidAuth:
+            self._profile_changed = False
             return self._expire_session()
+        except AccessDenied as error:
+            self._profile_changed = False
+            self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
+            return "setup_failed"
+        except ProfileRejected:
+            self._profile_changed = False
+            self._setup_error = await self._hint("profile_rejected")
+            return "setup_failed"
         except ApiError:
             self._setup_error = await self._hint("profile_update_failed")
             return "setup_failed"
@@ -797,10 +985,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         status = self._status
         assert status is not None  # _run_setup() setzt ihn, bevor dieser Schritt erreichbar ist
         outcome, grund = await status.async_wait(
-            setup_id=self._setup_id, done=frozenset({STATUS_REGELT}),
+            setup_id=self._setup_id, done=frozenset(SETUP_DONE_STATUSES),
             failed=frozenset({STATUS_KONFIGURATIONSFEHLER, STATUS_ZUGANG_ABGELEHNT}), timeout=STATUS_WAIT_SECONDS,
         )
         if outcome == WAIT_DONE:
+            latest = status.latest or {}
+            self._final_status = latest.get("status")
+            self._final_grund = latest.get("grund")
             return "finish"
         if outcome == WAIT_FAILED:
             self._setup_error = grund or ""
@@ -877,6 +1068,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return self.async_show_menu(step_id="setup_timeout", menu_options=["wait_status", "cancel"])
 
     async def async_step_cancel(self, user_input: dict | None = None):
+        await self._async_rollback_then_logout()
         return self.async_abort(reason="setup_cancelled")
 
     def _entry_data(self) -> dict:
@@ -909,27 +1101,38 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             OPTION_NOTIFY_HINTS_OFF: list(self._hints_off),
         }
 
-    def _done_reason(self, reason: str) -> str:
-        return f"{reason}_warning" if self._supervision_failed else reason
+    async def _notes(self) -> str:
+        """Hinweise zum Abschluss: Warnzustand des Add-ons und/oder nicht gesetzter Watchdog."""
+        lines = []
+        if self._final_status not in (None, STATUS_REGELT):
+            lines.append(await self._hint(f"done_status_{self._final_status}", grund=self._final_grund or "-"))
+        if self._supervision_failed:
+            lines.append(await self._hint("done_supervision"))
+        return "\n\n".join(lines)
 
     async def async_step_finish(self, user_input: dict | None = None):
-        await self._logout()
-        entry = self._entry
-        if self._reauth:
-            assert entry is not None  # Reauth setzt self._entry immer (async_step_reauth)
-            return self.async_update_reload_and_abort(entry, reason=self._done_reason("reauth_successful"))
-        if entry is not None:
-            # Nach dem provision()-Rueckfall (Add-on ohne Zugangsdaten) nicht "gleich geblieben" melden.
-            reason = "reconfigure_successful_new_credentials" if self._new_credentials else "reconfigure_successful"
-            return self.async_update_reload_and_abort(
-                entry, data=self._entry_data(), options=self._entry_options(),
-                reason=self._done_reason(reason),
-            )
+        self._finished = True
         tenant_id = self._tenant_id
-        assert tenant_id is not None  # Ersteinrichtung: async_step_tenant() setzt ihn vorher
+        assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
+        # Die Rueckbau-Meldung eines frueher abgebrochenen Laufs ist mit diesem Abschluss erledigt.
+        persistent_notification.async_dismiss(self.hass, setup_notification_id(tenant_id))
+        await self._logout()
+        notes = await self._notes()
+        entry = self._entry
+        if entry is not None:
+            if self._reauth:
+                reason = "reauth_successful"
+            else:
+                # Nach dem provision()-Rueckfall (Add-on ohne Zugangsdaten) nicht "gleich geblieben" melden.
+                reason = "reconfigure_successful_new_credentials" if self._new_credentials else "reconfigure_successful"
+                self.hass.config_entries.async_update_entry(entry, data=self._entry_data(), options=self._entry_options())
+            # Wie async_update_reload_and_abort, aber mit Platzhaltern fuer die Hinweise.
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
+            return self.async_abort(reason=reason, description_placeholders={"notes": f"\n\n{notes}" if notes else ""})
         return self.async_create_entry(
             title=tenant_id, data=self._entry_data(), options=self._entry_options(),
-            description="supervision_warning" if self._supervision_failed else None,
+            description="setup_notes" if notes else None,
+            description_placeholders={"notes": notes} if notes else None,
         )
 
 

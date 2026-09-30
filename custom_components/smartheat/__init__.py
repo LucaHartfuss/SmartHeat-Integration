@@ -5,10 +5,11 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
-from . import addon_control
-from .const import DATA_INCOMPLETE, DOMAIN, repair_issue_id
+from . import addon_control, binary_sensor, sensor
+from .const import DOMAIN, entry_incomplete, repair_issue_id
 from .coordinator import SmartHeatCoordinator
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
@@ -18,7 +19,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SmartHeatCoordinator(hass, entry)
     entry.runtime_data = coordinator
     coordinator.async_start()
-    if entry.data.get(DATA_INCOMPLETE):
+    if entry_incomplete(entry.data):
         # Die Entities entstehen trotzdem, damit der Status (Konfiguration veraltet) sichtbar ist.
         ir.async_create_issue(
             hass, DOMAIN, repair_issue_id(entry.entry_id), is_fixable=False, severity=ir.IssueSeverity.WARNING,
@@ -26,26 +27,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     else:
         ir.async_delete_issue(hass, DOMAIN, repair_issue_id(entry.entry_id))
+    _remove_orphaned_entities(hass, entry, coordinator.tenant_id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
+def _remove_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry, tenant_id: str) -> None:
+    """B-TP11-4: Registry-Eintraege dieses Eintrags ohne aktuelle Entity (z. B. offset aus 0.7.x)."""
+    wanted = {f"{tenant_id}_{key}" for key in (*sensor.ENTITY_KEYS, *binary_sensor.ENTITY_KEYS)}
+    registry = er.async_get(hass)
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if registry_entry.platform == DOMAIN and registry_entry.unique_id not in wanted:
+            registry.async_remove(registry_entry.entity_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """v1 -> v2 (Spec TP7 2.1): Anlagenwerte in data, Optionen in options. Ein v1-Eintrag hat nur
-    tenant_id/profile_id (client1) und wird als unvollstaendig markiert; der Reparaturhinweis
-    fuehrt zu "Neu konfigurieren"."""
-    if entry.version > 2:
-        return False
-    if entry.version == 1:
-        data = {"tenant_id": entry.data["tenant_id"], DATA_INCOMPLETE: True}
-        if entry.data.get("profile_id"):
-            data["profile_id"] = entry.data["profile_id"]
-        hass.config_entries.async_update_entry(entry, data=data, options={}, version=2)
-    return True
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

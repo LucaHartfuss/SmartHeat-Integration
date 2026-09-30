@@ -64,10 +64,12 @@
       },
       "summary": {
         "title": "Summary",
-        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\nHeating curve: {curve}\nParallel shift: {shift} °C\nMinimum flow temperature: {min_flow} °C\nHeating limit: {heat_limit} °C\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
+        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\nHeating curve: {curve}\nParallel shift: {shift} °C\nMinimum flow temperature: {min_flow} °C\nHeating limit: {heat_limit} °C\n\nSmartHeat writes to:\n{write_entities}\n\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "I checked the sources without an update for more than 6 hours",
-          "confirm_deviation": "I checked the room sensors deviating by more than 3 K"
+          "confirm_deviation": "I checked the room sensors deviating by more than 3 K",
+          "confirm_write_role_unmatched": "I checked that these entities belong to the chosen heating circuit",
+          "confirm_poll_interval": "I checked the heating integration's update interval"
         }
       },
       "setup_failed": {
@@ -86,11 +88,14 @@
     },
     "error": {
       "invalid_auth": "Invalid email or password",
+      "invalid_response": "The SmartHeat server sent an unreadable answer. Please try again later.",
       "cannot_connect": "Could not reach the SmartHeat service",
       "no_tenants": "Subscribe on our website to get access to our heating control server.",
       "profile_combination_unsupported": "This combination is not supported yet",
       "unit_mismatch": "Wrong unit, °C is required",
       "entity_not_found": "This entity does not exist",
+      "entity_wrong_integration": "This entity does not belong to the chosen heating integration",
+      "entity_wrong_installation": "This entity belongs to another installation of the heating integration",
       "entity_unavailable": "This entity currently has no value",
       "not_numeric": "This entity does not provide a number",
       "out_of_range": "The value is outside the physically plausible range",
@@ -106,8 +111,11 @@
       "state_class_expected_total_increasing": "Expected state class 'total_increasing'. Counters with 'total' cannot be used."
     },
     "abort": {
+      "access_denied": "The SmartHeat server denied access: {grund}",
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",
       "already_configured": "This installation is already set up. To change it, open the SmartHeat entry and choose ⋮ → Reconfigure.",
+      "single_instance_allowed": "SmartHeat is already set up in this Home Assistant. To change it, open the SmartHeat entry and choose ⋮ → “Reconfigure”.",
+      "catalog_outdated": "The SmartHeat server is older than this integration (catalog v2 required). Please update the server first or contact support.",
       "no_verified_profiles": "No verified profile is currently available for your heating system. Please try again later or contact support.",
       "addon_missing": "The add-on {addon} is not installed. Install it from the SmartHeat add-on repository, then start the setup again.",
       "addon_ambiguous": "The add-on {addon} is installed more than once. Remove the duplicate installation, then start the setup again.",
@@ -118,15 +126,12 @@
       "setup_cancelled": "Setup cancelled.",
       "wrong_account": "This account does not include the installation of this entry.",
       "reconfigure_first": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure.",
-      "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.",
-      "reconfigure_successful_warning": "SmartHeat was reconfigured. The watchdog of the add-ons could not be switched on, please check the log.",
-      "reconfigure_successful_new_credentials": "SmartHeat was reconfigured. New access credentials were issued, because the add-ons had no complete ones.",
-      "reconfigure_successful_new_credentials_warning": "SmartHeat was reconfigured with new access credentials. The watchdog of the add-ons could not be switched on, please check the log.",
-      "reauth_successful": "SmartHeat is signed in again.",
-      "reauth_successful_warning": "SmartHeat is signed in again. The watchdog of the add-ons could not be switched on, please check the log."
+      "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.{notes}",
+      "reconfigure_successful_new_credentials": "SmartHeat was reconfigured. New access credentials were issued, because the add-ons had no complete ones.{notes}",
+      "reauth_successful": "SmartHeat is signed in again.{notes}"
     },
     "create_entry": {
-      "supervision_warning": "SmartHeat is set up. The watchdog of the add-ons could not be switched on, please check the log."
+      "setup_notes": "SmartHeat is set up.\n\n{notes}"
     }
   },
   "options": {
@@ -151,7 +156,7 @@
           "confirm_deviation": "I checked the room sensors deviating by more than 3 K"
         }
       },
-      "failed": {"title": "Not applied", "description": "{grund}\n\nSubmit to go back to the options."},
+      "failed": {"title": "Not applied", "description": "{grund}\n\n{restore}\n\nSubmit to go back to the options."},
       "timeout": {
         "title": "No response from the add-on",
         "description": "The Heizungsbruecke add-on did not report within 3 minutes. The options are saved anyway; its status is shown at the SmartHeat device."
@@ -211,10 +216,17 @@
   "issues": {
     "complete_setup": {
       "title": "SmartHeat: complete the setup for {tenant}",
-      "description": "After the update the setup of {tenant} is incomplete. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
+      "description": "The setup of {tenant} is incomplete or comes from an older version. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
     }
   },
   "common": {
+    "done_status_datenfehler": "The add-on reports a data error ({grund}). SmartHeat regulates as soon as the values are valid again; details on the SmartHeat device.",
+    "done_status_notbetrieb": "The add-on cannot reach the SmartHeat server right now and runs in emergency mode. It reconnects on its own; the status is shown on the SmartHeat device.",
+    "done_status_abo_inaktiv": "Your subscription is currently inactive. SmartHeat resumes as soon as it is active.",
+    "done_status_abo_beendet": "Your subscription has ended. The system keeps its base values until the subscription is renewed.",
+    "done_supervision": "The add-on watchdog could not be enabled, please check the log.",
+    "access_denied": "The SmartHeat server denied access: {grund}",
+    "profile_rejected": "The SmartHeat server rejected the chosen heating profile. Please choose another combination or contact support.",
     "role_entity_curve_current": "Heating curve",
     "role_entity_shift_current": "Parallel shift",
     "role_entity_min_flow": "Minimum flow temperature",
@@ -226,6 +238,8 @@
     "origin_none": "{role}: not detected, please choose",
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
+    "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
+    "warning_poll_interval": "The heating integration only polls its values every {entities}. SmartHeat may then not see its own changes in time and treat them as a manual change. Please set the heating integration's update interval to 30 minutes or less.",
     "none": "none",
     "notifications_phones": "SmartHeat notifies the selected phones when the control stops, a room sensor fails or a battery runs low.",
     "notifications_no_phones": "No Home Assistant companion app was found, so SmartHeat can only show its important messages (e.g. when the control stops) as notifications in Home Assistant. Install the companion app on a phone to also receive push messages, e.g. about a failed room sensor or a low battery.",
@@ -242,6 +256,21 @@
     "setup_unexpected": "Unexpected error during setup, see the Home Assistant log.",
     "new_credentials": "New access credentials will be issued.",
     "profile_update_failed": "The SmartHeat server could not change the heating profile. Please try again later.",
-    "options_addon_failed": "The Heizungsbruecke add-on could not be updated. Please check the Supervisor and try again."
+    "options_addon_failed": "The Heizungsbruecke add-on could not be updated. Please check the Supervisor and try again.",
+    "options_restored": "The previous Heizungsbrücke settings have been restored.",
+    "options_restore_failed": "The previous Heizungsbrücke settings could not be restored. Please save the options again.",
+    "removal_incomplete": "SmartHeat was removed, but not every step succeeded:",
+    "rollback_first_setup": "The SmartHeat setup was cancelled. The add-ons were stopped and the issued credentials revoked.",
+    "rollback_reconfigure": "“Reconfigure” was cancelled. The previous add-on settings and heating profile have been restored.",
+    "rollback_first_setup_incomplete": "The SmartHeat setup was cancelled, but not every step of the rollback succeeded:",
+    "rollback_reconfigure_incomplete": "“Reconfigure” was cancelled, but not every step of the restore succeeded:",
+    "open_step_supervisor": "The Supervisor was unreachable. Please stop the add-ons Heizungsbrücke and Cloudflared Access TCP-Bridge manually under Settings → Add-ons.",
+    "open_step_foreign_tenant": "The add-ons belong to another SmartHeat installation and were left untouched.",
+    "open_step_no_sign_off": "Heizungsbrücke did not confirm the sign-off and was stopped anyway. Please check heating curve and zone in the manufacturer's app: boost values (curve 1.5, shift 25) may have been left in place.",
+    "open_step_stop": "An add-on could not be stopped. Please stop it manually under Settings → Add-ons.",
+    "open_step_revoke": "The credentials could not be revoked on the SmartHeat server. They will be replaced at the next setup.",
+    "open_step_clear": "The credentials could not be removed from the add-on options. Please uninstall the add-ons if SmartHeat is no longer used.",
+    "open_step_profile": "The previous heating profile could not be restored on the SmartHeat server. Please run “Reconfigure” again.",
+    "open_step_addons": "The previous add-on settings could not be restored. Please run “Reconfigure” again."
   }
 }

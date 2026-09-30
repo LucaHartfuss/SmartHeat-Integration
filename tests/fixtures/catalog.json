@@ -1,5 +1,5 @@
 {
-  "catalog_version": 1,
+  "catalog_version": 2,
   "profiles": [
     {
       "profile_id": "weishaupt_waermepumpe_fussbodenheizung",
@@ -44,7 +44,8 @@
         },
         "shift_current": {
           "entity_domain": "climate",
-          "unique_id_suffix": "_zone_{circuit}_climate"
+          "unique_id_suffix": "_zone_{index}_climate",
+          "circuit_in_name": "(Circuit {circuit})"
         },
         "min_flow": {
           "entity_domain": "number",
@@ -114,7 +115,12 @@
           "model_contains": "ecoCOMPACT",
           "erzeuger_typ": "Gastherme"
         }
-      ]
+      ],
+      "poll_interval_option": {
+        "key": "update_interval",
+        "unit": "s",
+        "default": 1800
+      }
     }
   ]
 }

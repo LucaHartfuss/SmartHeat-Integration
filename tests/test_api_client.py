@@ -1,3 +1,4 @@
+import asyncio
 import base64
 
 import aiohttp
@@ -5,9 +6,13 @@ import pytest
 from aiohttp import web
 
 from custom_components.smartheat.api_client import (
+    AccessDenied,
     ApiError,
+    CannotConnect,
     HeizungsserverClient,
     InvalidAuth,
+    InvalidResponse,
+    ProfileRejected,
 )
 
 # pytest-homeassistant-custom-component blockt echte Sockets standardmaessig
@@ -266,3 +271,97 @@ async def test_delete_installation_returns_none_without_connection():
     finally:
         await session.close()
     assert result is None
+
+
+async def _server(aiohttp_client, method, path, handler):
+    app = web.Application()
+    app.router.add_route(method, path, handler)
+    return HeizungsserverClient(await aiohttp_client(app), "")
+
+
+async def test_login_with_broken_json_is_an_invalid_response(aiohttp_client):
+    async def handler(request):
+        return web.Response(text="kein json", content_type="application/json")
+
+    client = await _server(aiohttp_client, "POST", "/auth/login", handler)
+    with pytest.raises(InvalidResponse):
+        await client.login("a@b.de", "pw")
+
+
+@pytest.mark.parametrize("body", [{"x": 1}, {"token": ""}, {"token": 5}, []])
+async def test_login_without_token_is_an_invalid_response(aiohttp_client, body):
+    async def handler(request):
+        return web.json_response(body)
+
+    client = await _server(aiohttp_client, "POST", "/auth/login", handler)
+    with pytest.raises(InvalidResponse):
+        await client.login("a@b.de", "pw")
+
+
+@pytest.mark.parametrize("body", [{"tenants": []}, [{"x": 1}], [{"tenant_id": 5}]])
+async def test_tenant_list_with_the_wrong_shape_is_an_invalid_response(aiohttp_client, body):
+    async def handler(request):
+        return web.json_response(body)
+
+    client = await _server(aiohttp_client, "GET", "/accounts/me/tenants", handler)
+    with pytest.raises(InvalidResponse):
+        await client.list_tenants("tok")
+
+
+async def test_timeout_is_cannot_connect(aiohttp_client, monkeypatch):
+    monkeypatch.setattr("custom_components.smartheat.api_client.REQUEST_TIMEOUT_SECONDS", 0.05)
+
+    async def handler(request):
+        await asyncio.sleep(1)
+        return web.json_response({"token": "t"})
+
+    client = await _server(aiohttp_client, "POST", "/auth/login", handler)
+    with pytest.raises(CannotConnect):
+        await client.login("a@b.de", "pw")
+
+
+async def test_403_carries_the_server_text(aiohttp_client):
+    text = "Diese Anlage ist derzeit nicht aktiv (Abo abgelaufen/pausiert)"
+
+    async def handler(request):
+        return web.json_response({"error": text}, status=403)
+
+    client = await _server(aiohttp_client, "POST", "/tenants/t1/provision", handler)
+    with pytest.raises(AccessDenied) as caught:
+        await client.provision("tok", "t1", "p")
+    assert caught.value.reason == text
+
+
+async def test_403_reason_is_shortened_and_may_be_empty(aiohttp_client):
+    async def long_handler(request):
+        return web.json_response({"error": "x" * 500}, status=403)
+
+    async def plain_handler(request):
+        return web.Response(text="nope", status=403)
+
+    with pytest.raises(AccessDenied) as caught:
+        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", long_handler)).provision("tok", "t1", "p")
+    assert len(caught.value.reason) == 200
+    with pytest.raises(AccessDenied) as caught:
+        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", plain_handler)).provision("tok", "t1", "p")
+    assert caught.value.reason == ""
+
+
+async def test_400_on_profile_change_is_profile_rejected(aiohttp_client):
+    async def handler(request):
+        return web.json_response({"error": "Profil unbekannt"}, status=400)
+
+    client = await _server(aiohttp_client, "POST", "/tenants/t1/profile", handler)
+    with pytest.raises(ProfileRejected):
+        await client.update_profile("tok", "t1", "p")
+
+
+async def test_rejections_are_logged_without_secrets(aiohttp_client, caplog):
+    async def handler(request):
+        return web.json_response({"error": "kaputt"}, status=500)
+
+    client = await _server(aiohttp_client, "POST", "/tenants/t1/provision", handler)
+    with pytest.raises(ApiError):
+        await client.provision("geheimes-token-123", "t1", "p")
+    assert "HTTP 500" in caplog.text and "kaputt" in caplog.text
+    assert "geheimes-token-123" not in caplog.text

@@ -1,8 +1,11 @@
 """Config-Flow 2.0 (Spec TP6, Tests laut Spec 6)."""
+import asyncio
+import copy
 import json
 import logging
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
@@ -10,19 +13,22 @@ from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.api_client import ApiError, CannotConnect, InvalidAuth
+from custom_components.smartheat import setup_rollback
+from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
     AmbiguousAddonMatchError,
 )
+from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import status_event
 from .flow_helpers import (
     CATALOG,
     CF_SECRET,
     CURVE,
+    FLOW,
     FLOW_SETPOINT,
     HEAT_LIMIT,
     MIN_FLOW,
@@ -30,12 +36,14 @@ from .flow_helpers import (
     OUTDOOR,
     PLANT_INPUT,
     PROFILE_PARAMS,
+    PROVISIONING,
     ROOMS_INPUT,
     SYSTEM_INPUT,
     TENANT,
     ZONE,
     configure,
     enable_supervisor,
+    fail_addon_reads_after,
     fast_status_wait,
     finish_progress,
     has_default,
@@ -51,6 +59,9 @@ from .flow_helpers import (
     start,
     suggested,
 )
+
+# Die abweichende Heizkurve dieses Tests loest die Warnung "nicht als Teil des Kreises erkannt" aus.
+CONFIRM_UNMATCHED = {"confirm_write_role_unmatched": True}
 
 
 async def _reach(hass, monkeypatch, step: str, *, phones=("mobile_app_pixel",), **server):
@@ -159,9 +170,9 @@ async def test_already_configured_tenant_aborts(hass, monkeypatch):
     mock_server(monkeypatch)
     setup_mypyllant(hass)
 
-    result = await login(hass, await start(hass))
+    result = await start(hass)
 
-    assert (result["type"], result["reason"]) == ("abort", "already_configured")
+    assert (result["type"], result["reason"]) == ("abort", "single_instance_allowed")
 
 
 # --- C: Heizungs-Integration ---
@@ -763,6 +774,11 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     vor, nicht erneut mit der Erkennung. Durchklicken schreibt die Korrekturen, nicht die Erkennung."""
     result, _ = await _reach(hass, monkeypatch, "plant_values", phones=("mobile_app_pixel", "mobile_app_iphone"))
     hass.states.async_set("sensor.aussen", "5.0", {"unit_of_measurement": "°C"})
+    # Schreibrollen muessen zur Heizungs-Integration des Kreises gehoeren (TP12c).
+    er.async_get(hass).async_get_or_create(
+        "number", "mypyllant", "andere_kurve", config_entry=hass.config_entries.async_entries("mypyllant")[0],
+        suggested_object_id="andere_kurve",
+    )
     hass.states.async_set("number.andere_kurve", "1.3")
     hass.states.async_set("sensor.gas", "123", {"state_class": "total_increasing"})
     corrected = {
@@ -772,7 +788,7 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     result = await configure(hass, result, corrected)
     result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
     mock_addons(hass, monkeypatch, status="konfigurationsfehler", grund="x")
-    result = await finish_progress(hass, await configure(hass, result, {}))
+    result = await finish_progress(hass, await configure(hass, result, CONFIRM_UNMATCHED))
     assert result["step_id"] == "setup_failed"
 
     result = await configure(hass, result, {"next_step_id": "rooms"})
@@ -791,7 +807,7 @@ async def test_back_after_a_failure_keeps_the_corrected_plant_values_and_phones(
     assert suggested(result, "notify_services") == ["notify.mobile_app_pixel"]
     result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
     calls = mock_addons(hass, monkeypatch, status="regelt")
-    result = await finish_progress(hass, await configure(hass, result, {}))
+    result = await finish_progress(hass, await configure(hass, result, CONFIRM_UNMATCHED))
 
     assert result["type"] == "create_entry"
     options = calls.options["heizungsbruecke"]
@@ -882,13 +898,211 @@ async def test_outdated_addon_found_again_at_setup(hass, monkeypatch):
     assert "0.18.0" in result["description_placeholders"]["grund"]
 
 
-async def test_cancel_after_a_failure(hass, monkeypatch):
-    result, _, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+# --- Rueckbau und Logout bei Abbruch (TP12c 3.2, 3.5; AU-020, AU-036) ---
+
+async def test_cancel_after_a_failure_rolls_back_and_logs_out(hass, monkeypatch, rollback):
+    result, mocks, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
     result = await finish_progress(hass, result)
 
     result = await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
 
     assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_cancel_after_a_timeout_rolls_back(hass, monkeypatch, rollback):
+    result, _, _ = await _to_setup(hass, monkeypatch, status=None)
+    result = await finish_progress(hass, result)
+    assert result["step_id"] == "setup_timeout"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once()
+
+
+async def test_closing_the_dialog_after_a_timeout_rolls_back(hass, monkeypatch, rollback):
+    result, mocks, _ = await _to_setup(hass, monkeypatch, status=None)
+    result = await finish_progress(hass, result)
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+    mocks.logout.assert_awaited_once()
+
+
+async def test_closing_the_dialog_during_setup_rolls_back_once(hass, monkeypatch, rollback):
+    """Review Focus 1: Abbruch mitten im Fortschritts-Task (Optionen schon geschrieben)."""
+    result, _, calls = await _to_setup(hass, monkeypatch, status=None)
+    # Der Task ist noch nicht gestartet (eager_start=False) und liest das Zeitlimit erst beim Warten.
+    fast_status_wait(monkeypatch, 30)
+    await asyncio.sleep(0.05)   # Task schreibt die Optionen und wartet auf das Status-Event
+    assert result["type"] == "progress"
+    assert "heizungsbruecke" in calls.options
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+
+
+async def test_failed_write_is_rolled_back_on_cancel(hass, monkeypatch, rollback):
+    """_written steht vor dem Schreiben: auch ein gescheiterter Aufruf kann geschrieben haben."""
+    result, _, calls = await _to_setup(hass, monkeypatch, set_error=AddonError("abgelehnt"))
+    result = await finish_progress(hass, result)
+    assert result["step_id"] == "setup_failed"
+    assert calls.options == {}
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+
+
+async def test_unexpected_rollback_error_still_cancels_and_logs_out(hass, monkeypatch, rollback, caplog):
+    result, mocks, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+    result = await finish_progress(hass, result)
+    rollback.first.side_effect = RuntimeError("kaputt geheim-pw-4711")
+
+    result = await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
+    mocks.logout.assert_awaited_once_with("tok123")
+    assert "RuntimeError" in caplog.text
+    assert "geheim-pw-4711" not in caplog.text
+
+
+async def test_finished_setup_is_not_rolled_back(hass, monkeypatch, rollback):
+    result, _, _ = await _to_setup(hass, monkeypatch)
+    result = await finish_progress(hass, result)
+    await hass.async_block_till_done()
+
+    assert result["type"] == "create_entry"
+    rollback.first.assert_not_awaited()
+
+
+async def test_cancel_after_provision_without_writing_revokes_only_on_the_server(hass, monkeypatch, rollback):
+    """F4 (finale Review): provision() lief, die Add-ons wurden nicht beschrieben. Echter Rueckbau:
+    nur die neuen Zugangsdaten widerrufen, kein Abmelden, kein Schreiben, kein Neustart."""
+    monkeypatch.setattr(f"{FLOW}.async_rollback_first_setup", setup_rollback.async_rollback_first_setup)
+    monkeypatch.setattr(f"{FLOW}.async_rollback_server_only", setup_rollback.async_rollback_server_only)
+    sign_off = AsyncMock(return_value=[])
+    monkeypatch.setattr("custom_components.smartheat.setup_rollback.async_sign_off", sign_off)
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    calls = mock_addons(hass, monkeypatch)
+    fail_addon_reads_after(monkeypatch, mocks.provision)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    result = await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
+    mocks.delete_installation.assert_awaited_once_with(TENANT, PROVISIONING["username"], MQTT_PASSWORD)
+    sign_off.assert_not_awaited()
+    assert (calls.options, calls.restarts, calls.supervision) == ({}, [], [])
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_closing_the_dialog_after_provision_without_writing_rolls_back_once(hass, monkeypatch, rollback):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    fail_addon_reads_after(monkeypatch, mocks.provision)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.server_only.assert_awaited_once()
+    kwargs = rollback.server_only.await_args.kwargs
+    assert (kwargs["first_setup"], kwargs["new_credentials"], kwargs["previous_profile_id"]) == (
+        True, (PROVISIONING["username"], MQTT_PASSWORD), None,
+    )
+    rollback.first.assert_not_awaited()
+    mocks.logout.assert_awaited_once()
+
+
+async def test_finish_dismisses_a_leftover_rollback_notification(hass, monkeypatch):
+    """F5: die Meldung eines frueher abgebrochenen Laufs ist mit dem Abschluss erledigt."""
+    dismissed = []
+    monkeypatch.setattr(
+        "homeassistant.components.persistent_notification.async_dismiss",
+        lambda hass, notification_id: dismissed.append(notification_id),
+    )
+    result, _, _ = await _to_setup(hass, monkeypatch)
+
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    assert "smartheat_wohnung1_setup" in dismissed
+
+
+async def test_abort_before_writing_is_not_rolled_back_but_logs_out(hass, monkeypatch, rollback):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)   # keine Heizungs-Integration -> no_supported_integration
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "no_supported_integration"
+    mocks.logout.assert_awaited_once_with("tok123")
+    rollback.first.assert_not_awaited()
+
+
+async def test_no_heating_circuit_logs_out(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    setup_mypyllant(hass, circuits=())
+
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "no_heating_circuit"
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_no_verified_profiles_logs_out(hass, monkeypatch):
+    catalog = {**CATALOG, "profiles": [p for p in CATALOG["profiles"] if p["hersteller"] != "Vaillant"]}
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
+
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "no_verified_profiles"
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+@pytest.mark.parametrize("version", [1, None])
+async def test_outdated_catalog_aborts_and_logs_out(hass, monkeypatch, version):
+    """0.9.0 setzt Katalog v2 voraus: ein aelterer Server faellt nicht still auf die alte Zonensuche zurueck."""
+    catalog = {key: value for key, value in CATALOG.items() if key != "catalog_version"}
+    if version is not None:
+        catalog["catalog_version"] = version
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
+
+    result = await login(hass, await start(hass))
+
+    assert (result["type"], result["reason"]) == ("abort", "catalog_outdated")
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_tenant_configured_meanwhile_aborts_and_logs_out(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, tenants=("wohnung1", "wohnung2"))
+    setup_mypyllant(hass)
+    result = await login(hass, await start(hass))
+    assert result["step_id"] == "tenant"
+    # Ein zweiter Flow hat den Tenant inzwischen eingerichtet.
+    MockConfigEntry(domain=DOMAIN, unique_id="wohnung2", data={"tenant_id": "wohnung2"}, version=2).add_to_hass(hass)
+
+    result = await configure(hass, result, {"tenant_id": "wohnung2"})
+
+    assert (result["type"], result["reason"]) == ("abort", "already_configured")
+    mocks.logout.assert_awaited_once_with("tok123")
 
 
 # --- J: Eintraege und Texte ---
@@ -897,9 +1111,37 @@ async def test_created_entry_blocks_a_second_flow_for_the_tenant(hass, monkeypat
     result, _, _ = await _to_setup(hass, monkeypatch)
     await finish_progress(hass, result)
 
-    second = await login(hass, await start(hass))
+    second = await start(hass)
 
-    assert (second["type"], second["reason"]) == ("abort", "already_configured")
+    assert (second["type"], second["reason"]) == ("abort", "single_instance_allowed")
+
+
+async def test_invalid_login_response_is_a_clear_error(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    mocks.login.side_effect = InvalidResponse("kaputt")
+    result = await login(hass, await start(hass))
+    assert result["errors"] == {"base": "invalid_response"}
+
+
+async def test_access_denied_at_provision_shows_the_server_text(hass, monkeypatch):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mocks.provision.side_effect = AccessDenied("Diese Anlage ist derzeit nicht aktiv (Abo abgelaufen/pausiert)")
+    mock_addons(hass, monkeypatch)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+    assert "Abo abgelaufen" in result["description_placeholders"]["grund"]
+
+
+async def test_access_denied_for_the_catalog_aborts_with_the_text(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    mocks.get_catalog.side_effect = AccessDenied("Tenant gehoert nicht zu diesem Account")
+    setup_mypyllant(hass)
+    result = await login(hass, await start(hass))
+    assert (result["type"], result["reason"]) == ("abort", "access_denied")
+    assert result["description_placeholders"]["grund"] == "Tenant gehoert nicht zu diesem Account"
+    mocks.logout.assert_awaited_once()
 
 
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
@@ -908,13 +1150,13 @@ _EXPECTED_ERRORS = {
     "entity_not_found", "entity_unavailable", "not_numeric", "out_of_range", "duplicate_entity",
     "room_sensors_required", "advanced_invalid", "warnings_not_confirmed", "session_expired", "unknown",
     "state_class_expected_measurement", "state_class_expected_total_increasing", "zone_is_room_target",
+    "invalid_response", "entity_wrong_integration", "entity_wrong_installation",
 }
 _EXPECTED_ABORTS = {
-    "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",
+    "not_supervisor", "already_configured", "single_instance_allowed", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
-    "wrong_account", "reconfigure_first", "reconfigure_successful", "reconfigure_successful_warning",
-    "reconfigure_successful_new_credentials", "reconfigure_successful_new_credentials_warning",
-    "reauth_successful", "reauth_successful_warning",
+    "wrong_account", "reconfigure_first", "reconfigure_successful",
+    "reconfigure_successful_new_credentials", "reauth_successful", "access_denied", "catalog_outdated",
 }
 
 
@@ -927,7 +1169,7 @@ def test_every_error_and_abort_has_a_text(path):
     assert {"user", "tenant", "heating", "system", "rooms", "plant_values", "notifications", "summary",
             "setup_failed", "setup_timeout"} <= set(config["step"])
     assert "setup" in config["progress"]
-    assert "supervision_warning" in config["create_entry"]
+    assert "setup_notes" in config["create_entry"]
 
 
 def test_strings_json_equals_the_english_translation():
@@ -970,13 +1212,33 @@ async def test_zugang_abgelehnt_is_a_setup_failure_with_reason(hass, monkeypatch
     )
 
 
+@pytest.mark.parametrize("status", ["datenfehler", "notbetrieb", "abo_inaktiv", "abo_beendet"])
+async def test_setup_is_done_with_a_warning_state(hass, monkeypatch, status):
+    result, _, _ = await _to_setup(hass, monkeypatch, status=status, grund="Außenfühler liefert keine Werte")
+
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    assert result["description"] == "setup_notes"
+    assert result["description_placeholders"]["notes"] == await async_hint(
+        hass, f"done_status_{status}", grund="Außenfühler liefert keine Werte",
+    )
+
+
+async def test_regelt_has_no_notes(hass, monkeypatch):
+    result, _, _ = await _to_setup(hass, monkeypatch)
+    result = await finish_progress(hass, result)
+    assert result["description"] is None
+
+
 async def test_failed_watchdog_setting_is_only_a_warning(hass, monkeypatch, caplog):
     result, _, _ = await _to_setup(hass, monkeypatch, supervision_error=SupervisorError("weg"))
 
     result = await finish_progress(hass, result)
 
     assert result["type"] == "create_entry"
-    assert result["description"] == "supervision_warning"
+    assert result["description"] == "setup_notes"
+    assert await async_hint(hass, "done_supervision") in result["description_placeholders"]["notes"]
     assert "Watchdog/Boot" in caplog.text
 
 
@@ -986,8 +1248,202 @@ async def test_already_configured_abort_points_to_reconfigure(hass, monkeypatch)
     mock_server(monkeypatch)
     setup_mypyllant(hass)
 
-    result = await login(hass, await start(hass))
+    result = await start(hass)
 
-    assert result["reason"] == "already_configured"
-    text = json.loads((_COMPONENT / "translations/de.json").read_text())["config"]["abort"]["already_configured"]
+    assert result["reason"] == "single_instance_allowed"
+    text = json.loads((_COMPONENT / "translations/de.json").read_text())["config"]["abort"]["single_instance_allowed"]
     assert "Neu konfigurieren" in text
+
+
+# --- Schreibrollen gebunden (TP12c, AU-003, AU-019) ---
+
+async def test_write_role_from_another_integration_is_rejected(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    other = MockConfigEntry(domain="shelly")
+    other.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create("number", "shelly", "x1", config_entry=other, suggested_object_id="fremd")
+    hass.states.async_set("number.fremd", "1.2")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.fremd"})
+
+    assert result["errors"]["entity_curve_current"] == "entity_wrong_integration"
+
+
+async def test_write_role_without_registry_entry_is_rejected(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set("number.yaml_kurve", "1.2")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.yaml_kurve"})
+
+    assert result["errors"]["entity_curve_current"] == "entity_wrong_integration"
+
+
+async def test_write_role_from_another_installation_is_rejected(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    second = MockConfigEntry(domain="mypyllant", title="Nachbar")
+    second.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create(
+        "number", "mypyllant", "mypyllant N_circuit_0_heating_curve", config_entry=second, suggested_object_id="nachbar_kurve",
+    )
+    hass.states.async_set("number.nachbar_kurve", "1.2")
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.nachbar_kurve"})
+
+    assert result["errors"]["entity_curve_current"] == "entity_wrong_installation"
+
+
+async def test_outdoor_temperature_stays_free(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set("sensor.aussen_fremd", "7", {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_outdoor_temp": "sensor.aussen_fremd"})
+
+    assert result["step_id"] == "notifications"
+
+
+async def test_plant_selectors_filter_write_roles_by_integration(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    schema = result["data_schema"].schema
+
+    for field in ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit"):
+        assert all(entry.get("integration") == "mypyllant" for entry in schema[marker(result, field)].config["filter"])
+    assert all("integration" not in entry for entry in schema[marker(result, "entity_outdoor_temp")].config["filter"])
+
+
+async def test_write_role_of_another_circuit_needs_confirmation(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass, circuits=("0", "1"))
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    circuit_0 = next(v for v in select_values(result, "circuit") if v.endswith("|0"))
+    result = await configure(hass, result, {**SYSTEM_INPUT, "circuit": circuit_0})
+    result = await configure(hass, result, ROOMS_INPUT)
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_curve_current": "number.zuhause_circuit_1_heating_curve"})
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert "number.zuhause_circuit_1_heating_curve" in result["description_placeholders"]["warnings"]
+    assert "confirm_write_role_unmatched" in [str(key) for key in result["data_schema"].schema]
+
+
+async def test_summary_names_the_written_entities(hass, monkeypatch):
+    result, _ = await _reach(hass, monkeypatch, "summary")
+
+    text = result["description_placeholders"]["write_entities"]
+    for entity in (CURVE, ZONE, MIN_FLOW, HEAT_LIMIT):
+        assert entity in text
+
+
+
+async def test_write_role_without_detection_needs_confirmation(hass, monkeypatch):
+    """Spec 5.1: Zone ohne Erkennung (Name ohne Kreis) -> Warnung, Bestaetigung noetig."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    er.async_get(hass).async_update_entity(ZONE, original_name="Zuhause Zone 1 Climate")
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert suggested(result, "entity_shift_current") is None
+    result = await configure(hass, result, PLANT_INPUT)
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert ZONE in result["description_placeholders"]["warnings"]
+    assert "confirm_write_role_unmatched" in [str(key) for key in result["data_schema"].schema]
+
+
+async def test_optional_flow_setpoint_without_detection_gives_no_warning(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    entry = setup_mypyllant(hass)
+    er.async_get(hass).async_remove(FLOW_SETPOINT)
+    er.async_get(hass).async_get_or_create(
+        "sensor", "mypyllant", "mypyllant_eigener_vorlauf", config_entry=entry, suggested_object_id="eigener_vorlauf",
+    )
+    hass.states.async_set(
+        "sensor.eigener_vorlauf", "38", {"unit_of_measurement": "°C", "device_class": "temperature"},
+    )
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert suggested(result, "entity_flow_setpoint") is None
+    result = await configure(hass, result, {**PLANT_INPUT, "entity_flow_setpoint": "sensor.eigener_vorlauf"})
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert "confirm_write_role_unmatched" not in [str(key) for key in result["data_schema"].schema]
+
+
+async def _summary_with_mypyllant_options(hass, monkeypatch, options, catalog=CATALOG):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=catalog)
+    mypyllant = setup_mypyllant(hass)
+    hass.config_entries.async_update_entry(mypyllant, options=options)
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    for data in (SYSTEM_INPUT, ROOMS_INPUT, PLANT_INPUT, {"notify_services": ["notify.mobile_app_pixel"]}):
+        result = await configure(hass, result, data)
+    assert result["step_id"] == "summary"
+    return result
+
+
+def _asks_for(result, kind: str) -> bool:
+    return f"confirm_{kind}" in [str(key) for key in result["data_schema"].schema]
+
+
+@pytest.mark.parametrize("options, warned", [({}, False), ({"update_interval": 1800}, False), ({"update_interval": 3600}, True)])
+async def test_poll_interval_warning(hass, monkeypatch, options, warned):
+    result = await _summary_with_mypyllant_options(hass, monkeypatch, options)
+
+    assert _asks_for(result, "poll_interval") is warned
+    if warned:
+        assert "60 min" in result["description_placeholders"]["warnings"]
+
+
+@pytest.mark.parametrize("options", [{"update_interval": "3600"}, {"update_interval": None}, {"update_interval": True}])
+async def test_unreadable_poll_interval_gives_no_warning(hass, monkeypatch, options):
+    """Review Focus 4."""
+    result = await _summary_with_mypyllant_options(hass, monkeypatch, options)
+
+    assert not _asks_for(result, "poll_interval")
+
+
+async def test_missing_circuit_entry_gives_no_poll_interval_warning(hass, monkeypatch):
+    """Review Focus 4: der ConfigEntry des Kreises ist inzwischen weg (z. B. entfernt) -> keine Ausnahme,
+    keine Warnung."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    mypyllant = setup_mypyllant(hass)
+    hass.config_entries.async_update_entry(mypyllant, options={"update_interval": 7200})
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    for data in (SYSTEM_INPUT, ROOMS_INPUT, PLANT_INPUT):
+        result = await configure(hass, result, data)
+    real_get_entry = hass.config_entries.async_get_entry
+    monkeypatch.setattr(
+        hass.config_entries, "async_get_entry",
+        lambda entry_id: None if entry_id == mypyllant.entry_id else real_get_entry(entry_id),
+    )
+
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
+    assert not _asks_for(result, "poll_interval")
+
+
+async def test_catalog_without_poll_interval_option_checks_nothing(hass, monkeypatch):
+    catalog = copy.deepcopy(CATALOG)
+    del catalog["integrations"][0]["poll_interval_option"]
+
+    result = await _summary_with_mypyllant_options(hass, monkeypatch, {"update_interval": 7200}, catalog=catalog)
+
+    assert not _asks_for(result, "poll_interval")
