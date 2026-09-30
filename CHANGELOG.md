@@ -3,6 +3,24 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.9.0
+
+- Wizard-Zuordnung sicher (TP12c): Die Heizzone wird nur noch vorgeschlagen, wenn ihr Name den gewählten
+  Heizkreis nennt; Schreib-Entities (Heizkurve, Zone, Mindestvorlauf, Heizgrenze, Vorlauf-Soll) müssen zur
+  gewählten Heizungs-Integration und Anlage gehören; Abweichungen von der Erkennung und ein
+  Aktualisierungsintervall der Heizungs-Integration über 30 Minuten müssen in der Zusammenfassung
+  bestätigt werden, die die beschriebenen Entities mit Namen zeigt.
+- Pro Home Assistant nur noch ein SmartHeat-Eintrag. Beim Entfernen bleiben Add-ons einer anderen
+  SmartHeat-Anlage unberührt; gescheiterte Schritte erscheinen als Benachrichtigung.
+- Einrichtung gilt auch bei Datenfehler, Notbetrieb oder inaktivem Abo als abgeschlossen (der
+  Abschlusstext nennt den Zustand). Ein Abbruch nach dem Schreiben baut zurück: Ersteinrichtung wie
+  Entfernen, „Neu konfigurieren" stellt die bisherigen Add-on-Einstellungen und das bisherige Profil wieder
+  her. Die Optionen stellen bei Ablehnung durch das Add-on den vorigen Stand wieder her.
+- Klarere Fehlermeldungen bei Serverproblemen (Zeitlimit 30 s, Ablehnungsgrund des Servers).
+- Veraltete Einträge werden allgemein erkannt (Hinweis „Neu konfigurieren"); die alte Entity
+  `sensor.smartheat_<anlage>_offset` wird automatisch entfernt.
+- Voraussetzung: SmartHeat-Server mit Katalog v2 (vor dem Update der Integration aktualisiert).
+
 ## 0.8.0
 
 - Regelkern 2.0 (TP11): Die Rolle „Offset“ (Parallelversatz) entfällt zugunsten von zwei eigenen Rollen —

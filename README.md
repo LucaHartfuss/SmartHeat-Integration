@@ -41,13 +41,22 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
   es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
   ebenfalls (Best Effort — scheitert das, bleiben sie bis zur nächsten Einrichtung gültig).
 
-## Update von 0.7.x oder älter
+## Update auf 0.9.0
 
-Ab 0.8.0/`heizungsbruecke` 0.24.0 ersetzt die Rolle „Parallelverschiebung“ (Zonen-Wunschtemperatur) die
-bisherige Rolle „Offset“; der Sensor `sensor.smartheat_<anlage>_offset` entfällt zugunsten von
+Wizard-Zuordnung sicher (TP12c): Die Heizzone wird jetzt genauer erkannt (Name muss den Heizkreis nennen)
+und die Heizwerte müssen zur gewählten Integration passen; außerdem können entstandene Konfigurationsfehler
+erkannt und automatisch bereinigt werden. **Pro Home Assistant nur noch ein SmartHeat-Eintrag** — bei
+mehreren älteren Einträgen darauf achten, welche Add-ons zu welcher Anlage gehören (Entfernen behält Add-ons
+anderer Einträge). Eine als „Neu konfigurieren” gekennzeichnete Konfiguration wird dabei ohne Anmeldung
+wiederhergestellt.
+
+### Updates von 0.7.x
+
+Ab 0.8.0/`heizungsbruecke` 0.24.0 ersetzt die Rolle „Parallelverschiebung” (Zonen-Wunschtemperatur) die
+bisherige Rolle „Offset”; der Sensor `sensor.smartheat_<anlage>_offset` entfällt zugunsten von
 `sensor.smartheat_<anlage>_parallelverschiebung` und `sensor.smartheat_<anlage>_mindestvorlauf`. Eine
 Konfiguration aus einer älteren Version startet zwar noch, geht aber ohne Schreibzugriff auf die Anlage in
-den Ruhezustand „Konfiguration veraltet“ über. **Nach dem Update: Neu konfigurieren** ausführen und dabei
+den Ruhezustand „Konfiguration veraltet” über. **Nach dem Update: Neu konfigurieren** ausführen und dabei
 die neuen Anlagenwerte-Felder ausfüllen.
 
 ## Änderungen
