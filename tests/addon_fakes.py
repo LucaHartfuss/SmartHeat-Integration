@@ -21,14 +21,16 @@ def _schema_for(slug: str) -> dict | None:
     return next((schema for name, schema in ADDON_SCHEMAS.items() if slug.endswith(name)), None)
 
 
-def check_options(slug: str, config: dict) -> None:
-    """Wie der Supervisor bei set_options: AddonError bei unbekannten Schluesseln, falschen Typen oder (bei
-    einer vollstaendigen Wizard-Schreibung, erkennbar am Anlagen-Mapping) fehlenden Pflichtfeldern.
-    Fixtures mit Teiloptionen pruefen nur Schluessel und Typen."""
+def check_options(slug: str, config: dict, *, require_all: bool = False) -> None:
+    """Wie der Supervisor bei set_options: AddonError bei unbekannten Schluesseln und falschen Typen; mit
+    require_all=True auch bei fehlenden Pflichtfeldern. Wizard-Schreibungen (mock_addons in flow_helpers.py)
+    verlangen require_all=True; nur Fixtures mit Teiloptionen (FakeAddon in Coordinator-/Control-Tests,
+    Rueckbau eines Snapshots) duerfen es weglassen. Der Slug-Abgleich ist tolerant (endswith), damit auch
+    "a_heizungsbruecke" zum Schema "heizungsbruecke" passt; unbekannte Slugs werden nicht geprueft."""
     schema = _schema_for(slug)
     if schema is None:
         return
-    problems = validate(schema, config, require_all="entity_curve_current" in config)
+    problems = validate(schema, config, require_all=require_all)
     if problems:
         raise AddonError("Invalid options: " + "; ".join(problems))
 

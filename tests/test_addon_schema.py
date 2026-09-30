@@ -1,8 +1,11 @@
+from types import SimpleNamespace
+
 import pytest
-from homeassistant.components.hassio import AddonError
+from homeassistant.components.hassio import AddonError, AddonManager
 
 from .addon_fakes import FakeAddon, check_options
 from .addon_schema import validate
+from .flow_helpers import BRIDGE_OPTIONS, CF_OPTIONS, mock_addons
 
 SCHEMA = {
     "name": "str", "secret": "password", "flag": "bool?", "interval": "int(10,600)?", "mode": "list(a|b)?",
@@ -45,8 +48,31 @@ async def test_fake_addon_rejects_options_the_addon_schema_does_not_know():
     assert addon.options == {}
 
 
-def test_full_wizard_write_requires_the_mandatory_options():
+def test_check_options_requires_mandatory_keys_only_on_request():
     with pytest.raises(AddonError, match="Pflichtfeld 'tenant_id' fehlt"):
-        check_options("heizungsbruecke", {"entity_curve_current": "number.x"})
+        check_options("heizungsbruecke", {"entity_curve_current": "number.x"}, require_all=True)
     check_options("heizungsbruecke", {"tenant_id": "t"})  # Teiloptionen: nur Schluessel und Typen
-    check_options("unbekanntes_addon", {"egal": 1})
+    check_options("unbekanntes_addon", {"egal": 1}, require_all=True)
+
+
+def test_cloudflared_write_missing_a_mandatory_key_is_rejected():
+    full = {"hostname": "h", "local_port": 18830, "service_token_id": "i", "service_token_secret": "s"}
+    check_options("cloudflared_access_mqtt", full, require_all=True)
+    with pytest.raises(AddonError, match="Pflichtfeld 'hostname' fehlt"):
+        check_options("a_cloudflared_access_mqtt", {k: v for k, v in full.items() if k != "hostname"}, require_all=True)
+
+
+async def test_wizard_write_path_demands_the_mandatory_options(hass, monkeypatch):
+    """mock_addons (Schreibpfad des Wizards) verlangt auch die Pflichtfelder, fuer beide Add-ons."""
+    mock_addons(hass, monkeypatch)
+    # mock_addons ersetzt AddonManager.async_set_addon_options; das Objekt muss nur addon_slug tragen.
+    bridge = SimpleNamespace(addon_slug="heizungsbruecke")
+    cloudflared = SimpleNamespace(addon_slug="cloudflared_access_mqtt")
+    write = AddonManager.async_set_addon_options
+
+    await write(bridge, BRIDGE_OPTIONS)
+    await write(cloudflared, CF_OPTIONS)
+    with pytest.raises(AddonError, match="Pflichtfeld 'entity_curve_current' fehlt"):
+        await write(bridge, {k: v for k, v in BRIDGE_OPTIONS.items() if k != "entity_curve_current"})
+    with pytest.raises(AddonError, match="Pflichtfeld 'hostname' fehlt"):
+        await write(cloudflared, {k: v for k, v in CF_OPTIONS.items() if k != "hostname"})

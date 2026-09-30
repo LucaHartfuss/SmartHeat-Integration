@@ -47,6 +47,9 @@ PLANT_INPUT = {
 BRIDGE_OPTIONS = {
     "tenant_id": TENANT, "mqtt_username": "wohnung1_alt", "mqtt_password": "alt-geheim",
     "local_check_interval_seconds": 120, "room_sensors": ["sensor.wz_temperatur"],
+    # Pflichtfelder des Add-on-Schemas: die Optionen eines eingerichteten Add-ons sind vollstaendig.
+    "entity_room_target": "climate.wz::temperature", "entity_curve_current": "number.zuhause_circuit_0_heating_curve",
+    "entity_outdoor_temp": "sensor.zuhause_outdoor_temperature", "entity_heat_limit": "number.zuhause_circuit_0_heat_limit",
 }
 CF_OPTIONS = {
     "hostname": "mqtt.example.org", "local_port": 18830, "service_token_id": "cf-id-alt", "service_token_secret": "cf-alt",
@@ -167,7 +170,7 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
     async def set_options(manager, config):
         if set_error is not None:
             raise set_error
-        check_options(manager.addon_slug, config)
+        check_options(manager.addon_slug, config, require_all=True)
         calls.options[manager.addon_slug] = config
         calls.history.append((manager.addon_slug, dict(config)))
 
