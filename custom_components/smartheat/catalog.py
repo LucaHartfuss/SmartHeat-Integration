@@ -7,14 +7,19 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 _LOGGER = logging.getLogger(__name__)
 
 CIRCUIT_PLACEHOLDER = "{circuit}"
-# shift_current bewusst nicht: der Zonen-Index entspricht nicht immer der Kreisnummer (Plan
-# TP11, Praezisierung 9); ohne Treffer waehlt der Kunde die Zone selbst.
+# Beliebige Nummer in der unique_id, nicht die Kreisnummer (Katalog v2, TP12c); der Kreis steht dann
+# im Namen (circuit_in_name).
+INDEX_PLACEHOLDER = "{index}"
+# shift_current bewusst nicht: die Zone wird ueber circuit_in_name dem Kreis zugeordnet (Katalog v2,
+# TP12c); ohne Treffer waehlt der Kunde die Zone selbst.
 REQUIRED_CIRCUIT_ROLES = ("curve_current", "min_flow", "heat_limit")
+POLL_INTERVAL_UNITS = {"s": 1, "min": 60}
 
 
 @dataclass(frozen=True)
@@ -22,12 +27,39 @@ class RoleMatcher:
     entity_domain: str
     unique_id_suffix: str | None = None
     original_name_suffix: str | None = None
+    circuit_in_name: str | None = None
 
     def uid_pattern(self) -> re.Pattern | None:
         if self.unique_id_suffix is None:
             return None
-        parts = [re.escape(part) for part in self.unique_id_suffix.split(CIRCUIT_PLACEHOLDER)]
-        return re.compile(r"(\d+)".join(parts) + "$")
+        escaped = re.escape(self.unique_id_suffix)
+        for placeholder in (CIRCUIT_PLACEHOLDER, INDEX_PLACEHOLDER):
+            escaped = escaped.replace(re.escape(placeholder), r"(\d+)")
+        return re.compile(escaped + "$")
+
+    def name_circuit(self, original_name: str | None) -> str | None:
+        """Kreisnummer an der Stelle von {circuit} in circuit_in_name (ohne Gross-/Kleinschreibung),
+        None ohne circuit_in_name oder ohne Treffer."""
+        if self.circuit_in_name is None or not original_name:
+            return None
+        before, _, after = self.circuit_in_name.partition(CIRCUIT_PLACEHOLDER)
+        match = re.search(re.escape(before.lower()) + r"(\d+)" + re.escape(after.lower()), original_name.lower())
+        return match.group(1) if match else None
+
+
+@dataclass(frozen=True)
+class PollIntervalOption:
+    """Abfrageintervall der Heizungs-Integration in deren ConfigEntry.options (AU-017)."""
+    key: str
+    unit: str
+    default: int
+
+    def seconds(self, options: Mapping) -> float | None:
+        """Intervall in Sekunden; None, wenn der gespeicherte Wert keine Zahl ist."""
+        raw = options.get(self.key, self.default)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return None
+        return float(raw) * POLL_INTERVAL_UNITS[self.unit]
 
 
 @dataclass(frozen=True)
@@ -44,6 +76,7 @@ class IntegrationDescriptor:
     circuit_roles: dict[str, RoleMatcher]
     system_roles: dict[str, RoleMatcher]
     erzeuger_typ_hints: tuple[ErzeugerTypHint, ...]
+    poll_interval_option: PollIntervalOption | None = None
 
 
 class _Invalid(ValueError):
@@ -61,26 +94,54 @@ def _matcher(role: str, raw, *, circuit_scoped: bool) -> RoleMatcher:
     if not isinstance(raw, dict):
         raise _Invalid(f"{role}: kein Objekt")
     entity_domain = _text(raw, "entity_domain")
-    uid, name = raw.get("unique_id_suffix"), raw.get("original_name_suffix")
+    uid, name, in_name = raw.get("unique_id_suffix"), raw.get("original_name_suffix"), raw.get("circuit_in_name")
     if (uid is None) == (name is None):
         raise _Invalid(f"{role}: genau eine Suchart erwartet")
-    if uid is not None:
-        if not isinstance(uid, str) or not uid:
-            raise _Invalid(f"{role}: unique_id_suffix leer")
-        placeholders = uid.count(CIRCUIT_PLACEHOLDER)
-        # Kreisbezogene Rollen brauchen genau einen Platzhalter (daraus kommt die Kreisnummer),
-        # anlagenweite keinen.
-        if placeholders != (1 if circuit_scoped else 0):
-            raise _Invalid(f"{role}: falsche Anzahl Platzhalter in {uid!r}")
-        rest = uid.replace(CIRCUIT_PLACEHOLDER, "")
-        if "{" in rest or "}" in rest:
-            raise _Invalid(f"{role}: unbekannter Platzhalter in {uid!r}")
+    if uid is None:
+        if circuit_scoped:
+            raise _Invalid(f"{role}: kreisbezogene Rolle braucht unique_id_suffix")
+        if in_name is not None:
+            raise _Invalid(f"{role}: circuit_in_name nur mit unique_id_suffix")
+        if not isinstance(name, str) or not name or "{" in name or "}" in name:
+            raise _Invalid(f"{role}: original_name_suffix ungueltig")
+        return RoleMatcher(entity_domain, original_name_suffix=name)
+    if not isinstance(uid, str) or not uid:
+        raise _Invalid(f"{role}: unique_id_suffix leer")
+    circuits, indexes = uid.count(CIRCUIT_PLACEHOLDER), uid.count(INDEX_PLACEHOLDER)
+    rest = uid.replace(CIRCUIT_PLACEHOLDER, "").replace(INDEX_PLACEHOLDER, "")
+    if "{" in rest or "}" in rest:
+        raise _Invalid(f"{role}: unbekannter Platzhalter in {uid!r}")
+    if in_name is None:
+        # Kreisbezogene Rollen brauchen genau einen {circuit} (daraus kommt die Kreisnummer),
+        # anlagenweite keinen; {index} nur zusammen mit circuit_in_name.
+        if indexes or circuits != (1 if circuit_scoped else 0):
+            raise _Invalid(f"{role}: falsche Platzhalter in {uid!r}")
         return RoleMatcher(entity_domain, unique_id_suffix=uid)
-    if circuit_scoped:
-        raise _Invalid(f"{role}: kreisbezogene Rolle braucht unique_id_suffix")
-    if not isinstance(name, str) or not name or "{" in name or "}" in name:
-        raise _Invalid(f"{role}: original_name_suffix ungueltig")
-    return RoleMatcher(entity_domain, original_name_suffix=name)
+    if not circuit_scoped or role in REQUIRED_CIRCUIT_ROLES:
+        raise _Invalid(f"{role}: circuit_in_name hier nicht erlaubt")
+    if circuits or indexes != 1:
+        raise _Invalid(f"{role}: circuit_in_name braucht genau einen {INDEX_PLACEHOLDER} und keinen {CIRCUIT_PLACEHOLDER}")
+    if (
+        not isinstance(in_name, str) or in_name.count(CIRCUIT_PLACEHOLDER) != 1
+        or "{" in in_name.replace(CIRCUIT_PLACEHOLDER, "") or "}" in in_name.replace(CIRCUIT_PLACEHOLDER, "")
+    ):
+        raise _Invalid(f"{role}: circuit_in_name ungueltig")
+    return RoleMatcher(entity_domain, unique_id_suffix=uid, circuit_in_name=in_name)
+
+
+def _poll_interval(raw) -> PollIntervalOption | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise _Invalid("poll_interval_option: kein Objekt")
+    key, unit, default = raw.get("key"), raw.get("unit"), raw.get("default")
+    if not isinstance(key, str) or not key:
+        raise _Invalid("poll_interval_option: key fehlt")
+    if unit not in POLL_INTERVAL_UNITS:
+        raise _Invalid("poll_interval_option: unbekannte Einheit")
+    if isinstance(default, bool) or not isinstance(default, int) or default <= 0:
+        raise _Invalid("poll_interval_option: default ungueltig")
+    return PollIntervalOption(key, unit, default)
 
 
 def _roles(raw, *, circuit_scoped: bool) -> dict[str, RoleMatcher]:
@@ -108,6 +169,7 @@ def _descriptor(raw) -> IntegrationDescriptor:
         circuit_roles=circuit_roles,
         system_roles=_roles(raw.get("system_roles", {}), circuit_scoped=False),
         erzeuger_typ_hints=tuple(hints),
+        poll_interval_option=_poll_interval(raw.get("poll_interval_option")),
     )
 
 

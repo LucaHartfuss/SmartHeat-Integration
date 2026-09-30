@@ -244,3 +244,48 @@ def test_registry_snapshot_reads_devices_from_mapping_and_collection(monkeypatch
 
     assert [e.entity_id for e in entries] == ["number.zuhause_circuit_0_heating_curve"]
     assert devices == _EXPECTED_DEVICES
+
+
+def _zone(entity_id, index, name, *, system="S", entry="e1"):
+    return _entry(entity_id, f"mypyllant_{system}_zone_{index}_climate", name=name, entry=entry)
+
+
+def test_zone_is_bound_to_the_circuit_named_in_it():
+    entries = _circuit_entries(circuit="0") + _circuit_entries(circuit="1", prefix="b") + [
+        _zone("climate.zone_a", "0", "Haus Zone 1 (Circuit 1) Climate"),
+        _zone("climate.zone_b", "1", "Haus Zone 2 (Circuit 0) Climate"),
+    ]
+
+    circuits = {c.circuit: c for c in find_circuits(MYPYLLANT, entries, [])}
+
+    assert circuits["0"].roles["shift_current"] == "climate.zone_b"
+    assert circuits["1"].roles["shift_current"] == "climate.zone_a"
+
+
+def test_zone_without_circuit_in_its_name_is_not_suggested():
+    entries = _circuit_entries(circuit="0") + [_zone("climate.zone_a", "0", "Haus Zone 1 Climate")]
+
+    [circuit] = find_circuits(MYPYLLANT, entries, [])
+
+    assert "shift_current" not in circuit.roles
+
+
+def test_two_zones_named_for_the_same_circuit_are_not_suggested():
+    entries = _circuit_entries(circuit="0") + [
+        _zone("climate.zone_a", "0", "Haus Zone 1 (Circuit 0) Climate"),
+        _zone("climate.zone_b", "1", "Haus Zone 2 (Circuit 0) Climate"),
+    ]
+
+    [circuit] = find_circuits(MYPYLLANT, entries, [])
+
+    assert "shift_current" not in circuit.roles
+
+
+def test_zone_of_another_system_is_not_mixed_in():
+    entries = _circuit_entries(system="S", circuit="0") + [
+        _zone("climate.zone_t", "0", "Haus Zone 1 (Circuit 0) Climate", system="T"),
+    ]
+
+    [circuit] = find_circuits(MYPYLLANT, entries, [])
+
+    assert "shift_current" not in circuit.roles

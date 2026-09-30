@@ -103,6 +103,7 @@ def setup_mypyllant(hass, *, circuits=("0",), model="ecoTEC plus VC 206/5-5", ou
         ent_reg.async_get_or_create(
             "climate", "mypyllant", f"mypyllant_SYSTEM_zone_{circuit}_climate",
             config_entry=entry, device_id=device.id, suggested_object_id=f"zuhause_zone_1_circuit_{circuit}_climate",
+            original_name=f"Zuhause Zone 1 (Circuit {circuit}) Climate",
         )
         hass.states.async_set(
             f"climate.zuhause_zone_1_circuit_{circuit}_climate", "auto", {"temperature": 20.0},
