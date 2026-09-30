@@ -43,21 +43,24 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 
 ## Update auf 0.9.0
 
-Wizard-Zuordnung sicher (TP12c): Die Heizzone wird jetzt genauer erkannt (Name muss den Heizkreis nennen)
-und die Heizwerte müssen zur gewählten Integration passen; außerdem können entstandene Konfigurationsfehler
-erkannt und automatisch bereinigt werden. **Pro Home Assistant nur noch ein SmartHeat-Eintrag** — bei
-mehreren älteren Einträgen darauf achten, welche Add-ons zu welcher Anlage gehören (Entfernen behält Add-ons
-anderer Einträge). Eine als „Neu konfigurieren” gekennzeichnete Konfiguration wird dabei ohne Anmeldung
-wiederhergestellt.
+**Zuerst den SmartHeat-Server aktualisieren** (Katalog v2), danach die Integration; 0.9.0 funktioniert
+nicht mit einem älteren Server-Katalog. Ein vollständiger Eintrag aus 0.8.x braucht danach nichts weiter.
 
-### Updates von 0.7.x
+Neu in 0.9.0: Pro Home Assistant gibt es nur noch einen SmartHeat-Eintrag. Der Wizard schlägt die Heizzone
+nur noch vor, wenn ihr Name den gewählten Heizkreis nennt, und die Entities, auf die SmartHeat schreibt,
+müssen zur gewählten Heizungs-Integration und Anlage gehören; Abweichungen von der Erkennung und ein
+Aktualisierungsintervall der Heizungs-Integration über 30 Minuten sind in der Zusammenfassung zu bestätigen.
+Wird die Einrichtung nach dem Schreiben abgebrochen, setzt SmartHeat die Add-ons zurück und meldet offene
+Schritte als Benachrichtigung.
+
+### Update von 0.7.x oder älter
 
 Ab 0.8.0/`heizungsbruecke` 0.24.0 ersetzt die Rolle „Parallelverschiebung” (Zonen-Wunschtemperatur) die
 bisherige Rolle „Offset”; der Sensor `sensor.smartheat_<anlage>_offset` entfällt zugunsten von
-`sensor.smartheat_<anlage>_parallelverschiebung` und `sensor.smartheat_<anlage>_mindestvorlauf`. Eine
-Konfiguration aus einer älteren Version startet zwar noch, geht aber ohne Schreibzugriff auf die Anlage in
-den Ruhezustand „Konfiguration veraltet” über. **Nach dem Update: Neu konfigurieren** ausführen und dabei
-die neuen Anlagenwerte-Felder ausfüllen.
+`sensor.smartheat_<anlage>_parallelverschiebung` und `sensor.smartheat_<anlage>_mindestvorlauf` und wird
+ab 0.9.0 automatisch aus der Entity-Registry entfernt. Eine Konfiguration aus einer älteren Version startet
+zwar noch, geht aber ohne Schreibzugriff auf die Anlage in den Ruhezustand „Konfiguration veraltet” über.
+**Nach dem Update: Neu konfigurieren** ausführen und dabei die neuen Anlagenwerte-Felder ausfüllen.
 
 ## Änderungen
 
