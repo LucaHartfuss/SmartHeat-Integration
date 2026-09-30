@@ -13,7 +13,7 @@ OPTION_ENTITY_ROOM_TARGET = "entity_room_target"
 OPTION_ABGEMELDET = "abgemeldet"
 OPTION_NOTIFY_HINTS_OFF = "notify_hints_off"
 # Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
-HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
+HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme")
 # Alter Eintrag (v1, client1): Einrichtung ueber "Neu konfigurieren" abschliessen.
 DATA_INCOMPLETE = "unvollstaendig"
 BRIDGE_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
@@ -78,7 +78,7 @@ BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
 DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
-HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
+HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff", "waerme_fehlt")
 
 STATUS_WAIT_SECONDS = 180
 SIGN_OFF_WAIT_SECONDS = 60

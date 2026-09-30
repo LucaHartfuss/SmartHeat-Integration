@@ -31,6 +31,7 @@ NEW_ROOMS = {
     "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz",
     "notify_services": ["notify.mobile_app_iphone"], "battery_entities": ["sensor.wz_batterie"],
     "hint_raumfuehler": True, "hint_batterie": False, "hint_manueller_eingriff": True, "hint_quellwechsel": True,
+    "hint_therme": True,
 }
 
 
@@ -57,7 +58,7 @@ async def test_options_are_prefilled_from_the_entry(hass, monkeypatch):
     assert suggested(result, "battery_entities") == ["sensor.wz_batterie"]
     schema = result["data_schema"].schema
     assert all(next(k for k in schema if k == f"hint_{c}").default() is True
-               for c in ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel"))
+               for c in ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme"))
 
 
 async def test_saving_merges_only_the_own_keys_and_restarts_only_the_bridge(hass, monkeypatch):
@@ -284,9 +285,11 @@ async def test_a_stored_notify_hints_off_defaults_the_switch_to_false(hass, monk
     schema = result["data_schema"].schema
     defaults = {
         category: next(k for k in schema if k == f"hint_{category}").default()
-        for category in ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
+        for category in ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme")
     }
-    assert defaults == {"raumfuehler": True, "batterie": False, "manueller_eingriff": True, "quellwechsel": False}
+    assert defaults == {
+        "raumfuehler": True, "batterie": False, "manueller_eingriff": True, "quellwechsel": False, "therme": True,
+    }
 
 
 async def test_incomplete_entry_has_no_options_yet(hass, monkeypatch):
@@ -313,3 +316,10 @@ def test_every_options_step_has_a_text(path):
     assert "setup_incomplete" in options["abort"]
     assert {"room_sensors_required", "entity_unavailable", "duplicate_entity", "warnings_not_confirmed",
             "zone_is_room_target"} <= set(options["error"])
+
+
+async def test_the_therme_hint_switch_is_offered_and_defaults_to_on(hass, monkeypatch):
+    result, _, _, _ = await _open(hass, monkeypatch)
+
+    schema = result["data_schema"].schema
+    assert next(k for k in schema if k == "hint_therme").default() is True

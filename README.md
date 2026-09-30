@@ -27,8 +27,8 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 
 - **Gerät „SmartHeat <Anlage>“:** Status (regelt, Notbetrieb, Datenfehler, Abo, Add-on gestoppt …), Notbetrieb,
   Datenfehler mit Quelle, Boost, letzte Serverantwort, gelernte Heizkurve, gelernte Parallelverschiebung,
-  Mindestvorlauftemperatur, Abo, Add-on-Version. Ausgefallene Raumfühler, schwache Batterien und manuelle
-  Eingriffe stehen als Attribute am Status.
+  Mindestvorlauftemperatur, Abo, Add-on-Version. Ausgefallene Raumfühler, schwache Batterien, manuelle
+  Eingriffe und eine Therme ohne Heizwärme (`waerme_fehlt`) stehen als Attribute am Status.
 - **Optionen** (ohne Anmeldung): Raumfühler, Wunschtemperatur, Handys, Batterien, Hinweise einzeln abschalten.
 - **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte (u. a. die Zone für die
   Parallelverschiebung, Mindestvorlauf-Entity, optional das Vorlauf-Soll). Die Zugangsdaten bleiben

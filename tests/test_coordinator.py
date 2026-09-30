@@ -175,13 +175,15 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
         kurve=1.1, parallelverschiebung=24.0, mindestvorlauf=20.5, letzte_serverantwort="2026-10-01T12:00:05+02:00",
         abo="inaktiv",
         abo_frist_ende="2026-10-31",
-        hinweise={"raumfuehler_ausgefallen": ["sensor.a"], "batterie_niedrig": [], "manueller_eingriff": None},
+        hinweise={"raumfuehler_ausgefallen": ["sensor.a"], "batterie_niedrig": [], "manueller_eingriff": None,
+                  "waerme_fehlt": "2026-10-01T05:11:00+02:00"},
     ))
     await hass.async_block_till_done()
 
     status = hass.states.get(STATUS)
     assert status.state == "notbetrieb"
     assert status.attributes["raumfuehler_ausgefallen"] == ["sensor.a"]
+    assert status.attributes["waerme_fehlt"] == "2026-10-01T05:11:00+02:00"
     assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"
     fault = hass.states.get("sensor.smartheat_wohnung1_datenfehler")
     assert (fault.state, fault.attributes["rollen"]) == ("lokal", ["dat"])

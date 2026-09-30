@@ -19,7 +19,8 @@ def test_status_event_contract_and_watchdog_values():
         "notbetrieb", "datenfehler", "abgemeldet",
     )
     assert const.STATUS_SENSOR_VALUES == const.ADDON_STATUS_VALUES + ("addon_gestoppt", "reagiert_nicht")
-    assert const.HINT_CATEGORIES == ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
+    assert const.HINT_CATEGORIES == ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme")
+    assert const.HINT_FIELDS == ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff", "waerme_fehlt")
     assert (const.WATCHDOG_INTERVAL_SECONDS, const.STOPPED_AFTER_CHECKS, const.SILENCE_SECONDS) == (300, 2, 900)
     assert (const.MAX_RESTARTS_PER_WINDOW, const.RESTART_WINDOW_SECONDS) == (3, 3600)
 

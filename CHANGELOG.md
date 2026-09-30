@@ -3,6 +3,12 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.9.0
+
+- Neuer abschaltbarer Hinweis „Benachrichtigen, wenn die Therme keine Heizwärme liefert“ (Option
+  `notify_hints_off` kennt jetzt `therme`) und das Status-Attribut `waerme_fehlt` am SmartHeat-Status-Sensor
+  (Zeitpunkt, seit dem die Therme trotz Wärmeanforderung nichts liefert, sonst leer). Passt zum Add-on 0.26.0.
+
 ## 0.8.0
 
 - Regelkern 2.0 (TP11): Die Rolle „Offset“ (Parallelversatz) entfällt zugunsten von zwei eigenen Rollen —
