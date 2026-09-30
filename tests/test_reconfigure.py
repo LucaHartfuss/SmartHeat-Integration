@@ -265,6 +265,17 @@ async def test_reauth_of_an_incomplete_entry_asks_for_reconfigure(hass, monkeypa
     assert (result["type"], result["reason"]) == ("abort", "reconfigure_first")
 
 
+async def test_reauth_of_an_entry_without_a_current_plant_field_asks_for_reconfigure(hass, monkeypatch):
+    _prepare(hass, monkeypatch)
+    entry = make_entry(hass)
+    entities = {k: v for k, v in entry.data["entities"].items() if k != "entity_shift_current"}
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "entities": entities})
+
+    result = await entry.start_reauth_flow(hass)
+
+    assert (result["type"], result["reason"]) == ("abort", "reconfigure_first")
+
+
 async def test_zugang_abgelehnt_event_starts_a_reauth_flow(hass, monkeypatch):
     mypyllant, _, _ = _prepare(hass, monkeypatch)
     entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)

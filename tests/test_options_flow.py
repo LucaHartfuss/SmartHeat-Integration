@@ -301,6 +301,16 @@ async def test_incomplete_entry_has_no_options_yet(hass, monkeypatch):
     assert (result["type"], result["reason"]) == ("abort", "setup_incomplete")
 
 
+async def test_entry_without_a_current_plant_field_has_no_options_yet(hass, monkeypatch):
+    entry = make_entry(hass)
+    entities = {k: v for k, v in entry.data["entities"].items() if k != "entity_min_flow"}
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "entities": entities})
+
+    result, _, _, _ = await _open(hass, monkeypatch, entry=entry)
+
+    assert (result["type"], result["reason"]) == ("abort", "setup_incomplete")
+
+
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 
 

@@ -214,7 +214,7 @@
   "issues": {
     "complete_setup": {
       "title": "SmartHeat: Einrichtung für {tenant} abschließen",
-      "description": "Nach dem Update ist die Einrichtung von {tenant} unvollständig. Die Heizungssteuerung pausiert, die Anlage behält ihre letzten Werte. Unter Einstellungen → Geräte & Dienste → SmartHeat über ⋮ → „Neu konfigurieren“ anmelden. Die Zugangsdaten bleiben gleich."
+      "description": "Die Einrichtung von {tenant} ist unvollständig oder stammt aus einer älteren Version. Die Heizungssteuerung pausiert, die Anlage behält ihre letzten Werte. Unter Einstellungen → Geräte & Dienste → SmartHeat über ⋮ → „Neu konfigurieren“ anmelden. Die Zugangsdaten bleiben gleich."
     }
   },
   "common": {

@@ -9,6 +9,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .entity import SmartHeatEntity
 
+NOTBETRIEB_KEY = "notbetrieb"
+ENTITY_KEYS = (NOTBETRIEB_KEY,)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     async_add_entities([NotbetriebSensor(entry.runtime_data)])
@@ -18,7 +21,7 @@ class NotbetriebSensor(SmartHeatEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, coordinator) -> None:
-        super().__init__(coordinator, "binary_sensor", "notbetrieb")
+        super().__init__(coordinator, "binary_sensor", NOTBETRIEB_KEY)
 
     def _apply(self) -> None:
         # Fehlt `notbetrieb` oder ist es kein bool (aelteres/fremdes Event), unbekannt statt eines

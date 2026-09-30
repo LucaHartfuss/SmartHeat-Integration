@@ -46,6 +46,7 @@ class EventField:
     category: EntityCategory | None = None
 
 
+STATUS_KEY = "status"
 FIELDS = (
     EventField(
         key="datenfehler", value=lambda d: _fault(d).get("art", DATENFEHLER_KEINER),
@@ -74,6 +75,8 @@ FIELDS = (
     EventField(key="addon_version", value=lambda d: d["addon_version"], category=EntityCategory.DIAGNOSTIC),
 )
 
+ENTITY_KEYS = (STATUS_KEY, *(event_field.key for event_field in FIELDS))
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
@@ -88,7 +91,7 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
     _ATTRIBUTES = ("grund", *HINT_FIELDS)
 
     def __init__(self, coordinator) -> None:
-        super().__init__(coordinator, "sensor", "status")
+        super().__init__(coordinator, "sensor", STATUS_KEY)
 
     def _has_value(self) -> bool:
         return self.coordinator.status is not None

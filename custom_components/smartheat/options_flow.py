@@ -19,7 +19,6 @@ from . import detection, validation
 from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener
 from .const import (
     ADDON_SPECS,
-    DATA_INCOMPLETE,
     HINT_CATEGORIES,
     OPTION_BATTERY_ENTITIES,
     OPTION_ENTITY_ROOM_TARGET,
@@ -31,6 +30,7 @@ from .const import (
     STATUS_REGELT,
     STATUS_WAIT_SECONDS,
     STATUS_ZUGANG_ABGELEHNT,
+    entry_incomplete,
 )
 from .flow_progress import ProgressFlowMixin
 from .supervisor_client import (
@@ -108,7 +108,7 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         return vol.Schema(schema)
 
     async def async_step_init(self, user_input: dict | None = None):
-        if self.config_entry.data.get(DATA_INCOMPLETE):
+        if entry_incomplete(self.config_entry.data):
             return self.async_abort(reason="setup_incomplete")
         notify_options = self._notify_options(self._services())
         errors: dict[str, str] = {}

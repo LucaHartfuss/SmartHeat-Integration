@@ -1,5 +1,6 @@
 """Gemeinsame Konstanten fuer die SmartHeat-Integration."""
 import re
+from collections.abc import Mapping
 
 DOMAIN = "smartheat"
 DEFAULT_HEIZUNGSSERVER_BASE_URL = "https://accounts.hartfussha.org"
@@ -14,7 +15,8 @@ OPTION_ABGEMELDET = "abgemeldet"
 OPTION_NOTIFY_HINTS_OFF = "notify_hints_off"
 # Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
 HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel")
-# Alter Eintrag (v1, client1): Einrichtung ueber "Neu konfigurieren" abschliessen.
+# Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
+# entfallen), er bleibt als Merkmal fuer entry_incomplete().
 DATA_INCOMPLETE = "unvollstaendig"
 BRIDGE_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
 CLOUDFLARED_CREDENTIAL_OPTIONS = ("service_token_id", "service_token_secret")
@@ -180,6 +182,13 @@ ROLE_DOMAINS: dict[str, list[str]] = {
 PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
 # Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
 OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
+
+
+def entry_incomplete(data: Mapping) -> bool:
+    """Eintrag, der fuer den aktuellen Stand nicht reicht (AU-037): markiert oder ohne Profil oder
+    ohne ein Pflichtfeld der Anlagenwerte. Weg: Neu konfigurieren."""
+    entities = data.get("entities") or {}
+    return bool(data.get(DATA_INCOMPLETE)) or not data.get("profile_id") or any(f not in entities for f in PLANT_FIELDS)
 # Vom Add-on beschriebene bzw. dem Heizkreis zugeordnete Anlagen-Felder: nur aus dem Config-Entry
 # des gewaehlten Kreises waehlbar (TP12c, AU-019). Aussentemperatur bleibt frei (Wetter-Ersatz).
 WRITE_ROLE_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_flow_setpoint")

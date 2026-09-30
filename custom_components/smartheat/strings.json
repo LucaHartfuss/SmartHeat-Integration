@@ -214,7 +214,7 @@
   "issues": {
     "complete_setup": {
       "title": "SmartHeat: complete the setup for {tenant}",
-      "description": "After the update the setup of {tenant} is incomplete. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
+      "description": "The setup of {tenant} is incomplete or comes from an older version. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
     }
   },
   "common": {

@@ -41,7 +41,6 @@ from .const import (
     ADDON_SPECS,
     BRIDGE_CREDENTIAL_OPTIONS,
     CLOUDFLARED_CREDENTIAL_OPTIONS,
-    DATA_INCOMPLETE,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
     KPI_ENERGY_CHANNELS,
@@ -67,6 +66,7 @@ from .const import (
     STATUS_ZUGANG_ABGELEHNT,
     UNMANAGED_ADDON_OPTIONS,
     WRITE_ROLE_FIELDS,
+    entry_incomplete,
     kpi_energy_role,
 )
 from .flow_progress import ProgressFlowMixin
@@ -226,7 +226,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
     async def async_step_reauth(self, entry_data):
         """Spec TP7 2.4: das Add-on meldet zugang_abgelehnt -> Login, dann neue Zugangsdaten."""
         self._entry = self._get_reauth_entry()
-        if self._entry.data.get(DATA_INCOMPLETE) or not self._entry.data.get("profile_id"):
+        if entry_incomplete(self._entry.data):
             return self.async_abort(reason="reconfigure_first")
         self._reauth = True
         self._tenant_id = self._entry.data["tenant_id"]
@@ -239,7 +239,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         # _prefill_from_entry() laeuft nur aus async_step_reconfigure(), das self._entry vorher
         # setzt (async_step_reauth() ruft es nicht auf).
         assert entry is not None
-        if entry.data.get(DATA_INCOMPLETE):
+        if entry_incomplete(entry.data):
             return
         options = entry.options
         self._rooms_input = {
