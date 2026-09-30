@@ -1,7 +1,9 @@
 """Rueckbau eines abgebrochenen Wizard-Laufs (Spec TP12c 3.2): Wurde schon in die Add-ons
 geschrieben und der Lauf nicht abgeschlossen, setzt die Ersteinrichtung alles zurueck (wie das
-Entfernen) und Neu konfigurieren stellt den Stand vor dem ersten Schreiben wieder her. Jeder Schritt
-best effort und einzeln protokolliert; am Ende eine Benachrichtigung mit den offenen Schritten."""
+Entfernen) und Neu konfigurieren stellt den Stand vor dem ersten Schreiben wieder her. Hat der Lauf
+nur den Server geaendert (Zugangsdaten ausgestellt, Profil gewechselt), wird nur dort
+zurueckgenommen; die Add-ons bleiben unberuehrt. Jeder Schritt best effort und einzeln
+protokolliert; am Ende eine Benachrichtigung mit den offenen Schritten."""
 from __future__ import annotations
 
 import logging
@@ -55,21 +57,43 @@ async def async_rollback_reconfigure(
     """Neu konfigurieren: neu ausgestellte Zugangsdaten widerrufen, Profil und Add-on-Optionen auf
     den gesicherten Stand, beide Add-ons neu starten. Watchdog/Boot bleiben an (Spec 3.2)."""
     _LOGGER.info("Rueckbau des abgebrochenen Neu konfigurieren gestartet")
-    problems: list[str] = []
-    if new_credentials is not None and not await _async_revoke(client, tenant_id, new_credentials):
-        problems.append(PROBLEM_REVOKE)
-    # Ohne gesichertes Profil (Eintrag hatte keins) bleibt das Profil auf dem Server, wie es ist.
-    previous = snapshot.profile_id
-    if previous is not None and profile_id != previous and not await _async_reset_profile(
-        client, token, tenant_id, previous,
-    ):
-        problems.append(PROBLEM_PROFILE)
+    problems = await _async_undo_server_changes(client, token, tenant_id, new_credentials, snapshot.profile_id, profile_id)
     if not await _async_restore_addons(hass, snapshot):
         problems.append(PROBLEM_ADDONS)
     _LOGGER.info("Rueckbau des Neu konfigurieren beendet, offene Schritte: %s", problems or "keine")
     await async_notify_open_steps(
         hass, setup_notification_id(tenant_id), _headline("rollback_reconfigure", problems), problems,
     )
+
+
+async def async_rollback_server_only(
+    hass: HomeAssistant, *, client: HeizungsserverClient, token: str | None, tenant_id: str, first_setup: bool,
+    new_credentials: tuple[str, str] | None, previous_profile_id: str | None, profile_id: str | None,
+) -> None:
+    """Abbruch, bevor in die Add-ons geschrieben wurde: nur die Aenderungen auf dem Server
+    zuruecknehmen (neu ausgestellte Zugangsdaten widerrufen, beim Neu konfigurieren das Profil
+    zuruecksetzen). Kein Abmelden, kein Neustart. Dieselbe Benachrichtigung wie der volle Rueckbau."""
+    _LOGGER.info("Rueckbau ohne geschriebene Add-ons gestartet (nur Server)")
+    problems = await _async_undo_server_changes(client, token, tenant_id, new_credentials, previous_profile_id, profile_id)
+    _LOGGER.info("Rueckbau ohne geschriebene Add-ons beendet, offene Schritte: %s", problems or "keine")
+    key = "rollback_first_setup" if first_setup else "rollback_reconfigure"
+    await async_notify_open_steps(hass, setup_notification_id(tenant_id), _headline(key, problems), problems)
+
+
+async def _async_undo_server_changes(
+    client: HeizungsserverClient, token: str | None, tenant_id: str, new_credentials: tuple[str, str] | None,
+    previous_profile_id: str | None, profile_id: str | None,
+) -> list[str]:
+    """Neu ausgestellte Zugangsdaten widerrufen, dann das Profil auf den gesicherten Stand. Ohne
+    gesichertes Profil (Ersteinrichtung, Eintrag ohne Profil) bleibt es auf dem Server, wie es ist."""
+    problems: list[str] = []
+    if new_credentials is not None and not await _async_revoke(client, tenant_id, new_credentials):
+        problems.append(PROBLEM_REVOKE)
+    if previous_profile_id is not None and profile_id != previous_profile_id and not await _async_reset_profile(
+        client, token, tenant_id, previous_profile_id,
+    ):
+        problems.append(PROBLEM_PROFILE)
+    return problems
 
 
 async def _async_revoke(client: HeizungsserverClient, tenant_id: str, credentials: tuple[str, str]) -> bool:

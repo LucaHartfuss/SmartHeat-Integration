@@ -160,3 +160,68 @@ async def test_rollback_without_token_reports_the_profile(hass, monkeypatch, cre
     )
 
     assert len(created[0][1].splitlines()) == 2
+
+
+# --- Nur der Server geaendert, noch nichts in die Add-ons geschrieben (finale Review TP12c, F4) ---
+
+def _untouchable_addons(monkeypatch):
+    """Die Add-ons duerfen im reinen Server-Rueckbau weder abgemeldet noch angefasst werden."""
+    sign_off = AsyncMock()
+    managers = AsyncMock(side_effect=AssertionError("Add-ons angefasst"))
+    monkeypatch.setattr(f"{SR}.async_sign_off", sign_off)
+    monkeypatch.setattr(f"{SR}.async_get_addon_managers", managers)
+    return sign_off, managers
+
+
+async def test_server_only_reconfigure_resets_the_profile_and_revokes(hass, monkeypatch, created):
+    sign_off, managers = _untouchable_addons(monkeypatch)
+    client = AsyncMock()
+    client.delete_installation.return_value = 204
+
+    await setup_rollback.async_rollback_server_only(
+        hass, client=client, token="tok", tenant_id="wohnung1", first_setup=False,
+        new_credentials=("neu_user", "neu_pw"), previous_profile_id="altes_profil", profile_id="neues_profil",
+    )
+
+    client.delete_installation.assert_awaited_once_with("wohnung1", "neu_user", "neu_pw")
+    client.update_profile.assert_awaited_once_with("tok", "wohnung1", "altes_profil")
+    sign_off.assert_not_awaited()
+    managers.assert_not_awaited()
+    assert created == [("smartheat_wohnung1_setup", await async_hint(hass, "rollback_reconfigure"))]
+
+
+async def test_server_only_first_setup_revokes_without_signing_off(hass, monkeypatch, created):
+    sign_off, managers = _untouchable_addons(monkeypatch)
+    client = AsyncMock()
+    client.delete_installation.return_value = 204
+
+    await setup_rollback.async_rollback_server_only(
+        hass, client=client, token=None, tenant_id="wohnung1", first_setup=True,
+        new_credentials=("neu_user", "neu_pw"), previous_profile_id=None, profile_id=None,
+    )
+
+    client.delete_installation.assert_awaited_once_with("wohnung1", "neu_user", "neu_pw")
+    client.update_profile.assert_not_awaited()
+    sign_off.assert_not_awaited()
+    managers.assert_not_awaited()
+    assert created == [("smartheat_wohnung1_setup", await async_hint(hass, "rollback_first_setup"))]
+
+
+async def test_server_only_failures_are_listed_without_credentials(hass, monkeypatch, created, caplog):
+    _untouchable_addons(monkeypatch)
+    client = AsyncMock()
+    client.delete_installation.return_value = None
+    client.update_profile.side_effect = ApiError("weg")
+
+    await setup_rollback.async_rollback_server_only(
+        hass, client=client, token="tok", tenant_id="wohnung1", first_setup=False,
+        new_credentials=("u", PASSWORD), previous_profile_id="altes_profil", profile_id="neu",
+    )
+
+    lines = created[0][1].splitlines()
+    assert lines == [
+        await async_hint(hass, "rollback_reconfigure_incomplete"),
+        "- " + await async_hint(hass, "open_step_revoke"),
+        "- " + await async_hint(hass, "open_step_profile"),
+    ]
+    assert PASSWORD not in caplog.text

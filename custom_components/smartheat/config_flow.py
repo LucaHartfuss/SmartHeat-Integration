@@ -17,6 +17,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components import persistent_notification
 from homeassistant.components.hassio import AddonError
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow, section
@@ -59,6 +60,7 @@ from .const import (
     PLANT_FIELDS,
     PLAUSIBLE_RANGES,
     POLL_INTERVAL_MAX_SECONDS,
+    REQUIRED_CATALOG_VERSION,
     SETUP_DONE_STATUSES,
     STATUS_KONFIGURATIONSFEHLER,
     STATUS_REGELT,
@@ -68,10 +70,16 @@ from .const import (
     WRITE_ROLE_FIELDS,
     entry_incomplete,
     kpi_energy_role,
+    setup_notification_id,
 )
 from .flow_progress import ProgressFlowMixin
 from .options_flow import SmartHeatOptionsFlow
-from .setup_rollback import ReconfigureSnapshot, async_rollback_first_setup, async_rollback_reconfigure
+from .setup_rollback import (
+    ReconfigureSnapshot,
+    async_rollback_first_setup,
+    async_rollback_reconfigure,
+    async_rollback_server_only,
+)
 from .supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
@@ -149,8 +157,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._final_status: str | None = None
         self._final_grund: str | None = None
         # Rueckbau ohne Abschluss (TP12c 3.2): in die Add-ons geschrieben, abgeschlossen, Rueckbau
-        # gelaufen; beim Neu konfigurieren der Stand vor dem ersten Schreiben.
+        # gelaufen; beim Neu konfigurieren der Stand vor dem ersten Schreiben. Aenderungen auf dem
+        # Server vor dem ersten Schreiben: _new_credentials (provision) und _profile_changed
+        # (update_profile beim Neu konfigurieren).
         self._written = False
+        self._profile_changed = False
         self._finished = False
         self._rolled_back = False
         self._snapshot: ReconfigureSnapshot | None = None
@@ -170,27 +181,43 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self.hass.async_create_background_task(self._async_rollback_then_logout(), "smartheat_setup_cleanup")
 
     def _needs_rollback(self) -> bool:
-        return self._written and not self._finished and not self._rolled_back and not self._reauth
+        changed = self._written or self._new_credentials or self._profile_changed
+        return changed and not self._finished and not self._rolled_back and not self._reauth
 
     async def _async_rollback(self) -> None:
         """Genau einmal (async_remove laeuft bei jedem Flow-Ende); vor dem Logout, weil der
-        Profil-Rueckbau das Token braucht."""
+        Profil-Rueckbau das Token braucht. Ohne Schreiben in die Add-ons nur auf dem Server."""
         if not self._needs_rollback():
             return
         self._rolled_back = True
         tenant_id = self._tenant_id
-        assert tenant_id is not None  # geschrieben wird erst nach der Tenant-Auswahl
-        if self._entry is None:
-            await async_rollback_first_setup(self.hass, tenant_id)
-            return
-        snapshot, profile = self._snapshot, self._profile
-        assert snapshot is not None and profile is not None  # _run_setup setzt den Snapshot vor dem Schreiben
+        assert tenant_id is not None  # geaendert wird erst nach der Tenant-Auswahl
         provisioning = self._provisioning or {}
         new_credentials = (provisioning["username"], provisioning["password"]) if self._new_credentials else None
-        await async_rollback_reconfigure(
-            self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
-            profile_id=profile["profile_id"], new_credentials=new_credentials,
-        )
+        if self._entry is None:
+            if self._written:
+                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke.
+                await async_rollback_first_setup(self.hass, tenant_id)
+            else:
+                await async_rollback_server_only(
+                    self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=True,
+                    new_credentials=new_credentials, previous_profile_id=None, profile_id=None,
+                )
+            return
+        snapshot, profile = self._snapshot, self._profile
+        # _run_setup setzt den Snapshot vor _obtain_access, also vor jeder Aenderung.
+        assert snapshot is not None and profile is not None
+        if self._written:
+            await async_rollback_reconfigure(
+                self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
+                profile_id=profile["profile_id"], new_credentials=new_credentials,
+            )
+        else:
+            await async_rollback_server_only(
+                self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=False,
+                new_credentials=new_credentials, previous_profile_id=snapshot.profile_id,
+                profile_id=profile["profile_id"],
+            )
 
     async def _abort(self, reason: str, **placeholders: str):
         """Jeder Abbruch nach dem Login meldet die Sitzung ab (AU-036)."""
@@ -381,6 +408,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             # wurde also gerade erfolgreich gesetzt.
             catalog = self._catalog
             assert catalog is not None
+            version = catalog.get("catalog_version")
+            if not isinstance(version, int) or version < REQUIRED_CATALOG_VERSION:
+                return await self._abort("catalog_outdated")
             descriptors = parse_integrations(catalog)
             entry_domains = {entry.domain for entry in self.hass.config_entries.async_entries()}
             self._integrations = detection.installed_integrations(descriptors, entry_domains)
@@ -920,14 +950,20 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert token is not None
         assert tenant_id is not None
         assert profile is not None
+        # Vor dem Aufruf (wie _written): auch ein abgebrochener Aufruf oder einer ohne gueltige
+        # Antwort kann das Profil gewechselt haben. Nur eine klare Ablehnung laesst es unveraendert.
+        self._profile_changed = True
         try:
             profile_params = await self._client().update_profile(token, tenant_id, profile["profile_id"])
         except InvalidAuth:
+            self._profile_changed = False
             return self._expire_session()
         except AccessDenied as error:
+            self._profile_changed = False
             self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
             return "setup_failed"
         except ProfileRejected:
+            self._profile_changed = False
             self._setup_error = await self._hint("profile_rejected")
             return "setup_failed"
         except ApiError:
@@ -1076,6 +1112,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     async def async_step_finish(self, user_input: dict | None = None):
         self._finished = True
+        tenant_id = self._tenant_id
+        assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
+        # Die Rueckbau-Meldung eines frueher abgebrochenen Laufs ist mit diesem Abschluss erledigt.
+        persistent_notification.async_dismiss(self.hass, setup_notification_id(tenant_id))
         await self._logout()
         notes = await self._notes()
         entry = self._entry
@@ -1089,8 +1129,6 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             # Wie async_update_reload_and_abort, aber mit Platzhaltern fuer die Hinweise.
             self.hass.config_entries.async_schedule_reload(entry.entry_id)
             return self.async_abort(reason=reason, description_placeholders={"notes": f"\n\n{notes}" if notes else ""})
-        tenant_id = self._tenant_id
-        assert tenant_id is not None  # Ersteinrichtung: async_step_tenant() setzt ihn vorher
         return self.async_create_entry(
             title=tenant_id, data=self._entry_data(), options=self._entry_options(),
             description="setup_notes" if notes else None,

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import voluptuous as vol
+from homeassistant.components.hassio import AddonError, AddonManager
 from homeassistant.data_entry_flow import UnknownFlow
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -189,6 +190,19 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
     )
     calls.supervision = supervisor_log
     return calls
+
+
+def fail_addon_reads_after(monkeypatch, server_call) -> None:
+    """Jede Add-on-Abfrage nach dem ersten Serveraufruf `server_call` scheitert: der Server ist
+    geaendert, in die Add-ons ist noch nichts geschrieben (nach mock_addons() aufrufen)."""
+    read = AddonManager.async_get_addon_info
+
+    async def info(manager):
+        if server_call.await_count:
+            raise AddonError("weg")
+        return await read(manager)
+
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_get_addon_info", info)
 
 
 def fast_status_wait(monkeypatch, wait_seconds: float = 0.2) -> None:

@@ -220,19 +220,23 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str, *, notify: bool = 
     bridge = managers.get(HEIZUNGSBRUECKE_ADDON_SLUG)
     cloudflared = managers.get(CLOUDFLARED_ADDON_SLUG)
     options = await _async_read_bridge_options(bridge)
+    # Heizungsbruecke da, Optionen nicht lesbar: die Zugangsdaten fuer den Widerruf sind unbekannt.
+    options_unreadable = bridge is not None and options is None
     owner = (options or {}).get("tenant_id")
     if owner and owner != tenant_id:
         _LOGGER.warning("Entfernen: Heizungsbruecke gehoert einem anderen Tenant, Add-ons bleiben unberuehrt")
         problems.append(PROBLEM_FOREIGN_TENANT)
     else:
-        problems += await _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, _server_credentials(options))
+        problems += await _async_sign_off_addons(
+            hass, tenant_id, bridge, cloudflared, _server_credentials(options), options_unreadable=options_unreadable,
+        )
     persistent_notification.async_dismiss(hass, watchdog_notification_id(tenant_id))
     if notify and problems:
         await async_notify_open_steps(hass, removal_notification_id(tenant_id), "removal_incomplete", problems)
     return problems
 
 
-async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentials) -> list[str]:
+async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentials, *, options_unreadable: bool) -> list[str]:
     problems: list[str] = []
     keep_bridge, confirmed = (False, True) if bridge is None else await _async_sign_off_bridge(hass, bridge, tenant_id)
     if bridge is not None and not confirmed:
@@ -248,7 +252,10 @@ async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentia
                 problems.append(PROBLEM_STOP)
     if present:
         await async_set_supervision(hass, [manager.addon_slug for manager in present], enabled=False)
-    if not await _async_revoke_on_server(hass, tenant_id, credentials):
+    if options_unreadable:
+        # Schon in _async_read_bridge_options protokolliert; der Widerruf bleibt offen.
+        problems.append(PROBLEM_REVOKE)
+    elif not await _async_revoke_on_server(hass, tenant_id, credentials):
         problems.append(PROBLEM_REVOKE)
     for manager, keys in ((bridge, BRIDGE_CREDENTIAL_OPTIONS), (cloudflared, CLOUDFLARED_CREDENTIAL_OPTIONS)):
         if manager is None:

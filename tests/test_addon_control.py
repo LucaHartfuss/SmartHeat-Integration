@@ -382,6 +382,22 @@ async def test_unconfirmed_sign_off_warns_about_boost_values(hass, monkeypatch, 
     assert ("1,5" in text or "1.5" in text) and "25" in text
 
 
+async def test_unreadable_bridge_options_report_the_revoke(hass, monkeypatch, dismissed, created):
+    """Ohne lesbare Optionen kennt die Integration die Zugangsdaten nicht: der Widerruf bleibt offen."""
+    log = []
+    bridge, _ = _addons(hass, monkeypatch, log)
+
+    async def unreadable():
+        raise AddonError("kaputt")
+
+    bridge.async_get_addon_info = unreadable
+
+    problems = await addon_control.async_sign_off(hass, TENANT, notify=False)
+
+    assert "revoke" not in [entry[0] for entry in log]
+    assert "revoke" in problems
+
+
 @pytest.mark.parametrize("server_status, problems", [(204, []), (401, []), (500, ["revoke"]), (None, ["revoke"])])
 async def test_revoke_outcome_is_reported(hass, monkeypatch, dismissed, created, server_status, problems):
     _addons(hass, monkeypatch, [], server_status=server_status)

@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
@@ -12,6 +13,7 @@ from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.smartheat import setup_rollback
 from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import (
@@ -26,6 +28,7 @@ from .flow_helpers import (
     CATALOG,
     CF_SECRET,
     CURVE,
+    FLOW,
     FLOW_SETPOINT,
     HEAT_LIMIT,
     MIN_FLOW,
@@ -33,12 +36,14 @@ from .flow_helpers import (
     OUTDOOR,
     PLANT_INPUT,
     PROFILE_PARAMS,
+    PROVISIONING,
     ROOMS_INPUT,
     SYSTEM_INPUT,
     TENANT,
     ZONE,
     configure,
     enable_supervisor,
+    fail_addon_reads_after,
     fast_status_wait,
     finish_progress,
     has_default,
@@ -980,6 +985,62 @@ async def test_finished_setup_is_not_rolled_back(hass, monkeypatch, rollback):
     rollback.first.assert_not_awaited()
 
 
+async def test_cancel_after_provision_without_writing_revokes_only_on_the_server(hass, monkeypatch, rollback):
+    """F4 (finale Review): provision() lief, die Add-ons wurden nicht beschrieben. Echter Rueckbau:
+    nur die neuen Zugangsdaten widerrufen, kein Abmelden, kein Schreiben, kein Neustart."""
+    monkeypatch.setattr(f"{FLOW}.async_rollback_first_setup", setup_rollback.async_rollback_first_setup)
+    monkeypatch.setattr(f"{FLOW}.async_rollback_server_only", setup_rollback.async_rollback_server_only)
+    sign_off = AsyncMock(return_value=[])
+    monkeypatch.setattr("custom_components.smartheat.setup_rollback.async_sign_off", sign_off)
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    calls = mock_addons(hass, monkeypatch)
+    fail_addon_reads_after(monkeypatch, mocks.provision)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    result = await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
+    mocks.delete_installation.assert_awaited_once_with(TENANT, PROVISIONING["username"], MQTT_PASSWORD)
+    sign_off.assert_not_awaited()
+    assert (calls.options, calls.restarts, calls.supervision) == ({}, [], [])
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_closing_the_dialog_after_provision_without_writing_rolls_back_once(hass, monkeypatch, rollback):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    fail_addon_reads_after(monkeypatch, mocks.provision)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.server_only.assert_awaited_once()
+    kwargs = rollback.server_only.await_args.kwargs
+    assert (kwargs["first_setup"], kwargs["new_credentials"], kwargs["previous_profile_id"]) == (
+        True, (PROVISIONING["username"], MQTT_PASSWORD), None,
+    )
+    rollback.first.assert_not_awaited()
+    mocks.logout.assert_awaited_once()
+
+
+async def test_finish_dismisses_a_leftover_rollback_notification(hass, monkeypatch):
+    """F5: die Meldung eines frueher abgebrochenen Laufs ist mit dem Abschluss erledigt."""
+    dismissed = []
+    monkeypatch.setattr(
+        "homeassistant.components.persistent_notification.async_dismiss",
+        lambda hass, notification_id: dismissed.append(notification_id),
+    )
+    result, _, _ = await _to_setup(hass, monkeypatch)
+
+    result = await finish_progress(hass, result)
+
+    assert result["type"] == "create_entry"
+    assert "smartheat_wohnung1_setup" in dismissed
+
+
 async def test_abort_before_writing_is_not_rolled_back_but_logs_out(hass, monkeypatch, rollback):
     enable_supervisor(hass, monkeypatch)
     mocks = mock_server(monkeypatch)   # keine Heizungs-Integration -> no_supported_integration
@@ -1010,6 +1071,22 @@ async def test_no_verified_profiles_logs_out(hass, monkeypatch):
     result = await login(hass, await start(hass))
 
     assert result["reason"] == "no_verified_profiles"
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+@pytest.mark.parametrize("version", [1, None])
+async def test_outdated_catalog_aborts_and_logs_out(hass, monkeypatch, version):
+    """0.9.0 setzt Katalog v2 voraus: ein aelterer Server faellt nicht still auf die alte Zonensuche zurueck."""
+    catalog = {key: value for key, value in CATALOG.items() if key != "catalog_version"}
+    if version is not None:
+        catalog["catalog_version"] = version
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
+
+    result = await login(hass, await start(hass))
+
+    assert (result["type"], result["reason"]) == ("abort", "catalog_outdated")
     mocks.logout.assert_awaited_once_with("tok123")
 
 
@@ -1079,7 +1156,7 @@ _EXPECTED_ABORTS = {
     "not_supervisor", "already_configured", "single_instance_allowed", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
     "wrong_account", "reconfigure_first", "reconfigure_successful",
-    "reconfigure_successful_new_credentials", "reauth_successful", "access_denied",
+    "reconfigure_successful_new_credentials", "reauth_successful", "access_denied", "catalog_outdated",
 }
 
 
@@ -1336,6 +1413,30 @@ async def test_unreadable_poll_interval_gives_no_warning(hass, monkeypatch, opti
     """Review Focus 4."""
     result = await _summary_with_mypyllant_options(hass, monkeypatch, options)
 
+    assert not _asks_for(result, "poll_interval")
+
+
+async def test_missing_circuit_entry_gives_no_poll_interval_warning(hass, monkeypatch):
+    """Review Focus 4: der ConfigEntry des Kreises ist inzwischen weg (z. B. entfernt) -> keine Ausnahme,
+    keine Warnung."""
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    mypyllant = setup_mypyllant(hass)
+    hass.config_entries.async_update_entry(mypyllant, options={"update_interval": 7200})
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    result = await login(hass, await start(hass))
+    for data in (SYSTEM_INPUT, ROOMS_INPUT, PLANT_INPUT):
+        result = await configure(hass, result, data)
+    real_get_entry = hass.config_entries.async_get_entry
+    monkeypatch.setattr(
+        hass.config_entries, "async_get_entry",
+        lambda entry_id: None if entry_id == mypyllant.entry_id else real_get_entry(entry_id),
+    )
+
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+
+    assert result["step_id"] == "summary"
     assert not _asks_for(result, "poll_interval")
 
 

@@ -26,8 +26,8 @@ from .const import (
     OPTION_NOTIFY_SERVICES,
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
+    SETUP_DONE_STATUSES,
     STATUS_KONFIGURATIONSFEHLER,
-    STATUS_REGELT,
     STATUS_WAIT_SECONDS,
     STATUS_ZUGANG_ABGELEHNT,
     entry_incomplete,
@@ -201,8 +201,9 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
             if written:  # geschrieben, aber der Neustart scheiterte: nichts Abgelehntes stehen lassen
                 self._restore_note = await self._restore(heizungsbruecke, previous)
             return "failed"
+        # Wie im Wizard: auch ein Warnzustand (Notbetrieb, Abo, Datenfehler) heisst "uebernommen".
         outcome, grund = await self._status.async_wait(
-            setup_id=self._setup_id, done=frozenset({STATUS_REGELT}),
+            setup_id=self._setup_id, done=frozenset(SETUP_DONE_STATUSES),
             failed=frozenset({STATUS_KONFIGURATIONSFEHLER, STATUS_ZUGANG_ABGELEHNT}), timeout=STATUS_WAIT_SECONDS,
         )
         if outcome == WAIT_FAILED:

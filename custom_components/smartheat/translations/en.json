@@ -115,6 +115,7 @@
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",
       "already_configured": "This installation is already set up. To change it, open the SmartHeat entry and choose ⋮ → Reconfigure.",
       "single_instance_allowed": "SmartHeat is already set up in this Home Assistant. To change it, open the SmartHeat entry and choose ⋮ → “Reconfigure”.",
+      "catalog_outdated": "The SmartHeat server is older than this integration (catalog v2 required). Please update the server first or contact support.",
       "no_verified_profiles": "No verified profile is currently available for your heating system. Please try again later or contact support.",
       "addon_missing": "The add-on {addon} is not installed. Install it from the SmartHeat add-on repository, then start the setup again.",
       "addon_ambiguous": "The add-on {addon} is installed more than once. Remove the duplicate installation, then start the setup again.",

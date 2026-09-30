@@ -39,12 +39,13 @@ class RoleMatcher:
 
     def name_circuit(self, original_name: str | None) -> str | None:
         """Kreisnummer an der Stelle von {circuit} in circuit_in_name (ohne Gross-/Kleinschreibung),
-        None ohne circuit_in_name oder ohne Treffer."""
+        None ohne circuit_in_name oder ohne Treffer. Der letzte Treffer zaehlt: mypyllant haengt
+        " (Circuit N)" hinter den frei waehlbaren Zonennamen an, der selbst so etwas enthalten kann."""
         if self.circuit_in_name is None or not original_name:
             return None
         before, _, after = self.circuit_in_name.partition(CIRCUIT_PLACEHOLDER)
-        match = re.search(re.escape(before.lower()) + r"(\d+)" + re.escape(after.lower()), original_name.lower())
-        return match.group(1) if match else None
+        found = re.findall(re.escape(before.lower()) + r"(\d+)" + re.escape(after.lower()), original_name.lower())
+        return found[-1] if found else None
 
 
 @dataclass(frozen=True)

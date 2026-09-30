@@ -1,11 +1,13 @@
 """Neu konfigurieren und Reauth (Spec TP7 2.3, 2.4)."""
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.smartheat import setup_rollback
 from custom_components.smartheat.api_client import ApiError, InvalidAuth, ProfileRejected
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.texts import async_hint
@@ -17,6 +19,7 @@ from .flow_helpers import (
     CF_OPTIONS,
     CF_SECRET,
     CURVE,
+    FLOW,
     FLOW_SETPOINT,
     MIN_FLOW,
     MQTT_PASSWORD,
@@ -28,6 +31,7 @@ from .flow_helpers import (
     ZONE,
     configure,
     enable_supervisor,
+    fail_addon_reads_after,
     fast_status_wait,
     finish_progress,
     has_default,
@@ -559,6 +563,97 @@ async def test_reauth_cancel_is_not_rolled_back(hass, monkeypatch, rollback):
 
     rollback.first.assert_not_awaited()
     rollback.reconfigure.assert_not_awaited()
+
+
+def _entry_with_old_profile(hass, mypyllant):
+    """Eintrag mit einem anderen Profil als dem, das der Wizard waehlt: der Profilwechsel aendert den Server."""
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "profile_id": "altes_profil"})
+    return entry
+
+
+async def test_reconfigure_cancel_after_the_profile_change_resets_only_the_server(hass, monkeypatch, rollback):
+    """F4 (finale Review): update_profile lief, die Add-ons wurden nicht beschrieben. Echter Rueckbau:
+    Profil zuruecksetzen (vor dem Logout), keine Add-on-Optionen, kein Neustart."""
+    monkeypatch.setattr(f"{FLOW}.async_rollback_reconfigure", setup_rollback.async_rollback_reconfigure)
+    monkeypatch.setattr(f"{FLOW}.async_rollback_server_only", setup_rollback.async_rollback_server_only)
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = _entry_with_old_profile(hass, mypyllant)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    fail_addon_reads_after(monkeypatch, mocks.update_profile)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert mocks.update_profile.await_args_list == [
+        call("tok123", TENANT, "vaillant_gastherme_heizkoerper"), call("tok123", TENANT, "altes_profil"),
+    ]
+    mocks.delete_installation.assert_not_awaited()
+    assert (calls.options, calls.restarts, calls.supervision) == ({}, [], [])
+    mocks.logout.assert_awaited_once()
+
+
+async def test_closing_the_dialog_during_the_profile_change_resets_the_profile(hass, monkeypatch, rollback):
+    """Das Profil gilt schon waehrend des Aufrufs als geaendert: ein Abbruch mitten darin wird zurueckgenommen."""
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = _entry_with_old_profile(hass, mypyllant)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def slow_update(*args):
+        entered.set()
+        await release.wait()
+
+    mocks.update_profile.side_effect = slow_update
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await configure(hass, result, {})
+    await asyncio.wait_for(entered.wait(), 5)
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.server_only.assert_awaited_once()
+    kwargs = rollback.server_only.await_args.kwargs
+    assert (kwargs["first_setup"], kwargs["previous_profile_id"], kwargs["profile_id"], kwargs["token"]) == (
+        False, "altes_profil", "vaillant_gastherme_heizkoerper", "tok123",
+    )
+    assert kwargs["new_credentials"] is None
+    rollback.reconfigure.assert_not_awaited()
+    assert calls.options == {}
+
+
+async def test_rejected_profile_change_is_not_rolled_back(hass, monkeypatch, rollback):
+    mypyllant, mocks, _ = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = _entry_with_old_profile(hass, mypyllant)
+    mocks.update_profile.side_effect = ProfileRejected("400")
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    rollback.server_only.assert_not_awaited()
+    rollback.reconfigure.assert_not_awaited()
+    mocks.logout.assert_awaited_once()
+
+
+async def test_reconfigure_finish_dismisses_a_leftover_rollback_notification(hass, monkeypatch):
+    dismissed = []
+    monkeypatch.setattr(
+        "homeassistant.components.persistent_notification.async_dismiss",
+        lambda hass, notification_id: dismissed.append(notification_id),
+    )
+    mypyllant, _, _ = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    assert "smartheat_wohnung1_setup" in dismissed
 
 
 def reconfigure_snapshot(rollback):

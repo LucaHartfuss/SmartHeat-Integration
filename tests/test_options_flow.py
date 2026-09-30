@@ -152,6 +152,18 @@ async def test_timeout_saves_the_options_anyway(hass, monkeypatch):
     assert entry.options["notify_hints_off"] == ["batterie"]
 
 
+@pytest.mark.parametrize("status", ["notbetrieb", "abo_inaktiv"])
+async def test_a_warning_state_saves_without_a_timeout(hass, monkeypatch, status):
+    """Wie im Wizard (SETUP_DONE_STATUSES): das Add-on hat die Optionen uebernommen, auch wenn es gerade
+    einen Warnzustand meldet."""
+    result, entry, _, _ = await _open(hass, monkeypatch, status=status)
+
+    result = await finish_progress(hass, await configure(hass, result, NEW_ROOMS))
+
+    assert result["type"] == "create_entry"
+    assert entry.options["notify_hints_off"] == ["batterie"]
+
+
 async def test_configuration_error_shows_the_reason_and_keeps_the_old_options(hass, monkeypatch):
     result, entry, _, _ = await _open(hass, monkeypatch, status="konfigurationsfehler", grund="Entity fehlt")
     before = dict(entry.options)

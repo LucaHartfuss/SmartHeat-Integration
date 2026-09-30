@@ -125,6 +125,14 @@ def test_circuit_in_name_compares_whole_numbers():
     assert zone.uid_pattern().search("mypyllant_S_zone_12_climate") is not None
 
 
+def test_circuit_in_name_uses_the_last_match():
+    """mypyllant haengt " (Circuit N)" hinter den frei waehlbaren Zonennamen: ein Zonenname, der
+    selbst "(Circuit 1)" enthaelt, darf nicht gewinnen."""
+    zone = RoleMatcher("climate", "_zone_{index}_climate", circuit_in_name="(Circuit {circuit})")
+
+    assert zone.name_circuit("Bad (Circuit 1) Zone (Circuit 0) Climate") == "0"
+
+
 def test_poll_interval_option_is_parsed_and_converted():
     [descriptor] = parse_integrations(CATALOG)
     option = descriptor.poll_interval_option

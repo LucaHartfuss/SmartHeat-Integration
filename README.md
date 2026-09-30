@@ -43,8 +43,9 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 
 ## Update auf 0.9.0
 
-**Zuerst den SmartHeat-Server aktualisieren** (Katalog v2), danach die Integration; 0.9.0 funktioniert
-nicht mit einem älteren Server-Katalog. Ein vollständiger Eintrag aus 0.8.x braucht danach nichts weiter.
+**Zuerst den SmartHeat-Server aktualisieren** (Katalog v2), danach die Integration; 0.9.0 lehnt einen
+älteren Server-Katalog ab (der Assistent bricht mit einem Hinweis ab). Ein vollständiger Eintrag aus
+0.8.x braucht danach nichts weiter.
 
 Neu in 0.9.0: Pro Home Assistant gibt es nur noch einen SmartHeat-Eintrag. Der Wizard schlägt die Heizzone
 nur noch vor, wenn ihr Name den gewählten Heizkreis nennt, und die Entities, auf die SmartHeat schreibt,
