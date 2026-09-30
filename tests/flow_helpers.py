@@ -75,8 +75,11 @@ def mock_server(monkeypatch, *, tenants=(TENANT,), catalog=CATALOG, provisioning
         provision=AsyncMock(return_value=provisioning),
         update_profile=AsyncMock(return_value=PROFILE_PARAMS),
         logout=AsyncMock(return_value=None),
+        delete_installation=AsyncMock(return_value=204),
     )
-    for name in ("login", "list_tenants", "get_catalog", "provision", "update_profile", "logout"):
+    for name in (
+        "login", "list_tenants", "get_catalog", "provision", "update_profile", "logout", "delete_installation",
+    ):
         monkeypatch.setattr(f"{FLOW}.HeizungsserverClient.{name}", getattr(mocks, name))
     return mocks
 
@@ -158,17 +161,18 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
                 set_error=None, status_setup_id=None, supervision_error=None) -> SimpleNamespace:
     """AddonManager-Aufrufe aufzeichnen. Der Neustart der Heizungsbruecke feuert das Status-Event
     wie das echte Add-on (mit der setup_id aus den gesetzten Optionen, ausser status_setup_id)."""
-    calls = SimpleNamespace(options={}, restarts=[], supervision=[])
+    calls = SimpleNamespace(options={}, restarts=[], supervision=[], history=[])
 
     async def set_options(manager, config):
         if set_error is not None:
             raise set_error
         calls.options[manager.addon_slug] = config
+        calls.history.append((manager.addon_slug, dict(config)))
 
     async def restart(manager):
         calls.restarts.append(manager.addon_slug)
         if manager.addon_slug == "heizungsbruecke" and status is not None:
-            setup_id = status_setup_id or calls.options["heizungsbruecke"]["setup_id"]
+            setup_id = status_setup_id or calls.options["heizungsbruecke"].get("setup_id")
             hass.bus.async_fire("smartheat_status", status_event(TENANT, status, setup_id=setup_id, grund=grund))
 
     async def info(manager):

@@ -256,6 +256,8 @@
     "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",
     "options_addon_failed": "Das Add-on Heizungsbrücke konnte nicht aktualisiert werden. Bitte den Supervisor prüfen und erneut versuchen.",
     "removal_incomplete": "SmartHeat wurde entfernt, aber nicht alle Schritte sind gelungen:",
+    "rollback_first_setup": "Die Einrichtung von SmartHeat wurde abgebrochen. Die Add-ons wurden gestoppt und die ausgestellten Zugangsdaten zurückgezogen.",
+    "rollback_reconfigure": "„Neu konfigurieren“ wurde abgebrochen. Die bisherigen Add-on-Einstellungen und das bisherige Heizungsprofil sind wiederhergestellt.",
     "open_step_supervisor": "Der Supervisor war nicht erreichbar. Bitte die Add-ons Heizungsbrücke und Cloudflared Access TCP-Bridge unter Einstellungen → Add-ons von Hand stoppen.",
     "open_step_foreign_tenant": "Die Add-ons gehören zu einer anderen SmartHeat-Anlage und wurden deshalb nicht angefasst.",
     "open_step_no_sign_off": "Die Heizungsbrücke hat die Abmeldung nicht bestätigt und wurde trotzdem gestoppt. Bitte Heizkurve und Zone in der App des Herstellers prüfen: Es können Boost-Werte (Steigung 1,5, Parallelverschiebung 25) stehen geblieben sein.",

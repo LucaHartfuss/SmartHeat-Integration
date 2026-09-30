@@ -19,7 +19,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.hassio import AddonError
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import section
+from homeassistant.data_entry_flow import AbortFlow, section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
@@ -71,6 +71,7 @@ from .const import (
 )
 from .flow_progress import ProgressFlowMixin
 from .options_flow import SmartHeatOptionsFlow
+from .setup_rollback import ReconfigureSnapshot, async_rollback_first_setup, async_rollback_reconfigure
 from .supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
@@ -147,6 +148,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         # Letzter Status des Add-ons beim Abschluss (TP12c 3.1), fuer den Abschlusstext.
         self._final_status: str | None = None
         self._final_grund: str | None = None
+        # Rueckbau ohne Abschluss (TP12c 3.2): in die Add-ons geschrieben, abgeschlossen, Rueckbau
+        # gelaufen; beim Neu konfigurieren der Stand vor dem ersten Schreiben.
+        self._written = False
+        self._finished = False
+        self._rolled_back = False
+        self._snapshot: ReconfigureSnapshot | None = None
 
     @staticmethod
     @callback
@@ -158,6 +165,41 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if self._status is not None:
             self._status.close()
             self._status = None
+        if self._needs_rollback() or self._token is not None:
+            # Dialog geschlossen oder Flow abgebrochen: Rueckbau/Logout im Hintergrund (TP12c 3.2).
+            self.hass.async_create_background_task(self._async_cleanup(), "smartheat_setup_cleanup")
+
+    def _needs_rollback(self) -> bool:
+        return self._written and not self._finished and not self._rolled_back and not self._reauth
+
+    async def _async_rollback(self) -> None:
+        """Genau einmal (async_remove laeuft bei jedem Flow-Ende); vor dem Logout, weil der
+        Profil-Rueckbau das Token braucht."""
+        if not self._needs_rollback():
+            return
+        self._rolled_back = True
+        tenant_id = self._tenant_id
+        assert tenant_id is not None  # geschrieben wird erst nach der Tenant-Auswahl
+        if self._entry is None:
+            await async_rollback_first_setup(self.hass, tenant_id)
+            return
+        snapshot, profile = self._snapshot, self._profile
+        assert snapshot is not None and profile is not None  # _run_setup setzt den Snapshot vor dem Schreiben
+        provisioning = self._provisioning or {}
+        new_credentials = (provisioning["username"], provisioning["password"]) if self._new_credentials else None
+        await async_rollback_reconfigure(
+            self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
+            profile_id=profile["profile_id"], new_credentials=new_credentials,
+        )
+
+    async def _abort(self, reason: str, **placeholders: str):
+        """Jeder Abbruch nach dem Login meldet die Sitzung ab (AU-036)."""
+        await self._logout()
+        return self.async_abort(reason=reason, description_placeholders=placeholders or None)
+
+    async def _async_cleanup(self) -> None:
+        await self._async_rollback()
+        await self._logout()
 
     def _client(self) -> HeizungsserverClient:
         return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
@@ -258,9 +300,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 elif self._entry is None:
                     return await self.async_step_tenant()
                 elif self._tenant_id not in {tenant["tenant_id"] for tenant in self._tenants}:
-                    # Eine erfolgreiche Sitzung nicht offen lassen, obwohl der Flow hier abbricht.
-                    await self._logout()
-                    return self.async_abort(reason="wrong_account")
+                    return await self._abort("wrong_account")
                 elif self._reauth:
                     return await self.async_step_setup()
                 else:
@@ -300,7 +340,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._tenant_id = user_input["tenant_id"]
             # Single-Instance-Guard: zwei Eintraege wuerden dieselben Add-ons beanspruchen.
             await self.async_set_unique_id(self._tenant_id)
-            self._abort_if_unique_id_configured()
+            try:
+                self._abort_if_unique_id_configured()
+            except AbortFlow:
+                await self._logout()
+                raise
             return await self.async_step_heating()
         return self.async_show_form(
             step_id="tenant", data_schema=vol.Schema({vol.Required("tenant_id"): _select(tenant_ids)}),
@@ -318,8 +362,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             except InvalidAuth:
                 return await self._session_lost()
             except AccessDenied as error:
-                await self._logout()
-                return self.async_abort(reason="access_denied", description_placeholders={"grund": error.reason or "-"})
+                return await self._abort("access_denied", grund=error.reason or "-")
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidResponse:
@@ -336,9 +379,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             entry_domains = {entry.domain for entry in self.hass.config_entries.async_entries()}
             self._integrations = detection.installed_integrations(descriptors, entry_domains)
             if not self._integrations:
-                return self.async_abort(
-                    reason="no_supported_integration",
-                    description_placeholders={"supported": ", ".join(sorted(d.label for d in descriptors))},
+                return await self._abort(
+                    "no_supported_integration", supported=", ".join(sorted(d.label for d in descriptors)),
                 )
             user_input = None
         domains = [descriptor.domain for descriptor in self._integrations]
@@ -388,12 +430,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._entries, self._devices = detection.registry_snapshot(self.hass)
             self._circuits = detection.find_circuits(integration, self._entries, self._devices)
             if not self._circuits:
-                return self.async_abort(
-                    reason="no_heating_circuit", description_placeholders={"integration": integration.label},
-                )
+                return await self._abort("no_heating_circuit", integration=integration.label)
         profiles = [p for p in verified_profiles(catalog) if p["hersteller"] == integration.hersteller]
         if not profiles:
-            return self.async_abort(reason="no_verified_profiles")
+            return await self._abort("no_verified_profiles")
         erzeuger_typen = _erzeuger_typen(catalog)
 
         errors: dict[str, str] = {}
@@ -780,6 +820,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
         try:
             heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
+            if self._entry is not None and not self._reauth and self._snapshot is None:
+                # Stand vor dem ERSTEN Schreiben dieses Laufs (auch nach "Zurueck zur Auswahl").
+                self._snapshot = ReconfigureSnapshot(
+                    dict((await heizungsbruecke.async_get_addon_info()).options),
+                    dict((await cloudflared.async_get_addon_info()).options),
+                    self._entry.data["profile_id"],
+                )
             if self._provisioning is None:
                 next_step = await self._obtain_access(heizungsbruecke, cloudflared)
                 if next_step is not None:
@@ -788,7 +835,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             if self._status is None:
                 self._status = StatusListener(self.hass, tenant_id)
             existing = (await heizungsbruecke.async_get_addon_info()).options
-            await heizungsbruecke.async_set_addon_options(self._heizungsbruecke_options(existing))
+            options = self._heizungsbruecke_options(existing)
+            # Vor dem Aufruf: auch ein abgebrochener oder gescheiterter Aufruf kann geschrieben haben.
+            self._written = True
+            await heizungsbruecke.async_set_addon_options(options)
             await cloudflared.async_set_addon_options(self._cloudflared_options())
             failed = await async_set_supervision(
                 self.hass, [heizungsbruecke.addon_slug, cloudflared.addon_slug], enabled=True,
@@ -976,7 +1026,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return self.async_show_menu(step_id="setup_timeout", menu_options=["wait_status", "cancel"])
 
     async def async_step_cancel(self, user_input: dict | None = None):
-        return self.async_abort(reason="setup_cancelled")
+        await self._async_rollback()
+        return await self._abort("setup_cancelled")
 
     def _entry_data(self) -> dict:
         profile = self._profile
@@ -1018,6 +1069,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return "\n\n".join(lines)
 
     async def async_step_finish(self, user_input: dict | None = None):
+        self._finished = True
         await self._logout()
         notes = await self._notes()
         entry = self._entry

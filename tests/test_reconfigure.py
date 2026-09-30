@@ -1,4 +1,7 @@
 """Neu konfigurieren und Reauth (Spec TP7 2.3, 2.4)."""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -456,3 +459,81 @@ async def test_reconfigure_keeps_stored_phones_when_none_is_registered(hass, mon
     await hass.async_block_till_done()
 
     assert entry.options["notify_services"] == ["notify.mobile_app_pixel"]
+
+
+# --- Rueckbau bei Abbruch (TP12c 3.2) ---
+
+async def test_reconfigure_cancel_restores_through_the_rollback(hass, monkeypatch, rollback):
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+                                       status="konfigurationsfehler", grund="x")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    kwargs = rollback.reconfigure.await_args.kwargs
+    assert kwargs["snapshot"].bridge_options == BRIDGE_OPTIONS
+    assert kwargs["snapshot"].cloudflared_options == CF_OPTIONS
+    assert kwargs["snapshot"].profile_id == "vaillant_gastherme_heizkoerper"
+    assert (kwargs["token"], kwargs["new_credentials"]) == ("tok123", None)
+    rollback.reconfigure.assert_awaited_once()
+    mocks.logout.assert_awaited_once()
+
+
+async def test_reconfigure_rollback_restores_the_state_before_the_first_attempt(hass, monkeypatch, rollback):
+    """Review Focus 2: Zurueck zur Auswahl, zweiter Versuch, dann Abbrechen."""
+    mypyllant, _, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+                                   status="konfigurationsfehler", grund="x")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    # Das Add-on liefert ab jetzt die im ersten Versuch geschriebenen Optionen.
+    written = calls.options["heizungsbruecke"]
+    monkeypatch.setattr(
+        "homeassistant.components.hassio.AddonManager.async_get_addon_info",
+        AsyncMock(return_value=SimpleNamespace(options=dict(written))),
+    )
+    result = await configure(hass, result, {"next_step_id": "rooms"})
+    for data in (ROOMS_INPUT, PLANT_INPUT, {"notify_services": ["notify.mobile_app_pixel"]}):
+        result = await configure(hass, result, data)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert reconfigure_snapshot(rollback).bridge_options == BRIDGE_OPTIONS
+
+
+async def test_reconfigure_with_new_credentials_hands_them_to_the_rollback(hass, monkeypatch, rollback):
+    mypyllant, _, _ = _prepare(hass, monkeypatch, existing_options={"tenant_id": TENANT}, cloudflared_options={},
+                               status="konfigurationsfehler", grund="x")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert rollback.reconfigure.await_args.kwargs["new_credentials"] == (PROVISIONING["username"], MQTT_PASSWORD)
+
+
+async def test_reauth_cancel_is_not_rolled_back(hass, monkeypatch, rollback):
+    mypyllant, _, _ = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+                               status="konfigurationsfehler", grund="x")
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await finish_progress(hass, await login(hass, await entry.start_reauth_flow(hass)))
+    assert result["step_id"] == "setup_failed"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    rollback.first.assert_not_awaited()
+    rollback.reconfigure.assert_not_awaited()
+
+
+def reconfigure_snapshot(rollback):
+    rollback.reconfigure.assert_awaited_once()
+    return rollback.reconfigure.await_args.kwargs["snapshot"]

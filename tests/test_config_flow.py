@@ -1,4 +1,5 @@
 """Config-Flow 2.0 (Spec TP6, Tests laut Spec 6)."""
+import asyncio
 import copy
 import json
 import logging
@@ -892,13 +893,112 @@ async def test_outdated_addon_found_again_at_setup(hass, monkeypatch):
     assert "0.18.0" in result["description_placeholders"]["grund"]
 
 
-async def test_cancel_after_a_failure(hass, monkeypatch):
-    result, _, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
+# --- Rueckbau und Logout bei Abbruch (TP12c 3.2, 3.5; AU-020, AU-036) ---
+
+async def test_cancel_after_a_failure_rolls_back_and_logs_out(hass, monkeypatch, rollback):
+    result, mocks, _ = await _to_setup(hass, monkeypatch, status="konfigurationsfehler", grund="x")
     result = await finish_progress(hass, result)
 
     result = await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
 
     assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_cancel_after_a_timeout_rolls_back(hass, monkeypatch, rollback):
+    result, _, _ = await _to_setup(hass, monkeypatch, status=None)
+    result = await finish_progress(hass, result)
+    assert result["step_id"] == "setup_timeout"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once()
+
+
+async def test_closing_the_dialog_after_a_timeout_rolls_back(hass, monkeypatch, rollback):
+    result, mocks, _ = await _to_setup(hass, monkeypatch, status=None)
+    result = await finish_progress(hass, result)
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+    mocks.logout.assert_awaited_once()
+
+
+async def test_closing_the_dialog_during_setup_rolls_back_once(hass, monkeypatch, rollback):
+    """Review Focus 1: Abbruch mitten im Fortschritts-Task (Optionen schon geschrieben)."""
+    result, _, calls = await _to_setup(hass, monkeypatch, status=None)
+    # Der Task ist noch nicht gestartet (eager_start=False) und liest das Zeitlimit erst beim Warten.
+    fast_status_wait(monkeypatch, 30)
+    await asyncio.sleep(0.05)   # Task schreibt die Optionen und wartet auf das Status-Event
+    assert result["type"] == "progress"
+    assert "heizungsbruecke" in calls.options
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.first.assert_awaited_once_with(hass, TENANT)
+
+
+async def test_finished_setup_is_not_rolled_back(hass, monkeypatch, rollback):
+    result, _, _ = await _to_setup(hass, monkeypatch)
+    result = await finish_progress(hass, result)
+    await hass.async_block_till_done()
+
+    assert result["type"] == "create_entry"
+    rollback.first.assert_not_awaited()
+
+
+async def test_abort_before_writing_is_not_rolled_back_but_logs_out(hass, monkeypatch, rollback):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)   # keine Heizungs-Integration -> no_supported_integration
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "no_supported_integration"
+    mocks.logout.assert_awaited_once_with("tok123")
+    rollback.first.assert_not_awaited()
+
+
+async def test_no_heating_circuit_logs_out(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch)
+    setup_mypyllant(hass, circuits=())
+
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "no_heating_circuit"
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_no_verified_profiles_logs_out(hass, monkeypatch):
+    catalog = {**CATALOG, "profiles": [p for p in CATALOG["profiles"] if p["hersteller"] != "Vaillant"]}
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
+
+    result = await login(hass, await start(hass))
+
+    assert result["reason"] == "no_verified_profiles"
+    mocks.logout.assert_awaited_once_with("tok123")
+
+
+async def test_tenant_configured_meanwhile_aborts_and_logs_out(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mocks = mock_server(monkeypatch, tenants=("wohnung1", "wohnung2"))
+    setup_mypyllant(hass)
+    result = await login(hass, await start(hass))
+    assert result["step_id"] == "tenant"
+    # Ein zweiter Flow hat den Tenant inzwischen eingerichtet.
+    MockConfigEntry(domain=DOMAIN, unique_id="wohnung2", data={"tenant_id": "wohnung2"}, version=2).add_to_hass(hass)
+
+    result = await configure(hass, result, {"tenant_id": "wohnung2"})
+
+    assert (result["type"], result["reason"]) == ("abort", "already_configured")
+    mocks.logout.assert_awaited_once_with("tok123")
 
 
 # --- J: Eintraege und Texte ---
