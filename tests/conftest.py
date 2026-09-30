@@ -3,6 +3,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+# Vor dem ersten Test importieren: Die autouse-Fixture `rollback` patcht config_flow, und ohne vorherigen
+# Import (Testdatei ohne eigenen Integrationsimport, z. B. test_addon_schema.py allein) findet der
+# Monkeypatch custom_components.smartheat nicht.
+import custom_components.smartheat.config_flow  # noqa: F401
+
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
