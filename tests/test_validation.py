@@ -123,4 +123,4 @@ async def test_check_rooms_returns_refs_and_field_errors(hass):
 
 def test_entity_selector_adds_the_integration_to_every_filter():
     config = validation.entity_selector("entity_heat_limit", integration="mypyllant").config
-    assert [entry["integration"] for entry in config["filter"]] == ["mypyllant", "mypyllant"]
+    assert [entry["integration"] for entry in config["filter"]] == ["mypyllant"]

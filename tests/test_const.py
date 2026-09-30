@@ -41,8 +41,17 @@ def test_status_fields_tp11():
     assert "offset" not in const.STATUS_EVENT_FIELDS
 
 
+def test_heat_limit_is_a_writable_number_tp12h():
+    """TP12h: SmartHeat schreibt die Heizgrenze, daher nur number (kein Sensor mehr)."""
+    assert const.ROLE_DOMAINS["entity_heat_limit"] == ["number"]
+    assert const.ENTITY_FILTERS["entity_heat_limit"] == [{"domain": "number"}]
+    assert "heizgrenze" in const.STATUS_EVENT_FIELDS
+    fields = const.STATUS_EVENT_FIELDS
+    assert fields.index("heizgrenze") == fields.index("mindestvorlauf") + 1
+
+
 def test_min_addon_version():
-    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.26.0"
+    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.27.0"
 
 
 def test_wait_seconds_are_the_plan_values():

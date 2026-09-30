@@ -69,6 +69,10 @@ FIELDS = (
         device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS,
     ),
     EventField(
+        key="heizgrenze", value=lambda d: d["heizgrenze"], restore=_number,
+        device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS,
+    ),
+    EventField(
         key="abo", value=lambda d: d["abo"], attributes=lambda d: {"frist_ende": d["abo_frist_ende"]},
         attribute_keys=("frist_ende",), device_class=SensorDeviceClass.ENUM, options=list(ABO_VALUES),
     ),
@@ -154,8 +158,8 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         if self._field.device_class == SensorDeviceClass.TIMESTAMP and isinstance(value, datetime) and value.tzinfo is None:
             return None
         if self._field.restore is _number:
-            # Numerische Felder (heizkurve, parallelverschiebung, mindestvorlauf): _number liefert None fuer nicht-numerische
-            # Werte; NaN/Inf sind fuer float() gueltig, aber fuer HA-Sensoren nicht (isfinite).
+            # Numerische Felder (heizkurve, parallelverschiebung, mindestvorlauf, heizgrenze): _number liefert None
+            # fuer nicht-numerische Werte; NaN/Inf sind fuer float() gueltig, aber fuer HA-Sensoren nicht (isfinite).
             number = _number(value)
             return number if number is not None and isfinite(number) else None
         return value

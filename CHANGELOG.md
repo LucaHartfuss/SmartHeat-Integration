@@ -3,6 +3,12 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.10.0
+
+- Heizgrenze als Stellgröße (TP12h): Die Entity für die Heizgrenze muss eine `number` sein (SmartHeat schreibt
+  sie); ein bisher gewählter Sensor fordert „Neu konfigurieren“. Neuer Status-Sensor „Heizgrenze“.
+- Voraussetzung: Add-on Heizungsbrücke ab 0.27.0 und SmartHeat-Server mit TP12h (Server vor Add-on vor Integration).
+
 ## 0.9.0
 
 - Wizard-Zuordnung sicher (TP12c): Die Heizzone wird nur noch vorgeschlagen, wenn ihr Name den gewählten

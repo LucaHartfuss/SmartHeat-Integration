@@ -33,7 +33,7 @@
           "entity_curve_current": "Heating curve",
           "entity_shift_current": "Parallel shift (heating zone target temperature)",
           "entity_min_flow": "Minimum flow temperature",
-          "entity_heat_limit": "Heating limit",
+          "entity_heat_limit": "Heating limit (controlled by SmartHeat)",
           "entity_outdoor_temp": "Outdoor temperature",
           "entity_flow_setpoint": "Heating flow setpoint (optional)"
         },
@@ -208,6 +208,7 @@
       "heizkurve": {"name": "Learned heating curve"},
       "parallelverschiebung": {"name": "Learned parallel shift"},
       "mindestvorlauf": {"name": "Minimum flow temperature"},
+      "heizgrenze": {"name": "Heating limit (controlled by SmartHeat)"},
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
       "addon_version": {"name": "Add-on version"}
     },
