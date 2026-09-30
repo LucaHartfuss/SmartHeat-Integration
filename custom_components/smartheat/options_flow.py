@@ -207,7 +207,8 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
             failed=frozenset({STATUS_KONFIGURATIONSFEHLER, STATUS_ZUGANG_ABGELEHNT}), timeout=STATUS_WAIT_SECONDS,
         )
         if outcome == WAIT_FAILED:
-            self._error = grund or ""
+            assert grund is not None  # WAIT_FAILED traegt immer einen Text (StatusListener._outcome)
+            self._error = grund
             self._restore_note = await self._restore(heizungsbruecke, previous)
             return "failed"
         return "save" if outcome == WAIT_DONE else "timeout"

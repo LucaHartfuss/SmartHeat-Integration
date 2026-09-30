@@ -994,7 +994,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._final_grund = latest.get("grund")
             return "finish"
         if outcome == WAIT_FAILED:
-            self._setup_error = grund or ""
+            assert grund is not None  # WAIT_FAILED traegt immer einen Text (StatusListener._outcome)
+            self._setup_error = grund
             return "setup_failed"
         return "setup_timeout"
 

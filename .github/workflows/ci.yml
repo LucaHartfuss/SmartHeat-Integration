@@ -56,9 +56,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: pip install -r requirements_test.txt
-      - name: HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.4.4)
-        run: pip install pytest-homeassistant-custom-component==0.13.325
+      - name: Test-Abhaengigkeiten mit der HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.4.4)
+        run: pip install pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.325
+      - name: Kein Paket der neuen HA-Version im Environment
+        run: pip show homeassistant | grep -q '^Version: 2026\.4\.4$'
       - run: PYTHON=python bash scripts/check.sh --only test
   hassfest:
     runs-on: ubuntu-24.04
@@ -75,9 +76,7 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # license: GitHub erkennt die Lizenz nur auf main; LICENSE liegt im Repo. Nach dem
-          # ersten Integration-Release "license" wieder entfernen (docs/ci-cd-runbook.md).
-          ignore: brands license
+          ignore: brands
   contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
