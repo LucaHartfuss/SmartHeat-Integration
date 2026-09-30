@@ -66,8 +66,8 @@ STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 1
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-    "boost", "letzte_serverantwort", "kurve", "parallelverschiebung", "mindestvorlauf", "abo",
-    "abo_frist_ende", "hinweise",
+    "boost", "letzte_serverantwort", "kurve", "parallelverschiebung", "mindestvorlauf", "heizgrenze",
+    "abo", "abo_frist_ende", "hinweise",
 )
 STATUS_STARTET = "startet"
 STATUS_REGELT = "regelt"
@@ -175,7 +175,8 @@ ROLE_DOMAINS: dict[str, list[str]] = {
     "entity_shift_current": ["climate"],
     # Mindestvorlauftemperatur: nur Untergrenze, das Add-on setzt sie auf die Wunschtemperatur.
     "entity_min_flow": ["number"],
-    "entity_heat_limit": ["number", "sensor"],
+    # Heizgrenze (TP12h): SmartHeat schreibt sie, daher nur number.
+    "entity_heat_limit": ["number"],
     # Vorlauf-Soll der Therme (optional): zeigt dem Server, wann geheizt wird.
     "entity_flow_setpoint": ["sensor"],
 }
@@ -239,7 +240,8 @@ def kpi_energy_role(channel: str) -> str:
 _TEMPERATURE_SENSOR = {"domain": "sensor", "device_class": "temperature"}
 ENTITY_FILTERS: dict[str, list[dict[str, str]]] = {
     OPTION_ROOM_SENSORS: [_TEMPERATURE_SENSOR, {"domain": "climate"}],
-    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen, Heizgrenze).
+    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen). Die Heizgrenze ist
+    # seit TP12h nur noch number (SmartHeat schreibt sie), hier greift also nur der number-Filter.
     **{role: [_TEMPERATURE_SENSOR if domain == "sensor" else {"domain": domain} for domain in domains]
        for role, domains in ROLE_DOMAINS.items()},
     "entity_flow_temperature": [_TEMPERATURE_SENSOR],
@@ -263,7 +265,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.26.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.27.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 

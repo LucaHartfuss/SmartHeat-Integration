@@ -33,7 +33,7 @@
           "entity_curve_current": "Heizkurve",
           "entity_shift_current": "Parallelverschiebung (Wunschtemperatur der Heizzone)",
           "entity_min_flow": "Mindestvorlauftemperatur",
-          "entity_heat_limit": "Heizgrenze",
+          "entity_heat_limit": "Heizgrenze (wird von SmartHeat geregelt)",
           "entity_outdoor_temp": "Außentemperatur",
           "entity_flow_setpoint": "Vorlauf-Soll der Heizung (optional)"
         },
@@ -208,6 +208,7 @@
       "heizkurve": {"name": "Gelernte Heizkurve"},
       "parallelverschiebung": {"name": "Gelernte Parallelverschiebung"},
       "mindestvorlauf": {"name": "Mindestvorlauftemperatur"},
+      "heizgrenze": {"name": "Heizgrenze (von SmartHeat geregelt)"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
       "addon_version": {"name": "Add-on-Version"}
     },

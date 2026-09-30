@@ -437,7 +437,7 @@ async def test_plant_value_selectors_filter_by_device_class(hass, monkeypatch):
     assert offers(result, "entity_outdoor_temp", "weather")
     assert not offers(result, "entity_outdoor_temp", "sensor")
     assert offers(result, "entity_heat_limit", "number")
-    assert offers(result, "entity_heat_limit", "sensor", "temperature")
+    assert not offers(result, "entity_heat_limit", "sensor", "temperature")
     assert not offers(result, "entity_heat_limit", "sensor")
     for field in ("entity_curve_current", "entity_min_flow"):
         assert offers(result, field, "number")

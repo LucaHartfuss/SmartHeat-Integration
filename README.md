@@ -7,7 +7,7 @@ Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor (Hass.io/HAOS).
-- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.26.0
+- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.27.0
   und `cloudflared_access_mqtt` ≥ 1.0.0 (nicht manuell konfigurieren — der Wizard prueft die
   Mindestversion vor jedem Setup und bricht sonst mit einer Fehlermeldung ab).
 - Eine unterstuetzte Heizungs-Integration in Home Assistant eingerichtet (z. B. myVAILLANT).
@@ -40,6 +40,12 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
   gestoppt und ihre Zugangsdaten geleert. Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
   es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
   ebenfalls (Best Effort — scheitert das, bleiben sie bis zur nächsten Einrichtung gültig).
+
+## Update auf 0.10.0
+
+**Reihenfolge: SmartHeat-Server (TP12h), dann Add-on `heizungsbruecke` 0.27.0, dann die Integration.** Die
+Heizgrenze muss jetzt eine `number`-Entity sein, weil SmartHeat sie schreibt; ein bisher gewählter Sensor
+fordert „Neu konfigurieren“. Neu: Sensor `sensor.smartheat_<anlage>_heizgrenze`.
 
 ## Update auf 0.9.0
 
