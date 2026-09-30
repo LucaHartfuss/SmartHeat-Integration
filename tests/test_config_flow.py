@@ -159,9 +159,9 @@ async def test_already_configured_tenant_aborts(hass, monkeypatch):
     mock_server(monkeypatch)
     setup_mypyllant(hass)
 
-    result = await login(hass, await start(hass))
+    result = await start(hass)
 
-    assert (result["type"], result["reason"]) == ("abort", "already_configured")
+    assert (result["type"], result["reason"]) == ("abort", "single_instance_allowed")
 
 
 # --- C: Heizungs-Integration ---
@@ -897,9 +897,9 @@ async def test_created_entry_blocks_a_second_flow_for_the_tenant(hass, monkeypat
     result, _, _ = await _to_setup(hass, monkeypatch)
     await finish_progress(hass, result)
 
-    second = await login(hass, await start(hass))
+    second = await start(hass)
 
-    assert (second["type"], second["reason"]) == ("abort", "already_configured")
+    assert (second["type"], second["reason"]) == ("abort", "single_instance_allowed")
 
 
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
@@ -910,7 +910,7 @@ _EXPECTED_ERRORS = {
     "state_class_expected_measurement", "state_class_expected_total_increasing", "zone_is_room_target",
 }
 _EXPECTED_ABORTS = {
-    "not_supervisor", "already_configured", "no_verified_profiles", "addon_missing", "addon_ambiguous",
+    "not_supervisor", "already_configured", "single_instance_allowed", "no_verified_profiles", "addon_missing", "addon_ambiguous",
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
     "wrong_account", "reconfigure_first", "reconfigure_successful", "reconfigure_successful_warning",
     "reconfigure_successful_new_credentials", "reconfigure_successful_new_credentials_warning",
@@ -986,8 +986,8 @@ async def test_already_configured_abort_points_to_reconfigure(hass, monkeypatch)
     mock_server(monkeypatch)
     setup_mypyllant(hass)
 
-    result = await login(hass, await start(hass))
+    result = await start(hass)
 
-    assert result["reason"] == "already_configured"
-    text = json.loads((_COMPONENT / "translations/de.json").read_text())["config"]["abort"]["already_configured"]
+    assert result["reason"] == "single_instance_allowed"
+    text = json.loads((_COMPONENT / "translations/de.json").read_text())["config"]["abort"]["single_instance_allowed"]
     assert "Neu konfigurieren" in text

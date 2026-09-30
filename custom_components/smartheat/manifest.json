@@ -4,6 +4,7 @@
   "after_dependencies": ["hassio"],
   "codeowners": ["@LucaHartfuss"],
   "config_flow": true,
+  "single_config_entry": true,
   "documentation": "https://github.com/LucaHartfuss/SmartHeat-Integration",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/LucaHartfuss/SmartHeat-Integration/issues",

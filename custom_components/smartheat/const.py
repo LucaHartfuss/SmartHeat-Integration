@@ -119,6 +119,25 @@ def watchdog_notification_id(tenant_id: str) -> str:
     return f"smartheat_{slug(tenant_id)}_addon"
 
 
+# Offene Schritte beim Entfernen/Rueckbau (TP12c); Hinweistexte common.open_step_<problem>.
+PROBLEM_SUPERVISOR = "supervisor"
+PROBLEM_FOREIGN_TENANT = "foreign_tenant"
+PROBLEM_NO_SIGN_OFF = "no_sign_off"
+PROBLEM_STOP = "stop"
+PROBLEM_REVOKE = "revoke"
+PROBLEM_CLEAR = "clear"
+PROBLEM_PROFILE = "profile"
+PROBLEM_ADDONS = "addons"
+
+
+def removal_notification_id(tenant_id: str) -> str:
+    return f"smartheat_{slug(tenant_id)}_removal"
+
+
+def setup_notification_id(tenant_id: str) -> str:
+    return f"smartheat_{slug(tenant_id)}_setup"
+
+
 def repair_issue_id(entry_id: str) -> str:
     return f"complete_setup_{entry_id}"
 

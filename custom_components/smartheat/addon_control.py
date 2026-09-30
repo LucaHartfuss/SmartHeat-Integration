@@ -26,13 +26,21 @@ from .const import (
     HEIZUNGSBRUECKE_ADDON_SLUG,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
+    PROBLEM_CLEAR,
+    PROBLEM_FOREIGN_TENANT,
+    PROBLEM_NO_SIGN_OFF,
+    PROBLEM_REVOKE,
+    PROBLEM_STOP,
+    PROBLEM_SUPERVISOR,
     SIGN_OFF_WAIT_SECONDS,
     STATUS_ABGEMELDET,
     STATUS_EVENT,
     STATUS_EVENT_SCHEMA,
+    removal_notification_id,
     watchdog_notification_id,
 )
 from .supervisor_client import async_find_addon_managers
+from .texts import async_hint
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,14 +143,20 @@ class _ServerCredentials:
     password: str
 
 
-async def _async_read_server_credentials(bridge: AddonManager | None) -> _ServerCredentials | None:
-    """Zugangsdaten und Basis-URL aus den Optionen der Heizungsbruecke -- vor dem Leeren gelesen."""
+async def _async_read_bridge_options(bridge: AddonManager | None) -> dict | None:
+    """Optionen der Heizungsbruecke vor jedem Schritt (Tenant-Pruefung, Widerruf); None ohne Add-on
+    oder wenn sie nicht lesbar sind."""
     if bridge is None:
         return None
     try:
-        options = (await bridge.async_get_addon_info()).options
+        return dict((await bridge.async_get_addon_info()).options)
     except AddonError as error:
         _LOGGER.warning("Entfernen: Optionen der Heizungsbruecke nicht lesbar, kein Widerruf auf dem Server: %s", error)
+        return None
+
+
+def _server_credentials(options: dict | None) -> _ServerCredentials | None:
+    if options is None:
         return None
     username_key, password_key = BRIDGE_CREDENTIAL_OPTIONS
     username, password = options.get(username_key), options.get(password_key)
@@ -152,12 +166,14 @@ async def _async_read_server_credentials(bridge: AddonManager | None) -> _Server
     return _ServerCredentials(base_url, username, password)
 
 
-async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentials: _ServerCredentials | None) -> None:
+async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentials: _ServerCredentials | None) -> bool:
     """Spec TP8 4: best effort. Scheitert es, bleiben die Zugangsdaten bis zur naechsten
-    Einrichtung gueltig; das Entfernen laeuft trotzdem weiter. Nie Zugangsdaten loggen."""
+    Einrichtung gueltig; das Entfernen laeuft trotzdem weiter. Nie Zugangsdaten loggen. True, wenn
+    nichts mehr offen ist (kein Zugang, 204, 401), False bei nicht erreichbarem Server, anderem
+    Status oder unerwartetem Fehler."""
     if credentials is None:
         _LOGGER.info("Entfernen: keine Zugangsdaten in der Heizungsbruecke, kein Widerruf auf dem Server")
-        return
+        return True
     try:
         client = HeizungsserverClient(async_get_clientsession(hass), credentials.base_url)
         status = await client.delete_installation(tenant_id, credentials.username, credentials.password)
@@ -166,37 +182,61 @@ async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentia
         # Bug in der Aufrufkette) darf das Leeren der Add-on-Zugangsdaten unten nicht verhindern.
         # Nie Zugangsdaten loggen.
         _LOGGER.warning("Entfernen: Widerruf auf dem Server unerwartet fehlgeschlagen: %s", error)
-        return
+        return False
     if status == 204:
         _LOGGER.info("Entfernen: Zugangsdaten auf dem Server widerrufen")
     elif status == 401:
         _LOGGER.warning("Entfernen: Server kennt die Zugangsdaten nicht (bereits ersetzt?)")
     elif status is None:
         _LOGGER.warning("Entfernen: Server nicht erreichbar, die Zugangsdaten bleiben bis zur naechsten Einrichtung gueltig")
+        return False
     else:
         _LOGGER.warning(
             "Entfernen: Widerruf auf dem Server fehlgeschlagen (HTTP %s), die Zugangsdaten bleiben bis zur "
             "naechsten Einrichtung gueltig", status,
         )
+        return False
+    return True
 
 
-async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
-    """Entfernen (Spec TP7 2.7), jeder Schritt best effort: Heizungsbruecke abmelden (ein laufender
+async def async_sign_off(hass: HomeAssistant, tenant_id: str, *, notify: bool = True) -> list[str]:
+    """Entfernen (Spec TP7 2.7, TP12c 3.4), jeder Schritt best effort: Heizungsbruecke abmelden (ein laufender
     Boost wird zurueckgesetzt), hoechstens SIGN_OFF_WAIT_SECONDS auf `abgemeldet` warten, beide
     Add-ons stoppen (manuell, der Watchdog greift nicht), Watchdog/Boot aus, Zugangsdaten in den
     Optionen leeren, eigene Benachrichtigung entfernen. Nach dem Stoppen widerruft der Server die
     Zugangsdaten (Spec TP8 4, best effort). Scheitert das Zuruecksetzen eines Boosts, bleibt die
     Heizungsbruecke samt Watchdog/Boot laufen: sie wiederholt es im Ruhezustand selbst, auch ohne
-    Zugangsdaten und nach einem Neustart, und meldet es dem Kunden (TP7-Gates 2026-09-29)."""
+    Zugangsdaten und nach einem Neustart, und meldet es dem Kunden (TP7-Gates 2026-09-29).
+    Gehoert die Heizungsbruecke laut ihren Optionen einem anderen Tenant (AU-011), wird keines der
+    beiden Add-ons angefasst. Liefert die offenen Schritte; mit notify=True legt es dafuer eine
+    Benachrichtigung an (der Rueckbau des Wizards meldet selbst)."""
+    problems: list[str] = []
     try:
         managers = await async_find_addon_managers(hass, ADDON_SPECS)
     except AddonError as error:
         _LOGGER.warning("Entfernen: Supervisor nicht erreichbar, Add-ons nicht abgemeldet: %s", error)
         managers = {}
+        problems.append(PROBLEM_SUPERVISOR)
     bridge = managers.get(HEIZUNGSBRUECKE_ADDON_SLUG)
     cloudflared = managers.get(CLOUDFLARED_ADDON_SLUG)
-    credentials = await _async_read_server_credentials(bridge)
-    keep_bridge = bridge is not None and await _async_sign_off_bridge(hass, bridge, tenant_id)
+    options = await _async_read_bridge_options(bridge)
+    owner = (options or {}).get("tenant_id")
+    if owner and owner != tenant_id:
+        _LOGGER.warning("Entfernen: Heizungsbruecke gehoert einem anderen Tenant, Add-ons bleiben unberuehrt")
+        problems.append(PROBLEM_FOREIGN_TENANT)
+    else:
+        problems += await _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, _server_credentials(options))
+    persistent_notification.async_dismiss(hass, watchdog_notification_id(tenant_id))
+    if notify and problems:
+        await async_notify_open_steps(hass, removal_notification_id(tenant_id), "removal_incomplete", problems)
+    return problems
+
+
+async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentials) -> list[str]:
+    problems: list[str] = []
+    keep_bridge, confirmed = (False, True) if bridge is None else await _async_sign_off_bridge(hass, bridge, tenant_id)
+    if bridge is not None and not confirmed:
+        problems.append(PROBLEM_NO_SIGN_OFF)
     to_stop = [bridge, cloudflared] if not keep_bridge else [cloudflared]
     present = [manager for manager in to_stop if manager is not None]
     for manager in present:
@@ -204,9 +244,12 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
             await manager.async_stop_addon()
         except AddonError as error:
             _LOGGER.warning("Entfernen: Add-on %s nicht gestoppt: %s", manager.addon_slug, error)
+            if PROBLEM_STOP not in problems:
+                problems.append(PROBLEM_STOP)
     if present:
         await async_set_supervision(hass, [manager.addon_slug for manager in present], enabled=False)
-    await _async_revoke_on_server(hass, tenant_id, credentials)
+    if not await _async_revoke_on_server(hass, tenant_id, credentials):
+        problems.append(PROBLEM_REVOKE)
     for manager, keys in ((bridge, BRIDGE_CREDENTIAL_OPTIONS), (cloudflared, CLOUDFLARED_CREDENTIAL_OPTIONS)):
         if manager is None:
             continue
@@ -214,12 +257,22 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str) -> None:
             await async_update_addon_options(manager, {key: "" for key in keys})
         except AddonError as error:
             _LOGGER.warning("Entfernen: Zugangsdaten von %s nicht geleert: %s", manager.addon_slug, error)
-    persistent_notification.async_dismiss(hass, watchdog_notification_id(tenant_id))
+            if PROBLEM_CLEAR not in problems:
+                problems.append(PROBLEM_CLEAR)
+    return problems
 
 
-async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tenant_id: str) -> bool:
-    """True, wenn die Heizungsbruecke weiterlaufen muss: abgemeldet, aber ihr Boost steht noch auf
-    der Anlage (das Zuruecksetzen scheitert, sie versucht es weiter)."""
+async def async_notify_open_steps(hass: HomeAssistant, notification_id: str, headline_key: str, problems: list[str]) -> None:
+    """Eine Benachrichtigung: Kopfzeile plus je offenem Schritt eine Handlungsanweisung (TP12c)."""
+    lines = [await async_hint(hass, headline_key)]
+    lines += [f"- {await async_hint(hass, f'open_step_{problem}')}" for problem in problems]
+    persistent_notification.async_create(hass, "\n".join(lines), title="SmartHeat", notification_id=notification_id)
+
+
+async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tenant_id: str) -> tuple[bool, bool]:
+    """(keep_running, confirmed): keep_running, wenn die Heizungsbruecke weiterlaufen muss
+    (abgemeldet, aber ihr Boost steht noch auf der Anlage, das Zuruecksetzen scheitert, sie versucht
+    es weiter); confirmed, wenn sie die Abmeldung bestaetigt hat."""
     listener = StatusListener(hass, tenant_id)
     try:
         await async_update_addon_options(bridge, {OPTION_ABGEMELDET: True})
@@ -230,17 +283,17 @@ async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tena
         latest = listener.latest
     except AddonError as error:
         _LOGGER.warning("Entfernen: Heizungsbruecke nicht abgemeldet: %s", error)
-        return False
+        return False, False
     finally:
         listener.close()
     if outcome != WAIT_DONE:
         _LOGGER.warning("Entfernen: keine Abmeldung der Heizungsbruecke innerhalb von %s s", SIGN_OFF_WAIT_SECONDS)
-        return False
+        return False, False
     if latest is not None and latest.get("boost") != BOOST_KEINER:
         _LOGGER.warning(
             "Entfernen: Heizungsbruecke laeuft weiter, bis sie die Anlage zurueckgesetzt hat: %s", grund,
         )
-        return True
+        return True, True
     if grund:
         _LOGGER.warning("Entfernen: Heizungsbruecke abgemeldet, aber: %s", grund)
-    return False
+    return False, True

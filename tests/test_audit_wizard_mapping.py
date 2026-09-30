@@ -76,23 +76,16 @@ async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entit
     assert written["entity_shift_current"] == "climate.zuhause_zone_1_circuit_1_climate"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "AUDIT: Ein zweiter Eintrag fuer einen anderen Tenant desselben Kontos wird angenommen "
-    "(unique_id = tenant_id, config_flow.py:278-280), obwohl beide Eintraege dieselben Add-ons "
-    "beanspruchen (Waechter/Entfernen des ersten Eintrags treffen das Add-on des zweiten)"
-))
-async def test_second_tenant_on_the_same_home_assistant_is_refused(hass, monkeypatch):
+async def test_second_entry_on_the_same_home_assistant_is_refused(hass, monkeypatch):
     make_entry(hass, tenant_id=TENANT)
     enable_supervisor(hass, monkeypatch)
     mock_server(monkeypatch, tenants=(TENANT, "haus2"))
     setup_mypyllant(hass)
 
-    result = await login(hass, await start(hass))
-    assert result["step_id"] == "tenant"
-    result = await configure(hass, result, {"tenant_id": "haus2"})
+    result = await start(hass)
 
-    # Erwartet: Abbruch, weil die Add-ons auf dieser HA bereits zu TENANT gehoeren.
-    assert result["type"] == "abort"
+    # single_config_entry: die Add-ons auf dieser HA gehoeren bereits TENANT (AU-011).
+    assert (result["type"], result["reason"]) == ("abort", "single_instance_allowed")
 
 
 def _entry(entity_id, unique_id, name=None):
