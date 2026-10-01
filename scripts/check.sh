@@ -52,7 +52,7 @@ else
   PYEXE="$PWD/.venv/bin/python"
 fi
 DEV="${DEV_ROOT:-$(cd .. && pwd)}"
-lint() { py -m ruff check . && py -m pyright --pythonpath "$PYEXE"; }
+lint() { py -m ruff check . && py -m pyright --pythonpath "$PYEXE" && py scripts/ci/pin_check.py --repo "$PWD"; }
 tests() { py -m pytest -q; }
 contract() { python3 "$DEV/tools/contract_check.py"; }
 check_only lint test contract
