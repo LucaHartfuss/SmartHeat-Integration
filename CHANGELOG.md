@@ -3,6 +3,11 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## Unveröffentlicht
+
+- Eigenes Icon (SmartHeat-Flamme) unter `custom_components/smartheat/brand/`; Home Assistant zeigt es
+  bei Integrationen und Geräten an (lokale Brand-Bilder, ohne Eintrag im Brands-Repository).
+
 ## 0.10.0
 
 - Heizgrenze als Stellgröße (TP12h): Die Entity für die Heizgrenze muss eine `number` sein (SmartHeat schreibt
