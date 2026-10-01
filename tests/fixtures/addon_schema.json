@@ -1,0 +1,50 @@
+{
+  "cloudflared_access_mqtt": {
+    "hostname": "str",
+    "local_port": "port",
+    "service_token_id": "str",
+    "service_token_secret": "password"
+  },
+  "heizungsbruecke": {
+    "abgemeldet": "bool?",
+    "accounts_api_base_url": "url?",
+    "battery_entities": [
+      "str?"
+    ],
+    "daily_trigger_time": "str?",
+    "entity_curve_current": "str",
+    "entity_efficiency_ratio": "str?",
+    "entity_energy_electrical_dhw": "str?",
+    "entity_energy_electrical_heating": "str?",
+    "entity_energy_primary_dhw": "str?",
+    "entity_energy_primary_heating": "str?",
+    "entity_energy_thermal_dhw": "str?",
+    "entity_energy_thermal_heating": "str?",
+    "entity_flow_setpoint": "str?",
+    "entity_flow_temperature": "str?",
+    "entity_heat_limit": "str",
+    "entity_min_flow": "str?",
+    "entity_operating_mode": "str?",
+    "entity_outdoor_temp": "str",
+    "entity_return_temperature": "str?",
+    "entity_room_target": "str",
+    "entity_shift_current": "str?",
+    "entity_system_water_pressure": "str?",
+    "local_check_interval_seconds": "int(1,3600)?",
+    "mqtt_password": "password",
+    "mqtt_username": "str",
+    "notify_hints_off": [
+      "list(raumfuehler|batterie|manueller_eingriff|quellwechsel|therme)?"
+    ],
+    "notify_services": [
+      "str?"
+    ],
+    "room_sensors": [
+      "str?"
+    ],
+    "setup_id": "str?",
+    "telemetry_interval_seconds": "int(10,600)?",
+    "tenant_id": "str",
+    "verteilsystem": "list(Heizkoerper|Fussbodenheizung)?"
+  }
+}

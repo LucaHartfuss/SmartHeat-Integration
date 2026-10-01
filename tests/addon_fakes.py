@@ -1,12 +1,38 @@
 """Aufzeichnende Attrappen fuer Add-ons, Supervisor und Status-Events (Spec TP7)."""
 from __future__ import annotations
 
+import asyncio
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
-from homeassistant.components.hassio import AddonState
+from homeassistant.components.hassio import AddonError, AddonState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat.const import DOMAIN
+
+from .addon_schema import validate
+
+ADDON_SCHEMAS = json.loads((Path(__file__).parent / "fixtures" / "addon_schema.json").read_text())
+
+
+def _schema_for(slug: str) -> dict | None:
+    """Der Fake-Slug traegt ein Praefix ("a_heizungsbruecke"); der Schluessel der Fixture ist der nackte Slug."""
+    return next((schema for name, schema in ADDON_SCHEMAS.items() if slug.endswith(name)), None)
+
+
+def check_options(slug: str, config: dict, *, require_all: bool = False) -> None:
+    """Wie der Supervisor bei set_options: AddonError bei unbekannten Schluesseln und falschen Typen; mit
+    require_all=True auch bei fehlenden Pflichtfeldern. Wizard-Schreibungen (mock_addons in flow_helpers.py)
+    verlangen require_all=True; nur Fixtures mit Teiloptionen (FakeAddon in Coordinator-/Control-Tests,
+    Rueckbau eines Snapshots) duerfen es weglassen. Der Slug-Abgleich ist tolerant (endswith), damit auch
+    "a_heizungsbruecke" zum Schema "heizungsbruecke" passt; unbekannte Slugs werden nicht geprueft."""
+    schema = _schema_for(slug)
+    if schema is None:
+        return
+    problems = validate(schema, config, require_all=require_all)
+    if problems:
+        raise AddonError("Invalid options: " + "; ".join(problems))
 
 
 class FakeAddon:
@@ -30,6 +56,7 @@ class FakeAddon:
 
     async def async_set_addon_options(self, config):
         self._check()
+        check_options(self.addon_slug, config)
         self.log.append(("options", self.addon_slug, dict(config)))
         self.options = dict(config)
 
@@ -37,7 +64,8 @@ class FakeAddon:
         self._check()
         self.log.append(("restart", self.addon_slug))
         if self.on_restart is not None:
-            self.on_restart(self)
+            # Wie der echte Supervisor: Das Status-Event des neu gestarteten Add-ons kommt erst nach dem Rueckkehr des Aufrufs.
+            asyncio.get_running_loop().call_soon(self.on_restart, self)
 
     async def async_start_addon(self):
         self._check()

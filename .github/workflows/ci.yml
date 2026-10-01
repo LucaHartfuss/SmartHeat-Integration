@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
       - run: pip install -r requirements_test.txt
@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
       - run: pip install -r requirements_test.txt
@@ -50,42 +50,42 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
-      - run: pip install -r requirements_test.txt
-      - name: HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.4.4)
-        run: pip install pytest-homeassistant-custom-component==0.13.325
+      - name: Test-Abhaengigkeiten mit der HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.4.4)
+        run: pip install pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.325
+      - name: Kein Paket der neuen HA-Version im Environment
+        run: |
+          pip show homeassistant | grep -q '^Version: 2026\.4\.4$'
       - run: PYTHON=python bash scripts/check.sh --only test
   hassfest:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: home-assistant/actions/hassfest@master
+      - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3 # master (2026-10-01)
   hacs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: hacs/action@main
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main (2026-10-01)
         with:
           category: integration
-          # license: GitHub erkennt die Lizenz nur auf main; LICENSE liegt im Repo. Nach dem
-          # ersten Integration-Release "license" wieder entfernen (docs/ci-cd-runbook.md).
-          ignore: brands license
+          ignore: brands
   contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Dev-Root aufbauen
