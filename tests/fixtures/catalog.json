@@ -30,6 +30,38 @@
           "thermal_dhw"
         ]
       }
+    },
+    {
+      "profile_id": "weishaupt_waermepumpe_heizkoerper",
+      "hersteller": "Weishaupt",
+      "erzeuger_typ": "Waermepumpe",
+      "verteilsystem": "Heizkoerper",
+      "verified": false,
+      "telemetry_capabilities": null
+    },
+    {
+      "profile_id": "viessmann_gastherme_heizkoerper",
+      "hersteller": "Viessmann",
+      "erzeuger_typ": "Gastherme",
+      "verteilsystem": "Heizkoerper",
+      "verified": false,
+      "telemetry_capabilities": null
+    },
+    {
+      "profile_id": "vaillant_waermepumpe_fussbodenheizung",
+      "hersteller": "Vaillant",
+      "erzeuger_typ": "Waermepumpe",
+      "verteilsystem": "Fussbodenheizung",
+      "verified": false,
+      "telemetry_capabilities": null
+    },
+    {
+      "profile_id": "viessmann_waermepumpe_fussbodenheizung",
+      "hersteller": "Viessmann",
+      "erzeuger_typ": "Waermepumpe",
+      "verteilsystem": "Fussbodenheizung",
+      "verified": false,
+      "telemetry_capabilities": null
     }
   ],
   "integrations": [
