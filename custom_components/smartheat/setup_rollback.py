@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from homeassistant.components.hassio import AddonError
 from homeassistant.core import HomeAssistant
@@ -37,9 +37,10 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class ReconfigureSnapshot:
     """Stand vor dem ersten Schreiben eines Neu-konfigurieren-Laufs. profile_id None: der Eintrag
-    hatte keins (dann bleibt das Profil auf dem Server, wie es ist)."""
-    bridge_options: dict
-    cloudflared_options: dict
+    hatte keins (dann bleibt das Profil auf dem Server, wie es ist). Die Optionen enthalten Geheimnisse
+    (privater Schluessel, Token, Passwort, Service-Token): nie in die repr."""
+    bridge_options: dict = field(repr=False)
+    cloudflared_options: dict = field(repr=False)
     profile_id: str | None
 
 

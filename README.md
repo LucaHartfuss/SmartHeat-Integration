@@ -47,8 +47,11 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 ## Update auf 0.11.0
 
 **Reihenfolge: SmartHeat-Server (Provisioning mit CSR), dann Add-on `heizungsbruecke` 0.32.0, dann die
-Integration.** „Neu konfigurieren“ stellt für einen Zugang von vor dieser Version (ohne Installations-Token)
-einen neuen aus; sonst ändert sich für bestehende Einträge nichts.
+Integration.** **Jede Installation von vor 0.32.0/0.11.0 regelt nach dem Add-on-Update nicht mehr, bis „Neu
+konfigurieren“ ausgeführt wurde** (auch `client1`): die Heizungsbrücke meldet „Konfiguration veraltet“, die
+Anlage behält ihre letzten Werte. „Neu konfigurieren“ erkennt den alten Zugang (ohne Installations-Token) und
+stellt einen neuen aus. Das Add-on deshalb erst aktualisieren, wenn „Neu konfigurieren“ gleich danach
+möglich ist (und kein Boost aktiv ist).
 
 ## Update auf 0.10.0
 

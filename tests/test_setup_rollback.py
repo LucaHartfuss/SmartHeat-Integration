@@ -303,3 +303,14 @@ async def test_server_only_failures_are_listed_without_credentials(hass, monkeyp
         "- " + await async_hint(hass, "open_step_profile"),
     ]
     assert PASSWORD not in caplog.text
+
+
+def test_snapshot_repr_never_contains_the_secrets_of_the_options():
+    snapshot = ReconfigureSnapshot(
+        {"tls_private_key": "KEY-GEHEIM", "installation_token": "TOKEN-GEHEIM", "mqtt_password": "PW-GEHEIM"},
+        {"service_token_secret": "SERVICE-GEHEIM"}, "profil",
+    )
+    text = repr(snapshot)
+    for secret in ("KEY-GEHEIM", "TOKEN-GEHEIM", "PW-GEHEIM", "SERVICE-GEHEIM"):
+        assert secret not in text
+    assert "profil" in text
