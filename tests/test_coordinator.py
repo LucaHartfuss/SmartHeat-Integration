@@ -201,7 +201,7 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
 
 @pytest.mark.parametrize("event", [
     status_event("andere", "regelt"),
-    {**status_event(TENANT, "regelt"), "schema": 2},
+    {**status_event(TENANT, "regelt"), "schema": 1},
     status_event(TENANT, "bereit"),
 ])
 async def test_foreign_or_unknown_events_are_ignored(hass, monkeypatch, clock, event):
@@ -397,7 +397,7 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, mon
         TENANT, "regelt", boost="unbekannt", datenfehler={"art": "unbekannt", "rollen": []},
         letzte_serverantwort="2026-10-01T12:00:05",  # kein Zeitzonen-Offset: naiv
     )
-    del event["kurve"]  # fehlender Schluessel, z. B. ein aelteres/fremdes Event
+    assert "kurve" not in event  # fehlender Schluessel (Schema 2 kennt kurve nicht mehr; Sensoren je Hebel: Task 12)
 
     _fire(hass, event)
     await hass.async_block_till_done()

@@ -48,6 +48,7 @@ FLOW_SETPOINT = "sensor.heizraum_zuhause_circuit_0_flow_temperature_setpoint"
 HEAT_LIMIT = "number.zuhause_circuit_0_heat_limit"
 OUTDOOR = "sensor.zuhause_outdoor_temperature"
 SYSTEM_INPUT = {"verteilsystem": "heizkoerper", "erzeuger_typ": "gastherme"}
+SYSTEM_INPUT_WP = {"verteilsystem": "heizkoerper", "erzeuger_typ": "waermepumpe"}
 ROOMS_INPUT = {"room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz"}
 PLANT_INPUT = {
     "entity_curve_current": CURVE, "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW,
@@ -62,6 +63,7 @@ BRIDGE_OPTIONS = {
     # Pflichtfelder des Add-on-Schemas: die Optionen eines eingerichteten Add-ons sind vollstaendig.
     "entity_room_target": "climate.wz::temperature", "entity_curve_current": "number.zuhause_circuit_0_heating_curve",
     "entity_outdoor_temp": "sensor.zuhause_outdoor_temperature", "entity_heat_limit": "number.zuhause_circuit_0_heat_limit",
+    "lever_set": "vaillant_vrc720",
 }
 CF_OPTIONS = {
     "hostname": "mqtt.example.org", "local_port": 18830, "service_token_id": "cf-id-alt", "service_token_secret": "cf-alt",
@@ -145,6 +147,53 @@ def setup_mypyllant(hass, *, circuits=("0",), model="ecoTEC plus VC 206/5-5", ou
             config_entry=entry, device_id=device.id, suggested_object_id="zuhause_outdoor_temperature",
         )
         hass.states.async_set(OUTDOOR, "7.5", {"unit_of_measurement": "°C"})
+    return entry
+
+
+def weishaupt_catalog() -> dict:
+    """Katalog mit freigeschaltetem Weishaupt-Heizkoerper-Profil (im echten Katalog inaktiv bis zur Inventur)."""
+    catalog = json.loads(json.dumps(CATALOG))
+    for profile in catalog["profiles"]:
+        if profile["profile_id"] == "weishaupt_waermepumpe_heizkoerper":
+            profile["verified"], profile["inactive_reason"] = True, None
+    return catalog
+
+
+WEISHAUPT_STATES = {
+    "Heizkennlinie": ("number", "0.75", None),
+    "Sommer Winter Umschaltung": ("number", "18", "°C"),
+    "Raumsolltemperatur Normal": ("number", "20.5", "°C"),
+    "Raumsolltemperatur Komfort": ("number", "22", "°C"),
+    "Raumsolltemperatur Absenk": ("number", "18", "°C"),
+    "Betriebsart": ("select", "hz_operationmode_automatic", None),
+    "Vorlaufsolltemperatur": ("sensor", "35", "°C"),
+}
+
+
+def setup_weishaupt(hass, *, with_curve: bool = True, outdoor: bool = True) -> MockConfigEntry:
+    """weishaupt_modbus mit Heizkreis 1 wie in der aus dem Code abgeleiteten Fixture (Praefix weishaupt_wbb).
+    with_curve=False: ohne Heizkennlinie und Sommer-Winter-Umschaltung (Rueckfall-Hebelsatz)."""
+    entry = MockConfigEntry(domain="weishaupt_modbus", title="Weishaupt")
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("weishaupt_modbus", "HZ")}, name="Heizkreis", model="WBB",
+    )
+    ent_reg = er.async_get(hass)
+    for name, (domain, value, unit) in WEISHAUPT_STATES.items():
+        if not with_curve and name in ("Heizkennlinie", "Sommer Winter Umschaltung"):
+            continue
+        object_id = "weishaupt_wbb_" + name.lower().replace(" ", "_")
+        ent_reg.async_get_or_create(
+            domain, "weishaupt_modbus", f"weishaupt_wbb{name}", config_entry=entry, device_id=device.id,
+            suggested_object_id=object_id,
+        )
+        hass.states.async_set(f"{domain}.{object_id}", value, {"unit_of_measurement": unit} if unit else {})
+    if outdoor:
+        ent_reg.async_get_or_create(
+            "sensor", "weishaupt_modbus", "weishaupt_wbbAussentemperatur", config_entry=entry, device_id=device.id,
+            suggested_object_id="weishaupt_wbb_aussentemperatur",
+        )
+        hass.states.async_set("sensor.weishaupt_wbb_aussentemperatur", "4.5", {"unit_of_measurement": "°C"})
     return entry
 
 
@@ -279,6 +328,10 @@ def suggested(result, field: str, section: str | None = None):
 
 def has_default(result, field: str) -> bool:
     return marker(result, field).default is not vol.UNDEFINED
+
+
+def _default(result, field: str):
+    return next(key.default() for key in result["data_schema"].schema if key == field)
 
 
 def select_values(result, field: str) -> list:

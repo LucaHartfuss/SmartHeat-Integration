@@ -18,8 +18,13 @@
       },
       "system": {
         "title": "Your heating system",
-        "description": "Heating system found via {integration}. How does the heat reach your rooms? This determines the local safety limits, so please choose carefully.",
+        "description": "Heating system found via {integration}. How does the heat reach your rooms? This determines the local safety limits, so please choose carefully.\n\n{hinweis}",
         "data": {"verteilsystem": "Heat distribution", "erzeuger_typ": "Heat source", "circuit": "Heating circuit"}
+      },
+      "lever_set": {
+        "title": "Control variables",
+        "description": "Which control variables of your heating system should SmartHeat use? Without heating curve and summer/winter switch-over, SmartHeat controls only via the room setpoint (less precise, no curve base point at the heating system).",
+        "data": {"lever_set": "Control variables"}
       },
       "rooms": {
         "title": "Rooms",
@@ -31,7 +36,11 @@
         "description": "Pre-filled from your heating system, please check:\n{origins}\nOnly sensors with a matching device class (e.g. \"Temperature\") are offered. SmartHeat sets the heating zone to \"Manual\" and controls its target temperature itself; the minimum flow temperature follows your target temperature at the room thermostat.",
         "data": {
           "entity_curve_current": "Heating curve",
-          "entity_shift_current": "Parallel shift (heating zone target temperature)",
+          "entity_shift_current": "Room setpoint or zone (parallel shift)",
+          "entity_level_current": "Heating curve level",
+          "entity_mode_select": "Operating mode or heating program",
+          "entity_setpoint_comfort": "Room setpoint comfort",
+          "entity_setpoint_setback": "Room setpoint setback",
           "entity_min_flow": "Minimum flow temperature",
           "entity_heat_limit": "Heating limit (controlled by SmartHeat)",
           "entity_outdoor_temp": "Outdoor temperature",
@@ -52,7 +61,8 @@
               "entity_energy_primary_heating": "Energy: primary heating",
               "entity_energy_primary_dhw": "Energy: primary (hot water)",
               "entity_energy_thermal_heating": "Energy: thermal heating",
-              "entity_energy_thermal_dhw": "Energy: thermal (hot water)"
+              "entity_energy_thermal_dhw": "Energy: thermal (hot water)",
+              "entity_energy_electrical_total": "Energy: electrical total"
             }
           }
         }
@@ -64,7 +74,7 @@
       },
       "summary": {
         "title": "Summary",
-        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\nHeating curve: {curve}\nParallel shift: {shift} °C\nMinimum flow temperature: {min_flow} °C\nHeating limit: {heat_limit} °C\n\nSmartHeat writes to:\n{write_entities}\n\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
+        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\n{plant_values}\n\nSmartHeat writes to:\n{write_entities}\n\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "I checked the sources without an update for more than 6 hours",
           "confirm_deviation": "I checked the room sensors deviating by more than 3 K",
@@ -115,7 +125,7 @@
       "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",
       "already_configured": "This installation is already set up. To change it, open the SmartHeat entry and choose ⋮ → Reconfigure.",
       "single_instance_allowed": "SmartHeat is already set up in this Home Assistant. To change it, open the SmartHeat entry and choose ⋮ → “Reconfigure”.",
-      "catalog_outdated": "The SmartHeat server is older than this integration (catalog v2 required). Please update the server first or contact support.",
+      "catalog_outdated": "The SmartHeat server is older than this integration (catalog v3 required). Please update the server first or contact support.",
       "no_verified_profiles": "No verified profile is currently available for your heating system. Please try again later or contact support.",
       "addon_missing": "The add-on {addon} is not installed. Install it from the SmartHeat add-on repository, then start the setup again.",
       "addon_ambiguous": "The add-on {addon} is installed more than once. Remove the duplicate installation, then start the setup again.",
@@ -124,6 +134,7 @@
       "no_supported_integration": "No supported heating integration is set up in Home Assistant. Supported: {supported}.",
       "no_heating_circuit": "{integration} does not provide a complete heating circuit (heating curve, minimum flow temperature and heating limit are required).",
       "setup_cancelled": "Setup cancelled.",
+      "lever_set_unsupported": "This SmartHeat version does not know the control variables of this profile yet. Please update SmartHeat.",
       "wrong_account": "This account does not include the installation of this entry.",
       "reconfigure_first": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure.",
       "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.{notes}",
@@ -145,7 +156,9 @@
           "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
           "hint_manueller_eingriff": "Notify about a manual change of the heating curve or the parallel shift",
           "hint_quellwechsel": "Notify about a changed temperature source",
-          "hint_therme": "Notify when the boiler delivers no heat"
+          "hint_therme": "Notify when the boiler delivers no heat",
+          "hint_schreibbudget": "Notify when the daily limit for write operations is reached",
+          "hint_schreibzaehler": "Notify when many write operations over the device lifetime are reached"
         }
       },
       "confirm": {
@@ -186,6 +199,14 @@
     },
     "erzeuger_typ": {
       "options": {"gastherme": "Gas boiler", "waermepumpe": "Heat pump"}
+    },
+    "lever_set": {
+      "options": {
+        "vaillant_vrc720": "Heating curve, zone setpoint and heating limit",
+        "weishaupt_wwp": "Heating curve, room setpoint and summer/winter switch-over",
+        "weishaupt_wwp_basis": "Room setpoint only (without heating curve and summer/winter switch-over)",
+        "viessmann_vicare": "Slope, level and room setpoint"
+      }
     }
   },
   "entity": {
@@ -234,6 +255,10 @@
     "role_entity_heat_limit": "Heating limit",
     "role_entity_outdoor_temp": "Outdoor temperature",
     "role_entity_flow_setpoint": "Flow setpoint",
+    "role_entity_level_current": "Heating curve level",
+    "role_entity_mode_select": "Operating mode or heating program",
+    "role_entity_setpoint_comfort": "Room setpoint comfort",
+    "role_entity_setpoint_setback": "Room setpoint setback",
     "origin_integration": "{role}: {entity} (detected from {integration})",
     "origin_weather": "{role}: {entity} (weather service, your heating has no outdoor sensor)",
     "origin_none": "{role}: not detected, please choose",

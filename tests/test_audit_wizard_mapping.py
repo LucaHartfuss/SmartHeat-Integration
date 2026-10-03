@@ -8,7 +8,7 @@ from pathlib import Path
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.smartheat.catalog import parse_integrations
-from custom_components.smartheat.const import PLANT_FIELDS
+from custom_components.smartheat.const import LEVER_SET_FIELDS
 from custom_components.smartheat.detection import RegistryEntry, find_circuits
 
 from .addon_fakes import make_entry
@@ -54,7 +54,7 @@ async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entit
     assert result["step_id"] == "plant_values"
 
     # Der Kunde uebernimmt die Vorbelegung unveraendert ("Weiter").
-    plant = {field: suggested(result, field) for field in (*PLANT_FIELDS, "entity_flow_setpoint")}
+    plant = {field: suggested(result, field) for field in (*LEVER_SET_FIELDS["vaillant_vrc720"], "entity_flow_setpoint")}
     result = await configure(hass, result, {**plant, "advanced": {}})
     result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
     result = await finish_progress(hass, await configure(hass, result, {}))

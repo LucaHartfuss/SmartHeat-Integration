@@ -10,7 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import provisioning, setup_rollback
 from custom_components.smartheat.api_client import ApiError, InvalidAuth, ProfileRejected
-from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.const import DOMAIN, entry_incomplete
 from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import make_entry, status_event
@@ -31,8 +31,10 @@ from .flow_helpers import (
     PROVISIONING,
     ROOMS_INPUT,
     SYSTEM_INPUT,
+    SYSTEM_INPUT_WP,
     TENANT,
     ZONE,
+    _default,
     configure,
     enable_supervisor,
     fail_addon_reads_after,
@@ -46,7 +48,9 @@ from .flow_helpers import (
     register_phones,
     setup_mypyllant,
     setup_rooms,
+    setup_weishaupt,
     suggested,
+    weishaupt_catalog,
 )
 
 
@@ -751,6 +755,94 @@ async def test_reconfigure_finish_dismisses_a_leftover_rollback_notification(has
 
     assert result["reason"] == "reconfigure_successful"
     assert "smartheat_wohnung1_setup" in dismissed
+
+
+# --- Hebelsatz (Plan 3c, Review Focus 1 und 3) ---
+
+async def test_client1_entry_without_lever_set_is_incomplete_and_reconfigure_completes_it(hass, monkeypatch):
+    # Eintrag wie client1 vor dem Update: alle Vaillant-Felder, aber kein lever_set/shift_lever.
+    addon_before_update = {key: value for key, value in BRIDGE_OPTIONS.items() if key != "lever_set"}
+    mypyllant, mocks, calls = _prepare(
+        hass, monkeypatch, existing_options=addon_before_update, cloudflared_options=CF_OPTIONS,
+    )
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id, data_without=("lever_set", "shift_lever"))
+    assert entry_incomplete(entry.data)
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+    assert result["step_id"] == "system"
+    assert has_default(result, "verteilsystem") is False       # unvollstaendig: Erkennung wie Ersteinrichtung
+    result = await configure(hass, result, SYSTEM_INPUT)
+    assert result["step_id"] == "rooms"                       # ein Hebelsatz: ohne Rueckfrage
+    for data in (ROOMS_INPUT, PLANT_INPUT):
+        result = await configure(hass, result, data)
+    result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    mocks.provision.assert_not_awaited()
+    assert entry.data["lever_set"] == "vaillant_vrc720"
+    assert entry.data["shift_lever"] == "room_setpoint"
+    assert not entry_incomplete(entry.data)
+    options = calls.options["heizungsbruecke"]
+    assert (options["lever_set"], options["entity_shift_current"]) == ("vaillant_vrc720", ZONE)
+
+
+WEISHAUPT_FULL = {
+    "entity_curve_current": "number.weishaupt_wbb_heizkennlinie",
+    "entity_shift_current": "number.weishaupt_wbb_raumsolltemperatur_normal",
+    "entity_heat_limit": "number.weishaupt_wbb_sommer_winter_umschaltung",
+    "entity_mode_select": "select.weishaupt_wbb_betriebsart",
+    "entity_setpoint_comfort": "number.weishaupt_wbb_raumsolltemperatur_komfort",
+    "entity_setpoint_setback": "number.weishaupt_wbb_raumsolltemperatur_absenk",
+    "entity_outdoor_temp": "sensor.weishaupt_wbb_aussentemperatur",
+}
+
+
+async def test_switching_lever_set_drops_fields_of_the_old_one(hass, monkeypatch):
+    # Weishaupt voll eingerichtet (Optionen mit entity_curve_current/entity_heat_limit), Neu konfigurieren mit Basis:
+    # die geschriebenen Optionen enthalten keine Felder des alten Hebelsatzes mehr (Review Focus 3).
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=weishaupt_catalog())
+    weishaupt = setup_weishaupt(hass)
+    setup_rooms(hass)
+    register_phones(hass, "mobile_app_pixel")
+    fast_status_wait(monkeypatch)
+    addons = mock_addons(
+        hass, monkeypatch, existing_options={**BRIDGE_OPTIONS, **WEISHAUPT_FULL, "lever_set": "weishaupt_wwp"},
+        cloudflared_options=CF_OPTIONS,
+    )
+    entry = make_entry(hass, data={
+        "tenant_id": TENANT, "profile_id": "weishaupt_waermepumpe_heizkoerper", "integration_domain": "weishaupt_modbus",
+        "circuit": {"config_entry_id": weishaupt.entry_id, "system_key": "weishaupt_wbb", "circuit": "1"},
+        "entities": WEISHAUPT_FULL, "lever_set": "weishaupt_wwp", "shift_lever": "room_setpoint",
+    })
+    assert not entry_incomplete(entry.data)
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+    result = await configure(hass, result, SYSTEM_INPUT_WP)
+    assert result["step_id"] == "lever_set"
+    assert _default(result, "lever_set") == "weishaupt_wwp"     # vorbelegt aus dem Eintrag
+    result = await configure(hass, result, {"lever_set": "weishaupt_wwp_basis"})
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert result["step_id"] == "plant_values"
+    result = await configure(hass, result, {
+        **{field: WEISHAUPT_FULL[field] for field in (
+            "entity_shift_current", "entity_mode_select", "entity_setpoint_comfort", "entity_setpoint_setback",
+            "entity_outdoor_temp",
+        )},
+        "advanced": {},
+    })
+    result = await configure(hass, result, {"notify_services": ["notify.mobile_app_pixel"]})
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    assert "entity_heat_limit" not in addons.options["heizungsbruecke"]
+    assert "entity_curve_current" not in addons.options["heizungsbruecke"]
+    assert addons.options["heizungsbruecke"]["lever_set"] == "weishaupt_wwp_basis"
+    assert entry.data["lever_set"] == "weishaupt_wwp_basis"
+    assert "entity_heat_limit" not in entry.data["entities"]
 
 
 def reconfigure_snapshot(rollback):

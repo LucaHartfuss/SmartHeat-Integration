@@ -402,6 +402,21 @@ async def test_restore_failure_is_named(hass, monkeypatch):
     assert result["description_placeholders"]["restore"] == await async_hint(hass, "options_restore_failed")
 
 
+async def test_write_budget_and_counter_hints_are_offered_and_can_be_switched_off(hass, monkeypatch):
+    """Plan 3c: die Hinweise zu Schreibbudget und Schreibzaehler sind wie die anderen einzeln abschaltbar."""
+    result, entry, calls, _ = await _open(hass, monkeypatch)
+    schema = result["data_schema"].schema
+    assert all(next(k for k in schema if k == f"hint_{c}").default() is True for c in ("schreibbudget", "schreibzaehler"))
+
+    result = await finish_progress(hass, await configure(hass, result, {
+        **NEW_ROOMS, "hint_schreibbudget": False, "hint_schreibzaehler": False,
+    }))
+
+    assert result["type"] == "create_entry"
+    assert entry.options["notify_hints_off"] == ["batterie", "schreibbudget", "schreibzaehler"]
+    assert calls.options["heizungsbruecke"]["notify_hints_off"] == ["batterie", "schreibbudget", "schreibzaehler"]
+
+
 async def test_the_therme_hint_switch_is_offered_and_defaults_to_on(hass, monkeypatch):
     result, _, _, _ = await _open(hass, monkeypatch)
 

@@ -101,9 +101,9 @@ async def test_supervisor_error_becomes_addon_error(monkeypatch):
 
 
 async def test_get_addon_managers_keeps_order_and_uses_resolved_slugs(monkeypatch):
-    # Reale Mindestversion aus const.MIN_ADDON_VERSIONS (0.32.0, AWS-2); dieser Test
+    # Reale Mindestversion aus const.MIN_ADDON_VERSIONS (0.33.0, Plan 3c); dieser Test
     # prueft nur die Reihenfolge/Aufloesung, nicht die Versionsgrenze selbst.
-    _patch_supervisor_client(monkeypatch, _both(hb_version="0.32.0"))
+    _patch_supervisor_client(monkeypatch, _both(hb_version="0.33.0"))
 
     managers = await async_get_addon_managers(
         None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],

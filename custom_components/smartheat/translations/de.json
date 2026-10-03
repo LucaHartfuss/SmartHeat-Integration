@@ -18,8 +18,13 @@
       },
       "system": {
         "title": "Deine Heizung",
-        "description": "Heizung über {integration} gefunden. Wie kommt die Wärme in deine Räume? Davon hängen die lokalen Sicherheitsgrenzen ab, bitte sorgfältig wählen.",
+        "description": "Heizung über {integration} gefunden. Wie kommt die Wärme in deine Räume? Davon hängen die lokalen Sicherheitsgrenzen ab, bitte sorgfältig wählen.\n\n{hinweis}",
         "data": {"verteilsystem": "Wärmeverteilung", "erzeuger_typ": "Wärmeerzeuger", "circuit": "Heizkreis"}
+      },
+      "lever_set": {
+        "title": "Stellgrößen",
+        "description": "Welche Stellgrößen der Anlage soll SmartHeat nutzen? Ohne Heizkennlinie und Sommer-Winter-Umschaltung regelt SmartHeat nur über das Raum-Soll (weniger genau, kein Fußpunkt an der Anlage).",
+        "data": {"lever_set": "Stellgrößen"}
       },
       "rooms": {
         "title": "Räume",
@@ -31,7 +36,11 @@
         "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“). SmartHeat stellt die Heizzone auf „Manuell“ und regelt ihre Wunschtemperatur selbst; die Mindestvorlauftemperatur folgt deiner Wunschtemperatur am Raumthermostat.",
         "data": {
           "entity_curve_current": "Heizkurve",
-          "entity_shift_current": "Parallelverschiebung (Wunschtemperatur der Heizzone)",
+          "entity_shift_current": "Raum-Soll bzw. Zone (Parallelverschiebung)",
+          "entity_level_current": "Niveau der Heizkurve",
+          "entity_mode_select": "Betriebsart bzw. Heizprogramm",
+          "entity_setpoint_comfort": "Raum-Soll Komfort",
+          "entity_setpoint_setback": "Raum-Soll Absenk",
           "entity_min_flow": "Mindestvorlauftemperatur",
           "entity_heat_limit": "Heizgrenze (wird von SmartHeat geregelt)",
           "entity_outdoor_temp": "Außentemperatur",
@@ -52,7 +61,8 @@
               "entity_energy_primary_heating": "Energie: Primärenergie Heizen",
               "entity_energy_primary_dhw": "Energie: Primärenergie Warmwasser",
               "entity_energy_thermal_heating": "Energie: Wärme Heizen",
-              "entity_energy_thermal_dhw": "Energie: Wärme Warmwasser"
+              "entity_energy_thermal_dhw": "Energie: Wärme Warmwasser",
+              "entity_energy_electrical_total": "Energie: Strom gesamt"
             }
           }
         }
@@ -64,7 +74,7 @@
       },
       "summary": {
         "title": "Zusammenfassung",
-        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\nHeizkurve: {curve}\nParallelverschiebung: {shift} °C\nMindestvorlauf: {min_flow} °C\nHeizgrenze: {heat_limit} °C\n\nSmartHeat schreibt auf:\n{write_entities}\n\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
+        "description": "Raumtemperatur: {room_temperature} °C (Mittel aus {room_sensor_count} Fühlern)\nWunschtemperatur: {room_target} °C\nAußentemperatur: {outdoor_temperature} °C ({outdoor_source})\n{plant_values}\n\nSmartHeat schreibt auf:\n{write_entities}\n\nProfil: {profile}\nHandys: {recipients}\nÜberwachte Batterien: {batteries}\n\nHinweise:\n{warnings}\n\n{credentials_note}",
         "data": {
           "confirm_stale": "Ich habe die Quellen geprüft, die seit über 6 Stunden keinen neuen Wert hatten",
           "confirm_deviation": "Ich habe die Raumfühler geprüft, die um mehr als 3 K abweichen",
@@ -115,7 +125,7 @@
       "not_supervisor": "Diese Integration funktioniert nur mit einem Home Assistant mit Supervisor (Home Assistant OS oder Supervised), weil sie echte MQTT-Zugangsdaten ausstellt und die Add-ons über die Supervisor-API einrichtet.",
       "already_configured": "Diese Anlage ist bereits eingerichtet. Zum Ändern den SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
       "single_instance_allowed": "SmartHeat ist in diesem Home Assistant bereits eingerichtet. Zum Ändern den SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
-      "catalog_outdated": "Der SmartHeat-Server ist älter als diese Integration (Katalog v2 erforderlich). Bitte zuerst den Server aktualisieren oder den Support kontaktieren.",
+      "catalog_outdated": "Der SmartHeat-Server ist älter als diese Integration (Katalog v3 erforderlich). Bitte zuerst den Server aktualisieren oder den Support kontaktieren.",
       "no_verified_profiles": "Für deine Heizung ist derzeit kein freigegebenes Profil verfügbar. Bitte später erneut versuchen oder den Support kontaktieren.",
       "addon_missing": "Das Add-on {addon} ist nicht installiert. Bitte aus dem SmartHeat-Add-on-Repository installieren und die Einrichtung neu starten.",
       "addon_ambiguous": "Das Add-on {addon} ist mehrfach installiert. Bitte die doppelte Installation entfernen und die Einrichtung neu starten.",
@@ -124,6 +134,7 @@
       "no_supported_integration": "In Home Assistant ist keine unterstützte Heizungs-Integration eingerichtet. Unterstützt: {supported}.",
       "no_heating_circuit": "{integration} liefert keinen vollständigen Heizkreis (Heizkurve, Mindestvorlauf und Heizgrenze werden benötigt).",
       "setup_cancelled": "Einrichtung abgebrochen.",
+      "lever_set_unsupported": "Diese SmartHeat-Version kennt die Stellgrößen dieses Profils noch nicht. Bitte SmartHeat aktualisieren.",
       "wrong_account": "Dieses Konto enthält die Anlage dieses Eintrags nicht.",
       "reconfigure_first": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen.",
       "reconfigure_successful": "SmartHeat wurde neu konfiguriert. Die Zugangsdaten sind gleich geblieben.{notes}",
@@ -145,7 +156,9 @@
           "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
           "hint_manueller_eingriff": "Bei manueller Änderung von Heizkurve oder Parallelverschiebung benachrichtigen",
           "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen",
-          "hint_therme": "Benachrichtigen, wenn die Therme keine Heizwärme liefert"
+          "hint_therme": "Benachrichtigen, wenn die Therme keine Heizwärme liefert",
+          "hint_schreibbudget": "Benachrichtigen, wenn das Tageslimit für Schreibvorgänge erreicht ist",
+          "hint_schreibzaehler": "Benachrichtigen, wenn viele Schreibvorgänge auf Lebensdauer erreicht sind"
         }
       },
       "confirm": {
@@ -186,6 +199,14 @@
     },
     "erzeuger_typ": {
       "options": {"gastherme": "Gastherme", "waermepumpe": "Wärmepumpe"}
+    },
+    "lever_set": {
+      "options": {
+        "vaillant_vrc720": "Heizkurve, Zonen-Soll und Heizgrenze",
+        "weishaupt_wwp": "Heizkennlinie, Raum-Soll und Sommer-Winter-Umschaltung",
+        "weishaupt_wwp_basis": "Nur Raum-Soll (ohne Heizkennlinie und Sommer-Winter-Umschaltung)",
+        "viessmann_vicare": "Neigung, Niveau und Raum-Soll"
+      }
     }
   },
   "entity": {
@@ -234,6 +255,10 @@
     "role_entity_heat_limit": "Heizgrenze",
     "role_entity_outdoor_temp": "Außentemperatur",
     "role_entity_flow_setpoint": "Vorlauf-Soll",
+    "role_entity_level_current": "Niveau der Heizkurve",
+    "role_entity_mode_select": "Betriebsart bzw. Heizprogramm",
+    "role_entity_setpoint_comfort": "Raum-Soll Komfort",
+    "role_entity_setpoint_setback": "Raum-Soll Absenk",
     "origin_integration": "{role}: {entity} (erkannt aus {integration})",
     "origin_weather": "{role}: {entity} (Wetterdienst, deine Heizung hat keinen Außenfühler)",
     "origin_none": "{role}: nicht erkannt, bitte wählen",

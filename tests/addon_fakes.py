@@ -91,12 +91,11 @@ class FakeSupervisor:
 
 
 def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -> dict:
-    """Volles Status-Event wie vom Add-on 0.20.0 (Spec TP7 1.1)."""
+    """Volles Status-Event Schema 2 (Spec TP7 1.1, Plan 3c Praezisierung 7)."""
     event = {
-        "schema": 1, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
+        "schema": 2, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
-        "letzte_serverantwort": None, "kurve": None, "parallelverschiebung": None, "mindestvorlauf": None,
-        "heizgrenze": None,
+        "letzte_serverantwort": None, "hebelsatz": "vaillant_vrc720", "hebel": None, "gelernt": None,
         "abo": "aktiv", "abo_frist_ende": None,
         "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None,
                      "waerme_fehlt": None},
@@ -105,11 +104,12 @@ def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -
     return event
 
 
-def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry", options=None, data=None, version=2):
-    """Vollstaendiger v2-Eintrag wie nach dem Wizard (Spec TP7 2.1)."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, version=version, unique_id=tenant_id, title=tenant_id,
-        data=data if data is not None else {
+def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry", options=None, data=None, version=2,
+               data_without=()):
+    """Vollstaendiger v2-Eintrag wie nach dem Wizard (Spec TP7 2.1, Plan 3c: mit Hebelsatz). data_without: diese
+    Schluessel fehlen (z. B. lever_set/shift_lever wie bei client1 vor dem Update)."""
+    if data is None:
+        data = {
             "tenant_id": tenant_id, "profile_id": "vaillant_gastherme_heizkoerper", "integration_domain": "mypyllant",
             "circuit": {"config_entry_id": circuit_entry_id, "system_key": "SYSTEM", "circuit": "0"},
             "entities": {
@@ -119,7 +119,11 @@ def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry"
                 "entity_heat_limit": "number.zuhause_circuit_0_heat_limit",
                 "entity_outdoor_temp": "sensor.zuhause_outdoor_temperature",
             },
-        },
+            "lever_set": "vaillant_vrc720", "shift_lever": "room_setpoint",
+        }
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=version, unique_id=tenant_id, title=tenant_id,
+        data={key: value for key, value in data.items() if key not in data_without},
         options=options if options is not None else {
             "room_sensors": ["sensor.wz_temperatur"], "entity_room_target": "climate.wz::temperature",
             "notify_services": ["notify.mobile_app_pixel"], "battery_entities": ["sensor.wz_batterie"],
