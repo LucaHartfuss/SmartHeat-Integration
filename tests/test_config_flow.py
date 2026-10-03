@@ -9,11 +9,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
+from cryptography import x509
 from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat import setup_rollback
+from custom_components.smartheat import provisioning, setup_rollback
 from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.supervisor_client import (
@@ -26,12 +27,16 @@ from custom_components.smartheat.texts import async_hint
 from .addon_fakes import status_event
 from .flow_helpers import (
     CATALOG,
+    CF_OPTIONS,
     CF_SECRET,
     CURVE,
     FLOW,
     FLOW_SETPOINT,
     HEAT_LIMIT,
+    INSTALLATION_TOKEN,
+    IOT_PROVISIONING,
     MIN_FLOW,
+    MOSQUITTO_TRANSPORT,
     MQTT_PASSWORD,
     OUTDOOR,
     PLANT_INPUT,
@@ -712,7 +717,8 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
     assert result["version"] == 2
     assert MQTT_PASSWORD not in str(result["data"]) + str(result["options"])
     assert CF_SECRET not in str(result["data"]) + str(result["options"])
-    mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.provision.assert_awaited_once()
+    assert mocks.provision.call_args.args[:3] == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     mocks.update_profile.assert_not_awaited()
     mocks.logout.assert_awaited_once_with("tok123")
     assert calls.restarts == ["cloudflared_access_mqtt", "heizungsbruecke"]
@@ -724,6 +730,8 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
     assert options == {
         "local_check_interval_seconds": 120, **PROFILE_PARAMS,
         "tenant_id": TENANT, "mqtt_username": "wohnung1_a1b2c3d4", "mqtt_password": MQTT_PASSWORD,
+        "transport": json.dumps(MOSQUITTO_TRANSPORT, sort_keys=True), "installation_token": INSTALLATION_TOKEN,
+        "tls_certificate": "", "tls_private_key": "",
         "setup_id": options["setup_id"], "abgemeldet": False,
         "accounts_api_base_url": "https://accounts.hartfussha.org",
         "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"],
@@ -885,6 +893,126 @@ async def test_supervisor_error_is_shown_without_secrets(hass, monkeypatch):
     assert MQTT_PASSWORD not in grund and CF_SECRET not in grund and "***" in grund
 
 
+async def _run_setup(hass, monkeypatch, *, server=None, **addons):
+    result, mocks = await _reach(hass, monkeypatch, "summary", **(server or {}))
+    calls = mock_addons(hass, monkeypatch, **addons)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    return result, mocks, calls
+
+
+def _supervision(calls) -> dict:
+    return {slug: options for _, slug, options in calls.supervision}
+
+
+async def test_first_setup_sends_a_csr_and_writes_the_mosquitto_access(hass, monkeypatch):
+    result, server, calls = await _run_setup(hass, monkeypatch)
+
+    assert result["type"] == "create_entry"
+    token, tenant, profile, csr = server.provision.call_args.args
+    assert (token, tenant, profile) == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    assert x509.load_pem_x509_csr(csr.encode()).subject.rfc4514_string() == f"CN={TENANT}"
+    bridge = calls.options["heizungsbruecke"]
+    assert json.loads(bridge["transport"]) == MOSQUITTO_TRANSPORT
+    assert bridge["installation_token"] == INSTALLATION_TOKEN and bridge["tls_private_key"] == ""
+    assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
+    assert "cloudflared_access_mqtt" in calls.restarts and calls.stops == []
+
+
+async def test_first_setup_on_iot_core_keeps_cloudflared_stopped(hass, monkeypatch):
+    # Ein installiertes cloudflared hat immer Optionen (local_port ist Pflicht im Schema).
+    result, server, calls = await _run_setup(
+        hass, monkeypatch, server={"provisioning": IOT_PROVISIONING, "transport_kind": "iot_core"},
+        cloudflared_options=CF_OPTIONS,
+    )
+
+    assert result["type"] == "create_entry"
+    bridge = calls.options["heizungsbruecke"]
+    assert json.loads(bridge["transport"])["kind"] == "iot_core"
+    assert "cloudflared" not in json.loads(bridge["transport"])
+    assert bridge["tls_certificate"].startswith("-----BEGIN CERTIFICATE-----")
+    assert bridge["tls_private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert bridge["mqtt_username"] == "" and bridge["mqtt_password"] == ""
+    assert bridge["installation_token"] == INSTALLATION_TOKEN
+    assert "cloudflared_access_mqtt" not in calls.restarts and "cloudflared_access_mqtt" in calls.stops
+    assert "heizungsbruecke" in calls.restarts
+    cloudflared = calls.options["cloudflared_access_mqtt"]
+    assert (cloudflared["hostname"], cloudflared["service_token_id"], cloudflared["service_token_secret"]) == ("", "", "")
+    assert cloudflared["local_port"] == CF_OPTIONS["local_port"]
+    supervision = _supervision(calls)
+    assert supervision["heizungsbruecke"] == {"boot": "auto", "watchdog": True}
+    assert supervision["cloudflared_access_mqtt"] == {"boot": "manual", "watchdog": False}
+
+
+async def test_the_private_key_never_leaves_the_device_and_matches_the_csr(hass, monkeypatch):
+    seen = {}
+    real = provisioning.generate_key_and_csr
+
+    def spy(tenant_id):
+        seen["key"], seen["csr"] = real(tenant_id)
+        return seen["key"], seen["csr"]
+
+    monkeypatch.setattr(provisioning, "generate_key_and_csr", spy)
+    _, server, calls = await _run_setup(
+        hass, monkeypatch, server={"provisioning": IOT_PROVISIONING, "transport_kind": "iot_core"},
+        cloudflared_options=CF_OPTIONS,
+    )
+
+    assert server.provision.call_args.args[3] == seen["csr"]
+    assert calls.options["heizungsbruecke"]["tls_private_key"] == seen["key"]
+    assert seen["key"] not in json.dumps([call.args for call in server.provision.call_args_list])
+
+
+@pytest.mark.parametrize("answer", [
+    {**PROVISIONING, "username": "alt"},
+    {**IOT_PROVISIONING, "installation_token": ""},
+    {"transport": {**MOSQUITTO_TRANSPORT, "kind": []}, **{k: v for k, v in PROVISIONING.items() if k != "transport"}},
+])
+async def test_an_invalid_provisioning_answer_fails_the_setup_without_writing(hass, monkeypatch, answer):
+    result, _, calls = await _run_setup(hass, monkeypatch, server={"provisioning": answer})
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "invalid_provisioning_response")
+    assert calls.options == {}
+
+
+async def test_addon_errors_shown_to_the_customer_never_contain_secrets(hass, monkeypatch):
+    error = AddonError(f"Invalid options: {MQTT_PASSWORD} {INSTALLATION_TOKEN} {CF_SECRET} cf-id-456")
+
+    result, _, _ = await _run_setup(hass, monkeypatch, set_error=error)
+
+    text = result["description_placeholders"]["grund"]
+    assert result["step_id"] == "setup_failed"
+    for secret in (MQTT_PASSWORD, INSTALLATION_TOKEN, CF_SECRET, "cf-id-456"):
+        assert secret not in text
+
+
+async def test_addon_errors_never_contain_the_private_key(hass, monkeypatch):
+    seen = {}
+    real = provisioning.generate_key_and_csr
+
+    def spy(tenant_id):
+        seen["key"], csr = real(tenant_id)
+        return seen["key"], csr
+
+    monkeypatch.setattr(provisioning, "generate_key_and_csr", spy)
+
+    class LazyError(AddonError):
+        """Der Text entsteht erst beim Anzeigen, nach dem Erzeugen des Schluessels."""
+
+        def __str__(self):
+            return f"Invalid options: {seen['key']!r} | {seen['key']} | {seen['key'].replace(chr(10), '')}"
+
+    result, _, _ = await _run_setup(
+        hass, monkeypatch, server={"provisioning": IOT_PROVISIONING, "transport_kind": "iot_core"},
+        cloudflared_options=CF_OPTIONS, set_error=LazyError(),
+    )
+
+    text = result["description_placeholders"]["grund"]
+    assert result["step_id"] == "setup_failed"
+    body_lines = [line for line in seen["key"].splitlines() if not line.startswith("-----")]
+    assert body_lines and not any(line in text for line in body_lines)
+
+
 async def test_outdated_addon_found_again_at_setup(hass, monkeypatch):
     result, _ = await _reach(hass, monkeypatch, "summary")
     mock_addons(hass, monkeypatch)
@@ -1002,7 +1130,7 @@ async def test_cancel_after_provision_without_writing_revokes_only_on_the_server
     await hass.async_block_till_done()
 
     assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
-    mocks.delete_installation.assert_awaited_once_with(TENANT, PROVISIONING["username"], MQTT_PASSWORD)
+    mocks.delete_installation.assert_awaited_once_with(TENANT, INSTALLATION_TOKEN)
     sign_off.assert_not_awaited()
     assert (calls.options, calls.restarts, calls.supervision) == ({}, [], [])
     mocks.logout.assert_awaited_once_with("tok123")
@@ -1019,8 +1147,8 @@ async def test_closing_the_dialog_after_provision_without_writing_rolls_back_onc
 
     rollback.server_only.assert_awaited_once()
     kwargs = rollback.server_only.await_args.kwargs
-    assert (kwargs["first_setup"], kwargs["new_credentials"], kwargs["previous_profile_id"]) == (
-        True, (PROVISIONING["username"], MQTT_PASSWORD), None,
+    assert (kwargs["first_setup"], kwargs["new_token"], kwargs["previous_profile_id"]) == (
+        True, INSTALLATION_TOKEN, None,
     )
     rollback.first.assert_not_awaited()
     mocks.logout.assert_awaited_once()

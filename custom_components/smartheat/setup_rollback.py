@@ -52,12 +52,12 @@ async def async_rollback_first_setup(hass: HomeAssistant, tenant_id: str) -> Non
 
 async def async_rollback_reconfigure(
     hass: HomeAssistant, *, client: HeizungsserverClient, token: str | None, tenant_id: str,
-    snapshot: ReconfigureSnapshot, profile_id: str, new_credentials: tuple[str, str] | None,
+    snapshot: ReconfigureSnapshot, profile_id: str, new_token: str | None,
 ) -> None:
     """Neu konfigurieren: neu ausgestellte Zugangsdaten widerrufen, Profil und Add-on-Optionen auf
     den gesicherten Stand, beide Add-ons neu starten. Watchdog/Boot bleiben an (Spec 3.2)."""
     _LOGGER.info("Rueckbau des abgebrochenen Neu konfigurieren gestartet")
-    problems = await _async_undo_server_changes(client, token, tenant_id, new_credentials, snapshot.profile_id, profile_id)
+    problems = await _async_undo_server_changes(client, token, tenant_id, new_token, snapshot.profile_id, profile_id)
     if not await _async_restore_addons(hass, snapshot):
         problems.append(PROBLEM_ADDONS)
     _LOGGER.info("Rueckbau des Neu konfigurieren beendet, offene Schritte: %s", problems or "keine")
@@ -68,26 +68,26 @@ async def async_rollback_reconfigure(
 
 async def async_rollback_server_only(
     hass: HomeAssistant, *, client: HeizungsserverClient, token: str | None, tenant_id: str, first_setup: bool,
-    new_credentials: tuple[str, str] | None, previous_profile_id: str | None, profile_id: str | None,
+    new_token: str | None, previous_profile_id: str | None, profile_id: str | None,
 ) -> None:
     """Abbruch, bevor in die Add-ons geschrieben wurde: nur die Aenderungen auf dem Server
     zuruecknehmen (neu ausgestellte Zugangsdaten widerrufen, beim Neu konfigurieren das Profil
     zuruecksetzen). Kein Abmelden, kein Neustart. Dieselbe Benachrichtigung wie der volle Rueckbau."""
     _LOGGER.info("Rueckbau ohne geschriebene Add-ons gestartet (nur Server)")
-    problems = await _async_undo_server_changes(client, token, tenant_id, new_credentials, previous_profile_id, profile_id)
+    problems = await _async_undo_server_changes(client, token, tenant_id, new_token, previous_profile_id, profile_id)
     _LOGGER.info("Rueckbau ohne geschriebene Add-ons beendet, offene Schritte: %s", problems or "keine")
     key = "rollback_first_setup" if first_setup else "rollback_reconfigure"
     await async_notify_open_steps(hass, setup_notification_id(tenant_id), _headline(key, problems), problems)
 
 
 async def _async_undo_server_changes(
-    client: HeizungsserverClient, token: str | None, tenant_id: str, new_credentials: tuple[str, str] | None,
+    client: HeizungsserverClient, token: str | None, tenant_id: str, new_token: str | None,
     previous_profile_id: str | None, profile_id: str | None,
 ) -> list[str]:
     """Neu ausgestellte Zugangsdaten widerrufen, dann das Profil auf den gesicherten Stand. Ohne
     gesichertes Profil (Ersteinrichtung, Eintrag ohne Profil) bleibt es auf dem Server, wie es ist."""
     problems: list[str] = []
-    if new_credentials is not None and not await _async_revoke(client, tenant_id, new_credentials):
+    if new_token is not None and not await _async_revoke(client, tenant_id, new_token):
         problems.append(PROBLEM_REVOKE)
     if previous_profile_id is not None and profile_id != previous_profile_id and not await _async_reset_profile(
         client, token, tenant_id, previous_profile_id,
@@ -96,9 +96,9 @@ async def _async_undo_server_changes(
     return problems
 
 
-async def _async_revoke(client: HeizungsserverClient, tenant_id: str, credentials: tuple[str, str]) -> bool:
-    # Nur die in diesem Lauf ausgestellten Zugangsdaten; nie loggen.
-    status = await client.delete_installation(tenant_id, *credentials)
+async def _async_revoke(client: HeizungsserverClient, tenant_id: str, installation_token: str) -> bool:
+    # Nur der in diesem Lauf ausgestellte Zugang (Installations-Token); nie loggen.
+    status = await client.delete_installation(tenant_id, installation_token)
     if status not in (204, 401):
         _LOGGER.warning("Rueckbau: neue Zugangsdaten nicht widerrufen (HTTP %s)", status)
         return False

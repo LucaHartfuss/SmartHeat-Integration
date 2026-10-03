@@ -6,8 +6,12 @@ heating (bei einer Integration uebersprungen) -> system -> rooms -> plant_values
 notifications -> summary -> setup (Fortschritt: Zugang, Add-on-Optionen, Watchdog/Boot,
 Neustart, Warten auf das Status-Event) -> finish.
 Neu konfigurieren: derselbe Weg ab Login mit festem Tenant, vorbelegt aus dem Eintrag; statt
-provision() nur der Profilwechsel, die Zugangsdaten bleiben (provision() nur, wenn das Add-on
-keine hat). Reauth: Login -> setup mit provision(). Der Eintrag enthaelt keine Zugangsdaten."""
+provision() nur der Profilwechsel, der Zugang bleibt (provision() nur, wenn das Add-on keinen
+vollstaendigen Zugang hat oder der Server inzwischen eine andere Transportart nutzt, Spec AWS-IoT
+4.4). Reauth: Login -> setup mit provision(). provision() sendet immer einen CSR; der private
+Schluessel entsteht hier und bleibt im Add-on (Spec AWS-IoT 4.1, 5.2). Bei iot_core wird
+cloudflared geleert, gestoppt und ohne Watchdog/Boot gelassen (Plan AWS-2, Praez. 1). Der Eintrag
+enthaelt keine Zugangsdaten."""
 from __future__ import annotations
 
 import logging
@@ -25,8 +29,14 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
 
-from . import detection, validation
-from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener, async_set_supervision
+from . import detection, provisioning, validation
+from .addon_control import (
+    WAIT_DONE,
+    WAIT_FAILED,
+    StatusListener,
+    async_set_supervision,
+    async_update_addon_options,
+)
 from .api_client import (
     AccessDenied,
     ApiError,
@@ -40,7 +50,6 @@ from .catalog import IntegrationDescriptor, parse_integrations, verified_profile
 from .const import (
     ADDON_REPOSITORY_URL,
     ADDON_SPECS,
-    CLOUDFLARED_CREDENTIAL_OPTIONS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
     KPI_ENERGY_CHANNELS,
@@ -56,7 +65,6 @@ from .const import (
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
     OPTIONAL_PLANT_FIELDS,
-    PASSWORD_CREDENTIAL_OPTIONS,
     PLANT_FIELDS,
     PLAUSIBLE_RANGES,
     POLL_INTERVAL_MAX_SECONDS,
@@ -99,16 +107,6 @@ ORIGIN_INTEGRATION = "integration"
 ORIGIN_WEATHER = "weather"
 
 
-def _has_credentials(bridge_options: dict, cloudflared_options: dict) -> bool:
-    """Beide Add-ons brauchen ihre Zugangsdaten: fehlen die Tunnel-Token,
-    weil nur cloudflared neu installiert wurde, waeren sonst provision() uebersprungen und leere
-    Token in _keep_access uebernommen worden (stiller setup_timeout, da der Tunnel nicht steht)."""
-    return (
-        all(bridge_options.get(key) for key in PASSWORD_CREDENTIAL_OPTIONS)
-        and all(cloudflared_options.get(key) for key in CLOUDFLARED_CREDENTIAL_OPTIONS)
-    )
-
-
 class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 2
 
@@ -142,9 +140,14 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._stored_notify_services: list[str] = []
         self._stored_battery_entities: list[str] | None = None
         self._hints_off: list[str] = []
-        self._provisioning: dict | None = None
-        # provision() lief in diesem Flow: neue Zugangsdaten (Abschlusstext im Neu konfigurieren).
+        # Zugang dieses Laufs (neu ausgestellt oder aus den Add-ons uebernommen) und die zugehoerigen
+        # profile_params; der Schluessel steckt nur im Add-on-Zugang, nie im Eintrag.
+        self._access: provisioning.Access | None = None
+        self._profile_params: dict | None = None
+        # provision() lief in diesem Flow: neuer Zugang (Abschlusstext im Neu konfigurieren) und das
+        # dabei ausgestellte Installations-Token fuer den Rueckbau.
         self._new_credentials = False
+        self._new_token: str | None = None
         self._setup_id: str | None = None
         self._setup_error = ""
         # Neu konfigurieren/Reauth: der bestehende Eintrag, Tenant fest.
@@ -192,8 +195,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._rolled_back = True
         tenant_id = self._tenant_id
         assert tenant_id is not None  # geaendert wird erst nach der Tenant-Auswahl
-        provisioning = self._provisioning or {}
-        new_credentials = (provisioning["username"], provisioning["password"]) if self._new_credentials else None
+        new_token = self._new_token if self._new_credentials else None
         if self._entry is None:
             if self._written:
                 # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke.
@@ -201,7 +203,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             else:
                 await async_rollback_server_only(
                     self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=True,
-                    new_credentials=new_credentials, previous_profile_id=None, profile_id=None,
+                    new_token=new_token, previous_profile_id=None, profile_id=None,
                 )
             return
         snapshot, profile = self._snapshot, self._profile
@@ -210,12 +212,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if self._written:
             await async_rollback_reconfigure(
                 self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
-                profile_id=profile["profile_id"], new_credentials=new_credentials,
+                profile_id=profile["profile_id"], new_token=new_token,
             )
         else:
             await async_rollback_server_only(
                 self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=False,
-                new_credentials=new_credentials, previous_profile_id=snapshot.profile_id,
+                new_token=new_token, previous_profile_id=snapshot.profile_id,
                 profile_id=profile["profile_id"],
             )
 
@@ -775,7 +777,26 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             cloudflared_options = (await cloudflared.async_get_addon_info()).options
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError):
             return ""
-        return "" if _has_credentials(bridge_options, cloudflared_options) else await self._hint("new_credentials")
+        if self._keepable_access(bridge_options, cloudflared_options) is not None:
+            return ""
+        return await self._hint("new_credentials")
+
+    def _server_transport_kind(self) -> str | None:
+        """transport_kind aus /accounts/me/tenants (Spec AWS-IoT 4.4); None, wenn der Server keins nennt."""
+        for tenant in self._tenants:
+            if tenant.get("tenant_id") == self._tenant_id:
+                kind = tenant.get("transport_kind")
+                return kind if isinstance(kind, str) else None
+        return None
+
+    def _keepable_access(self, bridge_options: dict, cloudflared_options: dict) -> provisioning.Access | None:
+        """Der laufende Zugang, wenn Neu konfigurieren ihn behalten darf: vollstaendig (also nicht von
+        vor AWS-2 und mit Tunnel-Token bei Mosquitto) und von der Transportart, die der Server nennt."""
+        access = provisioning.access_from_options(bridge_options, cloudflared_options)
+        server_kind = self._server_transport_kind()
+        if access is None or (server_kind is not None and access.kind != server_kind):
+            return None
+        return access
 
     async def _summary_placeholders(self, warnings: dict[str, list[str]]) -> dict[str, str]:
         room_target = self._room_target
@@ -863,7 +884,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                     dict((await cloudflared.async_get_addon_info()).options),
                     self._entry.data.get("profile_id"),
                 )
-            if self._provisioning is None:
+            if self._access is None:
                 next_step = await self._obtain_access(heizungsbruecke, cloudflared)
                 if next_step is not None:
                     return next_step
@@ -875,12 +896,21 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             # Vor dem Aufruf: auch ein abgebrochener oder gescheiterter Aufruf kann geschrieben haben.
             self._written = True
             await heizungsbruecke.async_set_addon_options(options)
-            await cloudflared.async_set_addon_options(self._cloudflared_options())
-            failed = await async_set_supervision(
-                self.hass, [heizungsbruecke.addon_slug, cloudflared.addon_slug], enabled=True,
-            )
+            access = self._access
+            assert access is not None  # siehe _heizungsbruecke_options()
+            if access.cloudflared is not None:
+                await cloudflared.async_set_addon_options(access.cloudflared)
+                supervised = [heizungsbruecke.addon_slug, cloudflared.addon_slug]
+            else:
+                # iot_core (Plan AWS-2, Praez. 1): cloudflared ohne Ziel und Token, gestoppt, ohne Watchdog/Boot.
+                await async_update_addon_options(cloudflared, provisioning.CLOUDFLARED_CLEARED_OPTIONS)
+                await cloudflared.async_stop_addon()
+                await async_set_supervision(self.hass, [cloudflared.addon_slug], enabled=False)
+                supervised = [heizungsbruecke.addon_slug]
+            failed = await async_set_supervision(self.hass, supervised, enabled=True)
             self._supervision_failed = bool(failed)
-            await cloudflared.async_restart_addon()
+            if access.cloudflared is not None:
+                await cloudflared.async_restart_addon()
             await heizungsbruecke.async_restart_addon()
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError) as error:
             key, placeholders = _classify_addon_error(error)
@@ -892,14 +922,16 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return await self._wait_for_status()
 
     async def _obtain_access(self, heizungsbruecke, cloudflared) -> str | None:
-        """Zugangsdaten fuer diesen Lauf. Ersteinrichtung und Reauth stellen neue aus
-        (provision); Neu konfigurieren behaelt die laufenden und wechselt nur das Profil. None =
-        erledigt, sonst der naechste Schritt."""
+        """Zugang fuer diesen Lauf. Ersteinrichtung und Reauth stellen einen neuen aus (provision);
+        Neu konfigurieren behaelt den laufenden und wechselt nur das Profil, solange er vollstaendig
+        ist und zur Transportart des Servers passt (Spec AWS-IoT 4.4). None = erledigt, sonst der
+        naechste Schritt."""
         if self._entry is not None and not self._reauth:
             bridge_options = (await heizungsbruecke.async_get_addon_info()).options
             cloudflared_options = (await cloudflared.async_get_addon_info()).options
-            if _has_credentials(bridge_options, cloudflared_options):
-                return await self._keep_access(bridge_options, cloudflared_options)
+            access = self._keepable_access(bridge_options, cloudflared_options)
+            if access is not None:
+                return await self._keep_access(access)
         return await self._provision()
 
     def _expire_session(self) -> str:
@@ -920,8 +952,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         tenant_id = self._tenant_id
         assert token is not None  # dieser Schritt folgt nur nach erfolgreichem Login
         assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
+        key_pem, csr = await self.hass.async_add_executor_job(provisioning.generate_key_and_csr, tenant_id)
         try:
-            provisioning = await self._client().provision(token, tenant_id, profile_id)
+            body = await self._client().provision(token, tenant_id, profile_id, csr)
         except InvalidAuth:
             return self._expire_session()
         except AccessDenied as error:
@@ -930,18 +963,22 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         except ApiError:
             self._setup_error = await self._hint("provisioning_failed")
             return "setup_failed"
-        if not isinstance(provisioning.get("profile_params"), dict):
-            # Keine Rueckfallwerte: ohne profile_params startet das Add-on nicht (Spec TP3, 4).
-            _LOGGER.error("Provisionierungs-Antwort ohne gueltiges 'profile_params'")
+        try:
+            access = provisioning.parse_provisioning(body, key_pem)
+        except provisioning.InvalidProvisioning as error:
+            # Keine Rueckfallwerte: ohne vollstaendige Antwort startet das Add-on nicht (Spec TP3, 4).
+            # Der Text nennt nur Schluessel, nie Werte. Ein ausgestelltes, aber unbrauchbares Ergebnis
+            # kann der Rueckbau mangels Token nicht widerrufen; reconcile-broker findet es.
+            _LOGGER.error("Provisionierungs-Antwort unbrauchbar: %s", error)
             self._setup_error = await self._hint("invalid_provisioning_response")
             return "setup_failed"
-        self._provisioning = provisioning
-        self._new_credentials = True
+        self._access, self._profile_params = access, access.profile_params
+        self._new_credentials, self._new_token = True, access.installation_token
         return None
 
-    async def _keep_access(self, bridge_options: dict, cloudflared_options: dict) -> str | None:
-        """Spec TP7 2.3: Profilwechsel am Server; MQTT-Zugangsdaten und cloudflared-Optionen aus den
-        laufenden Add-ons. So bleibt der Rueckweg per Backup-Restore gueltig."""
+    async def _keep_access(self, access: provisioning.Access) -> str | None:
+        """Spec TP7 2.3: Profilwechsel am Server; Zugang und cloudflared-Optionen aus den laufenden
+        Add-ons. So bleibt der Rueckweg per Backup-Restore gueltig."""
         token = self._token
         tenant_id = self._tenant_id
         profile = self._profile
@@ -969,15 +1006,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         except ApiError:
             self._setup_error = await self._hint("profile_update_failed")
             return "setup_failed"
-        self._provisioning = {
-            "username": bridge_options["mqtt_username"],
-            "password": bridge_options["mqtt_password"],
-            "cloudflared_hostname": cloudflared_options.get("hostname"),
-            "cloudflared_local_port": cloudflared_options.get("local_port"),
-            "cloudflared_service_token_id": cloudflared_options.get("service_token_id"),
-            "cloudflared_service_token_secret": cloudflared_options.get("service_token_secret"),
-            "profile_params": profile_params,
-        }
+        self._access, self._profile_params = access, profile_params
         return None
 
     async def _wait_for_status(self) -> str:
@@ -1004,13 +1033,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         verwaltete aus den bestehenden Optionen (I3); veraltete Felder (entity_room_actual,
         notify_service, profile) fallen weg. Reauth: nur Zugangsdaten, Laufkennung und
         abgemeldet, alles andere bleibt (Spec TP7 2.4)."""
-        provisioning = self._provisioning
-        # _obtain_access() (via _provision()/_keep_access()) setzt self._provisioning, bevor
-        # dieser Schritt in _run_setup() erreicht wird.
-        assert provisioning is not None
+        # _obtain_access() (via _provision()/_keep_access()) setzt self._access und _profile_params,
+        # bevor dieser Schritt in _run_setup() erreicht wird.
+        assert self._access is not None and self._profile_params is not None
         access = {
-            "mqtt_username": provisioning["username"],
-            "mqtt_password": provisioning["password"],
+            **provisioning.bridge_access_options(self._access),
             OPTION_SETUP_ID: self._setup_id,
             OPTION_ABGEMELDET: False,
         }
@@ -1020,7 +1047,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert notify_services is not None  # Ersteinrichtung/Neu konfigurieren durchlaufen async_step_notifications()
         options = {key: existing[key] for key in UNMANAGED_ADDON_OPTIONS if key in existing}
         # profile_params zuerst: die festen Schluessel danach kann der Server nicht ueberschreiben.
-        options.update(provisioning["profile_params"])
+        options.update(self._profile_params)
         options.update({
             "tenant_id": self._tenant_id,
             **access,
@@ -1035,31 +1062,38 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         })
         return options
 
-    def _cloudflared_options(self) -> dict:
-        provisioning = self._provisioning
-        assert provisioning is not None  # siehe _heizungsbruecke_options()
-        return {
-            "hostname": provisioning["cloudflared_hostname"],
-            "local_port": provisioning["cloudflared_local_port"],
-            "service_token_id": provisioning["cloudflared_service_token_id"],
-            "service_token_secret": provisioning["cloudflared_service_token_secret"],
-        }
+    def _secrets(self) -> set[str]:
+        """Alles, was nie angezeigt werden darf: Passwort bzw. privater Schluessel (auch zeilenweise,
+        falls der Supervisor ihn umbricht), Installations-Token, Service-Token. Das Zertifikat ist
+        oeffentlich und bleibt lesbar."""
+        access = self._access
+        if access is None:
+            return set()
+        values = [value for key, value in access.credential.items() if key != "tls_certificate"]
+        values.append(access.installation_token)
+        if access.cloudflared is not None:
+            values += [access.cloudflared["service_token_id"], access.cloudflared["service_token_secret"]]
+        secrets: set[str] = set()
+        for value in values:
+            if isinstance(value, str) and value:
+                secrets.add(value)
+                secrets.add(value.strip())
+                if "\n" in value:
+                    secrets.update(line for line in value.splitlines() if len(line) >= 16 and not line.startswith("-----"))
+                    secrets.add("".join(value.split()))
+        secrets.discard("")
+        return secrets
 
     def _sanitize_addon_error(self, message: str) -> str:
         """Die Supervisor-Meldung nennt oft den abgelehnten Options-Schluessel; Zugangsdaten
-        werden vor der Anzeige geschwaerzt und der Text gekuerzt."""
-        provisioning = self._provisioning or {}
-        for secret in (
-            provisioning.get("password"), provisioning.get("cloudflared_service_token_secret"),
-            provisioning.get("cloudflared_service_token_id"),
-        ):
-            if secret:
-                message = message.replace(str(secret), "***")
+        werden vor der Anzeige geschwaerzt (laengste zuerst) und der Text gekuerzt."""
+        for secret in sorted(self._secrets(), key=len, reverse=True):
+            message = message.replace(secret, "***")
         return message[:300]
 
     async def async_step_setup_failed(self, user_input: dict | None = None):
         # "Zurueck zur Auswahl" fuehrt zu rooms ohne erneutes provision(): die Zugangsdaten bleiben
-        # in self._provisioning. Im Reauth gibt es keine Auswahl.
+        # in self._access. Im Reauth gibt es keine Auswahl.
         menu = ["cancel"] if self._reauth else ["rooms", "cancel"]
         return self.async_show_menu(
             step_id="setup_failed", menu_options=menu, description_placeholders={"grund": self._setup_error},

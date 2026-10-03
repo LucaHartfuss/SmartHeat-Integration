@@ -49,7 +49,7 @@ async def test_reconfigure_rollback_restores_options_and_profile(hass, monkeypat
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neues_profil",
-        new_credentials=None,
+        new_token=None,
     )
 
     client.update_profile.assert_awaited_once_with("tok", "wohnung1", "altes_profil")
@@ -65,7 +65,7 @@ async def test_unchanged_profile_is_not_reset(hass, monkeypatch, created):
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_credentials=None,
+        new_token=None,
     )
 
     client.update_profile.assert_not_awaited()
@@ -78,10 +78,10 @@ async def test_new_credentials_are_revoked(hass, monkeypatch, created):
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_credentials=("neu_user", "neu_pw"),
+        new_token="inst-neu",
     )
 
-    client.delete_installation.assert_awaited_once_with("wohnung1", "neu_user", "neu_pw")
+    client.delete_installation.assert_awaited_once_with("wohnung1", "inst-neu")
 
 
 async def test_failed_steps_are_listed(hass, monkeypatch, created, caplog):
@@ -92,7 +92,7 @@ async def test_failed_steps_are_listed(hass, monkeypatch, created, caplog):
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neu",
-        new_credentials=("u", PASSWORD),
+        new_token=PASSWORD,
     )
 
     message = created[0][1]
@@ -110,7 +110,7 @@ async def test_one_failing_addon_step_does_not_skip_the_others(hass, monkeypatch
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_credentials=None,
+        new_token=None,
     )
 
     assert bridge.options == SNAPSHOT.bridge_options and cloudflared.options == SNAPSHOT.cloudflared_options
@@ -124,7 +124,7 @@ async def test_missing_addons_skip_the_restore(hass, monkeypatch, created):
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_credentials=None,
+        new_token=None,
     )
 
     assert created[0][1].splitlines()[1:] == ["- " + await async_hint(hass, "open_step_addons")]
@@ -136,7 +136,7 @@ async def test_snapshot_without_profile_keeps_the_server_profile(hass, monkeypat
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1",
-        snapshot=ReconfigureSnapshot({}, {}, None), profile_id="neu", new_credentials=None,
+        snapshot=ReconfigureSnapshot({}, {}, None), profile_id="neu", new_token=None,
     )
 
     client.update_profile.assert_not_awaited()
@@ -156,7 +156,7 @@ async def test_rollback_without_token_reports_the_profile(hass, monkeypatch, cre
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token=None, tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neu",
-        new_credentials=None,
+        new_token=None,
     )
 
     assert len(created[0][1].splitlines()) == 2
@@ -180,10 +180,10 @@ async def test_server_only_reconfigure_resets_the_profile_and_revokes(hass, monk
 
     await setup_rollback.async_rollback_server_only(
         hass, client=client, token="tok", tenant_id="wohnung1", first_setup=False,
-        new_credentials=("neu_user", "neu_pw"), previous_profile_id="altes_profil", profile_id="neues_profil",
+        new_token="inst-neu", previous_profile_id="altes_profil", profile_id="neues_profil",
     )
 
-    client.delete_installation.assert_awaited_once_with("wohnung1", "neu_user", "neu_pw")
+    client.delete_installation.assert_awaited_once_with("wohnung1", "inst-neu")
     client.update_profile.assert_awaited_once_with("tok", "wohnung1", "altes_profil")
     sign_off.assert_not_awaited()
     managers.assert_not_awaited()
@@ -197,10 +197,10 @@ async def test_server_only_first_setup_revokes_without_signing_off(hass, monkeyp
 
     await setup_rollback.async_rollback_server_only(
         hass, client=client, token=None, tenant_id="wohnung1", first_setup=True,
-        new_credentials=("neu_user", "neu_pw"), previous_profile_id=None, profile_id=None,
+        new_token="inst-neu", previous_profile_id=None, profile_id=None,
     )
 
-    client.delete_installation.assert_awaited_once_with("wohnung1", "neu_user", "neu_pw")
+    client.delete_installation.assert_awaited_once_with("wohnung1", "inst-neu")
     client.update_profile.assert_not_awaited()
     sign_off.assert_not_awaited()
     managers.assert_not_awaited()
@@ -215,7 +215,7 @@ async def test_server_only_failures_are_listed_without_credentials(hass, monkeyp
 
     await setup_rollback.async_rollback_server_only(
         hass, client=client, token="tok", tenant_id="wohnung1", first_setup=False,
-        new_credentials=("u", PASSWORD), previous_profile_id="altes_profil", profile_id="neu",
+        new_token=PASSWORD, previous_profile_id="altes_profil", profile_id="neu",
     )
 
     lines = created[0][1].splitlines()

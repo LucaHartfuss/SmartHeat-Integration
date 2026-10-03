@@ -58,6 +58,8 @@ def test_iot_answer_puts_certificate_and_local_key_into_the_bridge():
     lambda b: b.pop("installation_token"),
     lambda b: b.update(username="alt"),
     lambda b: b["transport"].update(kind="rabbitmq"),
+    lambda b: b["transport"].update(kind=[]),
+    lambda b: b["transport"].update(kind={"a": 1}),
     lambda b: b["transport"].pop("host"),
     lambda b: b["credential"].update(kind="certificate"),
     lambda b: b["credential"].pop("password"),
@@ -107,3 +109,11 @@ def test_secrets_are_not_in_the_repr():
     access = provisioning.parse_provisioning(MOSQUITTO_BODY, "KEY")
     text = repr(access)
     assert "mqtt-geheim" not in text and "tok-1" not in text and "cf-secret" not in text
+
+
+@pytest.mark.parametrize("kind", [[], {"a": 1}, 7, None])
+def test_an_unhashable_or_non_string_transport_kind_is_not_a_crash(kind):
+    options = {"transport": json.dumps({"kind": kind}), "installation_token": "t"}
+    assert provisioning.transport_kind(options) is None
+    assert provisioning.access_from_options(options, {}) is None
+    assert provisioning.watched_addon_slugs(options) == {HEIZUNGSBRUECKE_ADDON_SLUG, CLOUDFLARED_ADDON_SLUG}

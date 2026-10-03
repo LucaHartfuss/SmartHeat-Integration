@@ -79,7 +79,7 @@ def parse_provisioning(body, private_key_pem: str) -> Access:
     body = _keys(body, PROVISION_RESPONSE_KEYS, "Provisioning-Antwort")
     transport = body["transport"]
     kind = transport.get("kind") if isinstance(transport, dict) else None
-    if kind not in DESCRIPTOR_KEYS:
+    if not isinstance(kind, str) or kind not in DESCRIPTOR_KEYS:
         raise InvalidProvisioning(f"Transportart {kind!r} unbekannt")
     transport = _keys(transport, DESCRIPTOR_KEYS[kind], f"Deskriptor {kind}")
     credential_kind = CREDENTIAL_FOR_TRANSPORT[kind]
@@ -122,7 +122,7 @@ def _bridge_transport(bridge_options: dict) -> dict | None:
     except (ValueError, TypeError):
         return None
     kind = transport.get("kind") if isinstance(transport, dict) else None
-    if kind not in DESCRIPTOR_KEYS or set(transport) != DESCRIPTOR_KEYS[kind] - {"cloudflared"}:
+    if not isinstance(kind, str) or kind not in DESCRIPTOR_KEYS or set(transport) != DESCRIPTOR_KEYS[kind] - {"cloudflared"}:
         return None
     return transport
 
