@@ -21,9 +21,11 @@ from .const import (
     PLAUSIBLE_RANGES,
     ROOM_SENSOR_DEVIATION_K,
     STALE_AFTER_HOURS,
+    TEMPERATURE_SENSOR_FILTER,
     TEMPERATURE_UNIT,
     WEATHER_TEMPERATURE_ATTRIBUTE,
     WEATHER_UNIT_ATTRIBUTE,
+    field_domains,
 )
 
 ERROR_NOT_FOUND = "entity_not_found"
@@ -57,10 +59,17 @@ def _domain(entity_id: str) -> str:
     return entity_id.split(".", 1)[0]
 
 
-def entity_selector(field: str, *, multiple: bool = False, integration: str | None = None) -> selector.EntitySelector:
-    """Entity-Selektor eines Felds, gefiltert nach const.ENTITY_FILTERS (Wizard und Optionen); mit
-    integration zusaetzlich auf die Plattform der Heizungs-Integration beschraenkt (TP12c)."""
-    entries = [dict(entry) for entry in ENTITY_FILTERS[field]]
+def _filters(domains: list[str]) -> list[dict[str, str]]:
+    return [TEMPERATURE_SENSOR_FILTER if domain == "sensor" else {"domain": domain} for domain in domains]
+
+
+def entity_selector(
+    field: str, *, multiple: bool = False, integration: str | None = None, domains: list[str] | None = None,
+) -> selector.EntitySelector:
+    """Entity-Selektor eines Felds, gefiltert nach `domains` (Hebelsatz-Felder, const.field_domains) oder sonst
+    const.ENTITY_FILTERS (Wizard und Optionen); mit integration zusaetzlich auf die Plattform der
+    Heizungs-Integration beschraenkt (TP12c)."""
+    entries = [dict(entry) for entry in (_filters(domains) if domains is not None else ENTITY_FILTERS[field])]
     if integration is not None:
         for entry in entries:
             entry["integration"] = integration
@@ -80,9 +89,11 @@ def check_installation(hass: HomeAssistant, entity_id: str, platform: str, confi
     return None
 
 
-def check_domain(entity_id: str, field: str) -> str | None:
-    """Backend-Gegenstueck zum Selektor-Filter: HA prueft `filter` nur im Frontend."""
-    return None if _domain(entity_id) in {entry["domain"] for entry in ENTITY_FILTERS[field]} else ERROR_DOMAIN
+def check_domain(entity_id: str, field: str, domains: list[str] | None = None) -> str | None:
+    """Backend-Gegenstueck zum Selektor-Filter: HA prueft `filter` nur im Frontend. Die Domaenen der
+    Hebelsatz-Felder kommen vom Aufrufer, sonst aus const.ENTITY_FILTERS."""
+    allowed = set(domains) if domains is not None else {entry["domain"] for entry in ENTITY_FILTERS[field]}
+    return None if _domain(entity_id) in allowed else ERROR_DOMAIN
 
 
 def room_sensor_ref(entity_id: str) -> str:
@@ -229,3 +240,32 @@ def check_rooms(hass: HomeAssistant, room_sensor_entities: list[str], target_ent
     if not errors:
         errors = duplicate_fields({OPTION_ROOM_SENSORS: refs, OPTION_ENTITY_ROOM_TARGET: [target]})
     return refs, target, errors
+
+
+def check_available(hass: HomeAssistant, ref: str) -> str | None:
+    """Entity existiert und meldet einen Zustand (Betriebsart/Heizprogramm: Text, keine Zahl)."""
+    state = hass.states.get(entity_of(ref))
+    if state is None:
+        return ERROR_NOT_FOUND
+    if state.state in ("unavailable", "unknown"):
+        return ERROR_UNAVAILABLE
+    return None
+
+
+def check_plant_field(hass: HomeAssistant, field: str, ref: str, lever_set: str) -> str | None:
+    """Prueft ein Anlagenwert-Feld nach Domaene des Hebelsatzes und Art des Werts (Plan 3c)."""
+    error = check_domain(ref, field, field_domains(lever_set, field))
+    if error:
+        return error
+    if field == "entity_shift_current" and _domain(ref) == "climate":
+        # Climate-Zone: Wunschtemperatur-Attribut; bei abgeschalteter Zone 0, deshalb nur numerisch.
+        return check_numeric(hass, room_target_ref(ref))
+    if field in ("entity_curve_current", "entity_level_current"):
+        return check_numeric(hass, ref)
+    if field == "entity_mode_select":
+        return check_available(hass, ref)
+    if field == "entity_heat_limit":
+        return check_temperature(hass, ref, PLAUSIBLE_RANGES["heat_limit"])
+    if field == "entity_outdoor_temp":
+        return check_temperature(hass, ref, PLAUSIBLE_RANGES["outdoor"])
+    return check_temperature(hass, ref)
