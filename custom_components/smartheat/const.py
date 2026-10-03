@@ -286,11 +286,14 @@ def lever_set_levers(lever_set: str) -> tuple[str, ...]:
 
 def entry_incomplete(data: Mapping) -> bool:
     """Eintrag, der fuer den aktuellen Stand nicht reicht (AU-037, Plan 3c): markiert, ohne Profil, ohne bekannten
-    Hebelsatz oder ohne ein Pflichtfeld des Hebelsatzes. Weg: Neu konfigurieren."""
+    Hebelsatz, ohne Verschiebungshebel (`shift_lever`, sonst benennt sensor.lever_entity_key den Hebel falsch) oder
+    ohne ein Pflichtfeld des Hebelsatzes. Weg: Neu konfigurieren."""
     entities = data.get("entities") or {}
     lever_set = data.get(OPTION_LEVER_SET)
+    shift_lever = data.get("shift_lever")
     return (
         bool(data.get(DATA_INCOMPLETE)) or not data.get("profile_id") or lever_set not in LEVER_SET_FIELDS
+        or not isinstance(shift_lever, str) or not shift_lever
         or any(field not in entities for field in LEVER_SET_FIELDS[lever_set])
     )
 

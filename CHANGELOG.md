@@ -6,8 +6,8 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 ## 0.12.0
 
 - **Hersteller-Abstraktion (Plan 3c):** Katalog v3. Der Wizard erkennt neben myVAILLANT auch Weishaupt (`weishaupt_modbus`)
-  und Viessmann (`vicare`); deren Server-Profile sind noch inaktiv, bis die Inventur durch ist (der Server lehnt die
-  Einrichtung dann ab).
+  und Viessmann (`vicare`); deren Server-Profile sind noch inaktiv, bis die Inventur durch ist (der Wizard bricht dann
+  im Systemschritt mit `no_verified_profiles` ab, bevor auf dem Server etwas eingerichtet wird).
 - Neuer Schritt „Hebelsatz“ (`lever_set`), nur wenn das Profil mehrere Hebelsätze anbietet (heute Weishaupt:
   `weishaupt_wwp` und der Rückfall `weishaupt_wwp_basis` nur mit dem Raumsoll); vorbelegt ist der Hebelsatz, dessen
   Entities alle erkannt wurden. Die Pflichtfelder im Schritt „Anlagenwerte“ richten sich nach dem Hebelsatz.
@@ -16,7 +16,13 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 - Status-Entities je Hebel des Hebelsatzes (`heizkurve`, `heizgrenze`, `mindestvorlauf`, `niveau`,
   `parallelverschiebung` bzw. `raum_soll`; die Entity-IDs von `client1` bleiben gleich) und neu `gelernte_steigung`,
   `gelernte_heizgrenze` mit den Lernwerten des Servers. Verwaiste Entities räumt die Integration nur bei vollständigen
-  Einträgen auf.
+  Einträgen auf. Die Hebel-Sensoren heißen jetzt „Heizkurve (Steigung)“ und „Parallelverschiebung“ (vorher
+  „Gelernte …“).
+- „Neu konfigurieren“ eines unvollständigen Eintrags übernimmt Räume, Raum-Soll, Handys, Batterien und
+  abgeschaltete Hinweise aus dem Eintrag; nur die Anlage kommt aus der Erkennung. Ein Eintrag ohne
+  Verschiebungshebel (`shift_lever`) gilt als unvollständig.
+- Findet der Wizard keinen Heizkreis, nennt der Abbruch den Hersteller-Hinweis (z. B. Weishaupt: Geräte-Postfix leer
+  lassen).
 - Der Provisioning-Aufruf sendet `client_type` (`ha`) und die Integrationsversion (`client_version`, nur Diagnose).
 - Die Hinweis-Schalter kennen `schreibbudget` und `schreibzaehler`; Energiekanal `electrical_total`.
 - Voraussetzung: Heizungsbrücke ≥ 0.33.0 (Statusereignis Schema 2) und Server mit Katalog v3 (Server vor Add-on vor

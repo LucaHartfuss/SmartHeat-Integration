@@ -170,9 +170,11 @@ WEISHAUPT_STATES = {
 }
 
 
-def setup_weishaupt(hass, *, with_curve: bool = True, outdoor: bool = True) -> MockConfigEntry:
+def setup_weishaupt(hass, *, with_curve: bool = True, outdoor: bool = True, postfix: str = "") -> MockConfigEntry:
     """weishaupt_modbus mit Heizkreis 1 wie in der aus dem Code abgeleiteten Fixture (Praefix weishaupt_wbb).
-    with_curve=False: ohne Heizkennlinie und Sommer-Winter-Umschaltung (Rueckfall-Hebelsatz)."""
+    with_curve=False: ohne Heizkennlinie und Sommer-Winter-Umschaltung (Rueckfall-Hebelsatz). postfix: Geraete-Postfix
+    der Integration, die unique_ids enden dann auf _<postfix> (Praezisierung 3)."""
+    suffix = f"_{postfix}" if postfix else ""
     entry = MockConfigEntry(domain="weishaupt_modbus", title="Weishaupt")
     entry.add_to_hass(hass)
     device = dr.async_get(hass).async_get_or_create(
@@ -184,13 +186,14 @@ def setup_weishaupt(hass, *, with_curve: bool = True, outdoor: bool = True) -> M
             continue
         object_id = "weishaupt_wbb_" + name.lower().replace(" ", "_")
         ent_reg.async_get_or_create(
-            domain, "weishaupt_modbus", f"weishaupt_wbb{name}", config_entry=entry, device_id=device.id,
+            domain, "weishaupt_modbus", f"weishaupt_wbb{name}{suffix}", config_entry=entry, device_id=device.id,
             suggested_object_id=object_id,
         )
         hass.states.async_set(f"{domain}.{object_id}", value, {"unit_of_measurement": unit} if unit else {})
     if outdoor:
         ent_reg.async_get_or_create(
-            "sensor", "weishaupt_modbus", "weishaupt_wbbAussentemperatur", config_entry=entry, device_id=device.id,
+            "sensor", "weishaupt_modbus", f"weishaupt_wbbAussentemperatur{suffix}", config_entry=entry,
+            device_id=device.id,
             suggested_object_id="weishaupt_wbb_aussentemperatur",
         )
         hass.states.async_set("sensor.weishaupt_wbb_aussentemperatur", "4.5", {"unit_of_measurement": "°C"})

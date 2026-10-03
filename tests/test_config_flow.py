@@ -321,7 +321,22 @@ async def test_integration_without_complete_circuit_aborts(hass, monkeypatch):
     result = await login(hass, await start(hass))
 
     assert (result["type"], result["reason"]) == ("abort", "no_heating_circuit")
-    assert result["description_placeholders"] == {"integration": "myVAILLANT"}
+    assert result["description_placeholders"] == {"integration": "myVAILLANT", "hinweis": ""}
+
+
+async def test_weishaupt_with_device_postfix_aborts_with_the_manufacturer_hint(hass, monkeypatch):
+    # Schluss-Review Plan 3c: mit Geraete-Postfix erkennt der Katalog keinen Kreis (Praezisierung 3); der Abbruch
+    # nennt den Hersteller-Hinweis, der sagt, wie es geht.
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=weishaupt_catalog())
+    setup_weishaupt(hass, postfix="wp1")
+
+    result = await login(hass, await start(hass))
+
+    assert (result["type"], result["reason"]) == ("abort", "no_heating_circuit")
+    placeholders = result["description_placeholders"]
+    assert placeholders["integration"] == "Weishaupt WBB (Modbus)"
+    assert "Modbus TCP" in placeholders["hinweis"] and "Postfix" in placeholders["hinweis"]
 
 
 # --- E: Raeume ---

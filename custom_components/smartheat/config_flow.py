@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -280,15 +281,18 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return await self.async_step_user()
 
     def _prefill_from_entry(self) -> None:
-        """Vorbelegung fuer Neu konfigurieren. Bei `unvollstaendig` nichts: dann gilt die Erkennung
-        wie bei der Ersteinrichtung, auch ohne vorbelegtes Verteilsystem."""
+        """Vorbelegung fuer Neu konfigurieren. Bei `unvollstaendig` (client1 nach dem Update) nur die vom
+        Hebelsatz unabhaengigen Kundenwerte, soweit gespeichert (Raeume, Handys, Batterien, abgeschaltete
+        Hinweise; Schluss-Review Plan 3c); Anlage und Verteilsystem kommen dann aus der Erkennung wie bei
+        der Ersteinrichtung."""
         entry = self._entry
         # _prefill_from_entry() laeuft nur aus async_step_reconfigure(), das self._entry vorher
         # setzt (async_step_reauth() ruft es nicht auf).
         assert entry is not None
-        if entry_incomplete(entry.data):
-            return
         options = entry.options
+        if entry_incomplete(entry.data):
+            self._prefill_stored_options(options)
+            return
         self._rooms_input = {
             OPTION_ROOM_SENSORS: [validation.entity_of(ref) for ref in options.get(OPTION_ROOM_SENSORS, [])],
             OPTION_ENTITY_ROOM_TARGET: validation.entity_of(options.get(OPTION_ENTITY_ROOM_TARGET, "")),
@@ -316,6 +320,22 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             "profile_id": entry.data.get("profile_id"),
             "lever_set": lever_set,
         }
+
+    def _prefill_stored_options(self, options: Mapping) -> None:
+        """Nur gespeicherte Werte: ein fehlender Schluessel laesst die Erkennung wie bei der Ersteinrichtung
+        greifen (keine Raeume vorbelegt, alle Handys vorgewaehlt, Batterien aus der Erkennung)."""
+        rooms = {}
+        if OPTION_ROOM_SENSORS in options:
+            rooms[OPTION_ROOM_SENSORS] = [validation.entity_of(ref) for ref in options[OPTION_ROOM_SENSORS] or []]
+        if options.get(OPTION_ENTITY_ROOM_TARGET):
+            rooms[OPTION_ENTITY_ROOM_TARGET] = validation.entity_of(options[OPTION_ENTITY_ROOM_TARGET])
+        self._rooms_input = rooms
+        if OPTION_NOTIFY_SERVICES in options:
+            self._notify_services = list(options[OPTION_NOTIFY_SERVICES] or [])
+            self._stored_notify_services = list(self._notify_services)
+        if OPTION_BATTERY_ENTITIES in options:
+            self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES] or [])
+        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF) or [])
 
     # --- Schritt 0/1: Vorabpruefung und Login ---
 
@@ -490,7 +510,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._entries, self._devices = detection.registry_snapshot(self.hass)
             self._circuits = detection.find_circuits(integration, self._entries, self._devices)
             if not self._circuits:
-                return await self._abort("no_heating_circuit", integration=integration.label)
+                return await self._abort(
+                    "no_heating_circuit", integration=integration.label, hinweis=integration.hinweis or "",
+                )
         profiles = [p for p in verified_profiles(catalog) if p["hersteller"] == integration.hersteller]
         if not profiles:
             return await self._abort("no_verified_profiles")

@@ -788,6 +788,44 @@ async def test_client1_entry_without_lever_set_is_incomplete_and_reconfigure_com
     assert (options["lever_set"], options["entity_shift_current"]) == ("vaillant_vrc720", ZONE)
 
 
+async def test_reconfigure_of_an_entry_without_lever_set_keeps_the_customer_options(hass, monkeypatch):
+    """Schluss-Review Plan 3c: das Pflicht-"Neu konfigurieren" von client1 nach dem Update belegt Raeume,
+    Raum-Soll, Handys, Batterien und abgeschaltete Hinweise aus dem Eintrag vor; nur die Anlage kommt aus der
+    Erkennung."""
+    addon_before_update = {key: value for key, value in BRIDGE_OPTIONS.items() if key != "lever_set"}
+    mypyllant, _, calls = _prepare(hass, monkeypatch, existing_options=addon_before_update, cloudflared_options=CF_OPTIONS)
+    register_phones(hass, "mobile_app_tablet")
+    stored = {
+        "room_sensors": ["sensor.kz_temperatur"], "entity_room_target": "climate.wz::temperature",
+        "notify_services": ["notify.mobile_app_tablet"], "battery_entities": ["sensor.kz_batterie"],
+        "notify_hints_off": ["batterie", "schreibzaehler"],
+    }
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id, options=stored, data_without=("lever_set", "shift_lever"))
+    assert entry_incomplete(entry.data)
+
+    result = await login(hass, await entry.start_reconfigure_flow(hass))
+    assert has_default(result, "verteilsystem") is False       # Anlage weiter aus der Erkennung
+    result = await configure(hass, result, SYSTEM_INPUT)
+    assert result["step_id"] == "rooms"
+    assert (suggested(result, "room_sensors"), suggested(result, "entity_room_target")) == (
+        ["sensor.kz_temperatur"], "climate.wz",
+    )
+    result = await configure(hass, result, {
+        "room_sensors": suggested(result, "room_sensors"), "entity_room_target": suggested(result, "entity_room_target"),
+    })
+    result = await configure(hass, result, PLANT_INPUT)
+    assert suggested(result, "notify_services") == ["notify.mobile_app_tablet"]
+    result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
+    assert result["description_placeholders"]["batteries"] == "sensor.kz_batterie"
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    assert dict(entry.options) == stored
+    options = calls.options["heizungsbruecke"]
+    assert {key: options[key] for key in stored} == stored
+
+
 WEISHAUPT_FULL = {
     "entity_curve_current": "number.weishaupt_wbb_heizkennlinie",
     "entity_shift_current": "number.weishaupt_wbb_raumsolltemperatur_normal",

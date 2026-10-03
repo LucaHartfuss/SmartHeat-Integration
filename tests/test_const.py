@@ -105,7 +105,7 @@ def test_write_role_fields_exclude_the_outdoor_source():
 
 
 def _complete(lever_set):
-    return {"profile_id": "p", "lever_set": lever_set,
+    return {"profile_id": "p", "lever_set": lever_set, "shift_lever": "level",
             "entities": {field: "x.y" for field in const.LEVER_SET_FIELDS[lever_set]}}
 
 
@@ -118,6 +118,13 @@ def test_entry_incomplete_per_lever_set():
     assert const.entry_incomplete(data)
     # client1 vor "Neu konfigurieren": alle Vaillant-Felder, aber kein lever_set
     assert const.entry_incomplete({**_complete("vaillant_vrc720"), "lever_set": None})
+    # Schluss-Review Plan 3c: ohne gueltigen Verschiebungshebel unvollstaendig (sonst raum_soll statt
+    # parallelverschiebung und die Bereinigung verwaister Entities griffe falsch)
+    for shift_lever in (None, "", 7):
+        assert const.entry_incomplete({**_complete("vaillant_vrc720"), "shift_lever": shift_lever})
+    data = _complete("vaillant_vrc720")
+    del data["shift_lever"]
+    assert const.entry_incomplete(data)
 
 
 def test_versions_and_contracts():
