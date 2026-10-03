@@ -1,4 +1,5 @@
 """Coordinator, Entities und zweiter Waechter (Spec TP7 1.2, 1.3)."""
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -509,3 +510,68 @@ async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, mon
     assert hass.states.get(STATUS).state == "addon_gestoppt"
     assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
     assert signals == []  # unveraenderter Status/Grund: kein Update
+
+
+# --- Waechter und Transportart (Plan AWS-2, Praezisierung 1) ---
+
+IOT_CORE_TRANSPORT = json.dumps({
+    "alpn": "x-amzn-mqtt-ca", "ca_pem": "CA", "client_id": TENANT, "host": "iot.example.test", "kind": "iot_core", "port": 443,
+}, sort_keys=True)
+MOSQUITTO_TRANSPORT = json.dumps({"host": "127.0.0.1", "kind": "mosquitto_cloudflared", "port": 18830}, sort_keys=True)
+
+
+async def _stopped_cloudflared_setup(hass, monkeypatch, transport):
+    log = []
+    bridge = FakeAddon("a_heizungsbruecke", log, options={"tenant_id": TENANT, "transport": transport})
+    cloudflared = FakeAddon("a_cloudflared_access_mqtt", log, state=AddonState.NOT_RUNNING)
+    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge, "cloudflared_access_mqtt": cloudflared})
+    return entry.runtime_data, log
+
+
+async def test_watchdog_ignores_a_stopped_cloudflared_on_iot_core(hass, monkeypatch, clock, notes):
+    coordinator, log = await _stopped_cloudflared_setup(hass, monkeypatch, IOT_CORE_TRANSPORT)
+
+    for _ in range(3):
+        clock["t"] += 100
+        await coordinator.async_check()
+
+    assert coordinator.watchdog_status is None
+    assert log == []  # cloudflared weder gestartet noch neu gestartet
+    assert notes[0] == []
+
+
+async def test_watchdog_still_revives_cloudflared_on_mosquitto(hass, monkeypatch, clock, notes):
+    coordinator, log = await _stopped_cloudflared_setup(hass, monkeypatch, MOSQUITTO_TRANSPORT)
+
+    for _ in range(2):
+        clock["t"] += 100
+        await coordinator.async_check()
+
+    assert coordinator.watchdog_status == "addon_gestoppt"
+    assert log == [("start", "a_cloudflared_access_mqtt")]
+
+
+async def test_watchdog_still_revives_a_stopped_bridge_on_iot_core(hass, monkeypatch, clock, notes):
+    log = []
+    bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING,
+                       options={"tenant_id": TENANT, "transport": IOT_CORE_TRANSPORT})
+    cloudflared = FakeAddon("a_cloudflared_access_mqtt", log, state=AddonState.NOT_RUNNING)
+    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge, "cloudflared_access_mqtt": cloudflared})
+
+    for _ in range(2):
+        clock["t"] += 100
+        await entry.runtime_data.async_check()
+
+    assert entry.runtime_data.watchdog_status == "addon_gestoppt"
+    assert log == [("start", "a_heizungsbruecke")]
+
+
+async def test_watchdog_without_a_readable_transport_watches_both_addons(hass, monkeypatch, clock, notes):
+    coordinator, log = await _stopped_cloudflared_setup(hass, monkeypatch, "")
+
+    for _ in range(2):
+        clock["t"] += 100
+        await coordinator.async_check()
+
+    assert coordinator.watchdog_status == "addon_gestoppt"
+    assert log == [("start", "a_cloudflared_access_mqtt")]

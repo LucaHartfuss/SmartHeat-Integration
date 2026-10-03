@@ -1,4 +1,5 @@
 """Rueckbau abgebrochener Wizard-Laeufe (Spec TP12c 3.2)."""
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,9 +10,10 @@ from custom_components.smartheat.api_client import ApiError
 from custom_components.smartheat.setup_rollback import ReconfigureSnapshot
 from custom_components.smartheat.texts import async_hint
 
-from .addon_fakes import FakeAddon
+from .addon_fakes import FakeAddon, FakeSupervisor
 
 SR = "custom_components.smartheat.setup_rollback"
+AC = "custom_components.smartheat.addon_control"
 PASSWORD = "geheim-pw-4711"
 SNAPSHOT = ReconfigureSnapshot({"tenant_id": "wohnung1", "mqtt_username": "alt"}, {"hostname": "h"}, "altes_profil")
 
@@ -26,9 +28,10 @@ def created(monkeypatch):
     return calls
 
 
-def _addons(monkeypatch, log, error=None):
+def _addons(monkeypatch, log, error=None, supervisor_error=None):
     bridge, cloudflared = FakeAddon("heizungsbruecke", log, error=error), FakeAddon("cloudflared_access_mqtt", log)
     monkeypatch.setattr(f"{SR}.async_get_addon_managers", AsyncMock(return_value=(bridge, cloudflared)))
+    monkeypatch.setattr(f"{AC}.get_supervisor_client", lambda hass: FakeSupervisor(log, error=supervisor_error))
     return bridge, cloudflared
 
 
@@ -57,6 +60,81 @@ async def test_reconfigure_rollback_restores_options_and_profile(hass, monkeypat
     assert bridge.options == SNAPSHOT.bridge_options and cloudflared.options == SNAPSHOT.cloudflared_options
     assert [entry[:2] for entry in log][-2:] == [("restart", "cloudflared_access_mqtt"), ("restart", "heizungsbruecke")]
     assert len(created[0][1].splitlines()) == 1  # nur die Kopfzeile, keine offenen Schritte
+
+
+def _iot_transport():
+    return json.dumps({
+        "alpn": "x-amzn-mqtt-ca", "ca_pem": "CA", "client_id": "wohnung1", "host": "iot.example.test",
+        "kind": "iot_core", "port": 443,
+    }, sort_keys=True)
+
+
+def _mosquitto_transport():
+    return json.dumps({"host": "127.0.0.1", "kind": "mosquitto_cloudflared", "port": 18830}, sort_keys=True)
+
+
+async def test_restoring_an_iot_snapshot_does_not_restart_cloudflared(hass, monkeypatch, created):
+    snapshot = ReconfigureSnapshot(
+        bridge_options={"transport": _iot_transport(), "installation_token": "t", "tls_certificate": "C",
+                        "tls_private_key": "K", "mqtt_username": "", "mqtt_password": ""},
+        cloudflared_options={"hostname": "", "local_port": 18830, "service_token_id": "", "service_token_secret": ""},
+        profile_id="p",
+    )
+    log = []
+    bridge, cloudflared = _addons(monkeypatch, log)
+
+    await setup_rollback.async_rollback_reconfigure(
+        hass, client=AsyncMock(), token="s", tenant_id="wohnung1", snapshot=snapshot, profile_id="p", new_token=None,
+    )
+
+    assert ("restart", "cloudflared_access_mqtt") not in log
+    assert ("restart", "heizungsbruecke") in log
+    assert bridge.options == snapshot.bridge_options and cloudflared.options == snapshot.cloudflared_options
+    # Nur die Heizungsbruecke wird ueberwacht; cloudflared bleibt gestoppt ohne Watchdog/Boot.
+    assert ("supervision", "heizungsbruecke", {"boot": "auto", "watchdog": True}) in log
+    assert ("supervision", "cloudflared_access_mqtt", {"boot": "manual", "watchdog": False}) in log
+    assert ("supervision", "cloudflared_access_mqtt", {"boot": "auto", "watchdog": True}) not in log
+    assert ("stop", "cloudflared_access_mqtt") in log
+    assert len(created[0][1].splitlines()) == 1
+
+
+async def test_restoring_a_mosquitto_snapshot_switches_cloudflared_supervision_back_on(hass, monkeypatch, created):
+    """Neu konfigurieren hat auf iot_core umgestellt (cloudflared manuell, ohne Watchdog): der Rueckbau auf
+    den Mosquitto-Stand schaltet die Ueberwachung wieder ein, bevor cloudflared neu startet."""
+    snapshot = ReconfigureSnapshot(
+        bridge_options={"transport": _mosquitto_transport(), "installation_token": "t", "mqtt_username": "u",
+                        "mqtt_password": "p"},
+        cloudflared_options={"hostname": "h", "local_port": 18830, "service_token_id": "i", "service_token_secret": "s"},
+        profile_id="p",
+    )
+    log = []
+    _addons(monkeypatch, log)
+
+    await setup_rollback.async_rollback_reconfigure(
+        hass, client=AsyncMock(), token="s", tenant_id="wohnung1", snapshot=snapshot, profile_id="p", new_token="neu",
+    )
+
+    on = {"boot": "auto", "watchdog": True}
+    assert ("supervision", "heizungsbruecke", on) in log and ("supervision", "cloudflared_access_mqtt", on) in log
+    assert [entry[:2] for entry in log].index(("supervision", "cloudflared_access_mqtt")) < log.index(
+        ("restart", "cloudflared_access_mqtt"),
+    )
+    assert ("stop", "cloudflared_access_mqtt") not in log
+
+
+async def test_a_failed_supervision_restore_is_listed(hass, monkeypatch, created):
+    from aiohasupervisor.exceptions import SupervisorError
+
+    log = []
+    _addons(monkeypatch, log, supervisor_error=SupervisorError("weg"))
+
+    await setup_rollback.async_rollback_reconfigure(
+        hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
+        new_token=None,
+    )
+
+    assert created[0][1].splitlines()[1:] == ["- " + await async_hint(hass, "open_step_addons")]
+    assert ("restart", "heizungsbruecke") in log  # die Heizungsbruecke startet trotzdem
 
 
 async def test_unchanged_profile_is_not_reset(hass, monkeypatch, created):

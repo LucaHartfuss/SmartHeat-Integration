@@ -42,7 +42,6 @@ CREDENTIAL_KEYS = {
     CREDENTIAL_CERTIFICATE: frozenset({"kind", "certificate_pem"}),
 }
 PROVISION_RESPONSE_KEYS = frozenset({"transport", "credential", "installation_token", "profile_params"})
-CLOUDFLARED_CREDENTIAL_OPTIONS = ("service_token_id", "service_token_secret")
 # Profilwechsel ohne neue Zugangsdaten; Route im Server: accounts_api.py (Contract-Check 17).
 PROFILE_PATH = "/tenants/{tenant_id}/profile"
 INSTALLATION_PATH = "/tenants/{tenant_id}/installation"
@@ -288,7 +287,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.27.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.32.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 

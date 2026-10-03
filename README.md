@@ -7,7 +7,7 @@ Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor (Hass.io/HAOS).
-- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.27.0
+- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.32.0
   und `cloudflared_access_mqtt` ≥ 1.0.0 (nicht manuell konfigurieren — der Wizard prueft die
   Mindestversion vor jedem Setup und bricht sonst mit einer Fehlermeldung ab).
 - Eine unterstuetzte Heizungs-Integration in Home Assistant eingerichtet (z. B. myVAILLANT).
@@ -34,12 +34,21 @@ die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
 - **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte (u. a. die Zone für die
   Parallelverschiebung, Mindestvorlauf-Entity, optional das Vorlauf-Soll). Die Zugangsdaten bleiben
   (fehlen sie in den Add-ons, werden neue ausgestellt); Batterieauswahl und Handys aus den Optionen bleiben.
-- **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein, prüft alle
+- **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein (bei
+  AWS-IoT-Anlagen nur für die Heizungsbrücke; `cloudflared_access_mqtt` bleibt dort gestoppt), prüft alle
   5 Minuten, ob sie laufen und sich melden, meldet Ausfälle und startet sie neu (höchstens dreimal pro Stunde).
 - **Entfernen:** Das Add-on wird abgemeldet (ein laufender Boost wird zurückgesetzt), beide Add-ons werden
-  gestoppt und ihre Zugangsdaten geleert. Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
-  es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er die Zugangsdaten dort
-  ebenfalls (Best Effort — scheitert das, bleiben sie bis zur nächsten Einrichtung gültig).
+  gestoppt und ihre Zugangsdaten geleert (alle Zugangs-Optionen der Heizungsbrücke, Ziel und Service-Token von
+  cloudflared). Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
+  es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er den Zugang dort
+  ebenfalls mit dem Installations-Token aus den Add-on-Optionen (Best Effort — scheitert das, bleibt er bis zur
+  nächsten Einrichtung gültig).
+
+## Update auf 0.11.0
+
+**Reihenfolge: SmartHeat-Server (Provisioning mit CSR), dann Add-on `heizungsbruecke` 0.32.0, dann die
+Integration.** „Neu konfigurieren“ stellt für einen Zugang von vor dieser Version (ohne Installations-Token)
+einen neuen aus; sonst ändert sich für bestehende Einträge nichts.
 
 ## Update auf 0.10.0
 

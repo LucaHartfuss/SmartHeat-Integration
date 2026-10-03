@@ -19,6 +19,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
+from . import provisioning
 from .const import (
     ADDON_DISPLAY_NAMES,
     ADDON_SPECS,
@@ -220,12 +221,19 @@ class SmartHeatCoordinator:
             except AddonError as error:
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", error)
                 return
-            running = {}
+            running: dict[str, bool] = {}
+            bridge_options: dict = {}
             for config_slug, manager in managers.items():
-                state = await self._async_is_running(manager)
-                if state is None:
+                info = await self._async_info(manager)
+                if info is False:
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
-                running[config_slug] = state
+                running[config_slug] = info is not None and info.state == AddonState.RUNNING
+                if config_slug == HEIZUNGSBRUECKE_ADDON_SLUG and info is not None:
+                    bridge_options = dict(info.options)
+            # Bei iot_core nur die Heizungsbruecke (Plan AWS-2, Praez. 1): cloudflared ist dort gestoppt
+            # und ohne Ziel, das ist gewollt und kein Befund.
+            watched = provisioning.watched_addon_slugs(bridge_options)
+            running = {config_slug: state for config_slug, state in running.items() if config_slug in watched}
             status, revive = self._watchdog.check(_now(), running)
             for config_slug in revive:
                 await self._async_revive(managers[config_slug], running[config_slug])
@@ -233,15 +241,16 @@ class SmartHeatCoordinator:
         finally:
             self._checking = False
 
-    async def _async_is_running(self, manager) -> bool | None:
+    async def _async_info(self, manager):
+        """Add-on-Info des Managers; None, wenn nicht (oder mehrfach) installiert, False, wenn der
+        Zustand nicht abfragbar ist."""
         if manager is None:
-            return False  # nicht (oder mehrfach) installiert
+            return None
         try:
-            info = await manager.async_get_addon_info()
+            return await manager.async_get_addon_info()
         except AddonError as error:
             _LOGGER.warning("Waechter: Zustand von %s nicht abfragbar: %s", manager.addon_slug, error)
-            return None
-        return info.state == AddonState.RUNNING
+            return False
 
     async def _async_revive(self, manager, running: bool) -> None:
         if manager is None:

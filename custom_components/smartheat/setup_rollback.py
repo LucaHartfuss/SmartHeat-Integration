@@ -13,9 +13,17 @@ from dataclasses import dataclass
 from homeassistant.components.hassio import AddonError
 from homeassistant.core import HomeAssistant
 
-from .addon_control import async_notify_open_steps, async_sign_off
+from . import provisioning
+from .addon_control import async_notify_open_steps, async_set_supervision, async_sign_off
 from .api_client import ApiError, HeizungsserverClient
-from .const import ADDON_SPECS, PROBLEM_ADDONS, PROBLEM_PROFILE, PROBLEM_REVOKE, setup_notification_id
+from .const import (
+    ADDON_SPECS,
+    CLOUDFLARED_ADDON_SLUG,
+    PROBLEM_ADDONS,
+    PROBLEM_PROFILE,
+    PROBLEM_REVOKE,
+    setup_notification_id,
+)
 from .supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
@@ -120,19 +128,34 @@ async def _async_reset_profile(client: HeizungsserverClient, token: str | None, 
 
 
 async def _async_restore_addons(hass: HomeAssistant, snapshot: ReconfigureSnapshot) -> bool:
-    """Jeder der vier Schritte fuer sich: ein gescheiterter Neustart von cloudflared darf nicht
-    verhindern, dass die Heizungsbruecke mit den alten Optionen neu startet."""
+    """Jeder Schritt fuer sich: ein gescheiterter Neustart von cloudflared darf nicht verhindern, dass
+    die Heizungsbruecke mit den alten Optionen neu startet. Welche Add-ons laufen und ueberwacht
+    werden, bestimmt der gesicherte Transport (provisioning.watched_addon_slugs): Beim Mosquitto-Stand
+    (oder einem Stand ohne lesbaren Transport) schaltet der Rueckbau Watchdog/Boot beider Add-ons wieder
+    ein und startet cloudflared neu -- auch wenn der abgebrochene Lauf auf iot_core umgestellt und die
+    Ueberwachung abgeschaltet hatte. Bei iot_core bleibt cloudflared gestoppt und ohne Ueberwachung
+    (Plan AWS-2, Praez. 1)."""
     try:
         heizungsbruecke, cloudflared = await async_get_addon_managers(hass, ADDON_SPECS)
     except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
         _LOGGER.warning("Rueckbau: Add-ons nicht gefunden: %s", type(error).__name__)
         return False
+    cloudflared_watched = CLOUDFLARED_ADDON_SLUG in provisioning.watched_addon_slugs(snapshot.bridge_options)
+
+    async def restore_supervision() -> None:
+        failed = await async_set_supervision(hass, [heizungsbruecke.addon_slug], enabled=True)
+        failed += await async_set_supervision(hass, [cloudflared.addon_slug], enabled=cloudflared_watched)
+        if failed:
+            raise AddonError("Watchdog/Boot nicht gesetzt")
+
     steps: list[tuple[str, Callable[[], Awaitable[None]]]] = [
         ("Optionen der Heizungsbruecke wiederherstellen",
          lambda: heizungsbruecke.async_set_addon_options(snapshot.bridge_options)),
         ("Optionen von cloudflared wiederherstellen",
          lambda: cloudflared.async_set_addon_options(snapshot.cloudflared_options)),
-        ("cloudflared neu starten", cloudflared.async_restart_addon),
+        ("Watchdog und Boot wiederherstellen", restore_supervision),
+        ("cloudflared neu starten" if cloudflared_watched else "cloudflared stoppen",
+         cloudflared.async_restart_addon if cloudflared_watched else cloudflared.async_stop_addon),
         ("Heizungsbruecke neu starten", heizungsbruecke.async_restart_addon),
     ]
     ok = True

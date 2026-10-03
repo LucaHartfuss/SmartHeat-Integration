@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonBoot, AddonsOptions
@@ -14,18 +14,18 @@ from homeassistant.components.hassio import AddonError, AddonManager, get_superv
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from . import provisioning
 from .api_client import HeizungsserverClient
 from .const import (
     ADDON_SPECS,
     ADDON_STATUS_VALUES,
     BOOST_KEINER,
+    BRIDGE_ACCESS_OPTIONS,
     CLOUDFLARED_ADDON_SLUG,
-    CLOUDFLARED_CREDENTIAL_OPTIONS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     HEIZUNGSBRUECKE_ADDON_SLUG,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
-    PASSWORD_CREDENTIAL_OPTIONS,
     PROBLEM_CLEAR,
     PROBLEM_FOREIGN_TENANT,
     PROBLEM_NO_SIGN_OFF,
@@ -139,8 +139,7 @@ async def async_set_supervision(hass: HomeAssistant, slugs: list[str], enabled: 
 @dataclass(frozen=True)
 class _ServerCredentials:
     base_url: str
-    username: str
-    password: str
+    token: str = field(repr=False)
 
 
 async def _async_read_bridge_options(bridge: AddonManager | None) -> dict | None:
@@ -158,12 +157,11 @@ async def _async_read_bridge_options(bridge: AddonManager | None) -> dict | None
 def _server_credentials(options: dict | None) -> _ServerCredentials | None:
     if options is None:
         return None
-    username_key, password_key = PASSWORD_CREDENTIAL_OPTIONS
-    username, password = options.get(username_key), options.get(password_key)
-    if not username or not password:
+    token = provisioning.installation_token(options)
+    if token is None:
         return None
     base_url = options.get(OPTION_ACCOUNTS_API_BASE_URL) or DEFAULT_HEIZUNGSSERVER_BASE_URL
-    return _ServerCredentials(base_url, username, password)
+    return _ServerCredentials(base_url, token)
 
 
 async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentials: _ServerCredentials | None) -> bool:
@@ -176,7 +174,7 @@ async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentia
         return True
     try:
         client = HeizungsserverClient(async_get_clientsession(hass), credentials.base_url)
-        status = await client.delete_installation(tenant_id, credentials.username, credentials.password)
+        status = await client.delete_installation(tenant_id, credentials.token)
     except Exception as error:  # noqa: BLE001 -- best effort (F8, finale Review TP8): api_client
         # faengt ClientError/TimeoutError bereits selbst ab, aber ein unerwarteter Fehler (z. B. ein
         # Bug in der Aufrufkette) darf das Leeren der Add-on-Zugangsdaten unten nicht verhindern.
@@ -202,9 +200,9 @@ async def _async_revoke_on_server(hass: HomeAssistant, tenant_id: str, credentia
 async def async_sign_off(hass: HomeAssistant, tenant_id: str, *, notify: bool = True) -> list[str]:
     """Entfernen (Spec TP7 2.7, TP12c 3.4), jeder Schritt best effort: Heizungsbruecke abmelden (ein laufender
     Boost wird zurueckgesetzt), hoechstens SIGN_OFF_WAIT_SECONDS auf `abgemeldet` warten, beide
-    Add-ons stoppen (manuell, der Watchdog greift nicht), Watchdog/Boot aus, Zugangsdaten in den
-    Optionen leeren, eigene Benachrichtigung entfernen. Nach dem Stoppen widerruft der Server die
-    Zugangsdaten (Spec TP8 4, best effort). Scheitert das Zuruecksetzen eines Boosts, bleibt die
+    Add-ons stoppen (manuell, der Watchdog greift nicht), Watchdog/Boot aus, alle Zugangs-Optionen der
+    Heizungsbruecke und das Ziel samt Service-Token von cloudflared leeren, eigene Benachrichtigung entfernen. Nach dem Stoppen widerruft der Server die
+    Zugangsdaten (Spec TP8 4, best effort, mit dem Installations-Token aus den Optionen). Scheitert das Zuruecksetzen eines Boosts, bleibt die
     Heizungsbruecke samt Watchdog/Boot laufen: sie wiederholt es im Ruhezustand selbst, auch ohne
     Zugangsdaten und nach einem Neustart, und meldet es dem Kunden (TP7-Gates 2026-09-29).
     Gehoert die Heizungsbruecke laut ihren Optionen einem anderen Tenant (AU-011), wird keines der
@@ -257,7 +255,7 @@ async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentia
         problems.append(PROBLEM_REVOKE)
     elif not await _async_revoke_on_server(hass, tenant_id, credentials):
         problems.append(PROBLEM_REVOKE)
-    for manager, keys in ((bridge, PASSWORD_CREDENTIAL_OPTIONS), (cloudflared, CLOUDFLARED_CREDENTIAL_OPTIONS)):
+    for manager, keys in ((bridge, BRIDGE_ACCESS_OPTIONS), (cloudflared, tuple(provisioning.CLOUDFLARED_CLEARED_OPTIONS))):
         if manager is None:
             continue
         try:

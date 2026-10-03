@@ -1,5 +1,6 @@
 """Add-on-Steuerung der Integration (Spec TP7 2.5-2.7)."""
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,6 +9,8 @@ from homeassistant.components.hassio import AddonError
 
 from custom_components.smartheat import addon_control
 from custom_components.smartheat.addon_control import WAIT_DONE, WAIT_FAILED, WAIT_TIMEOUT, StatusListener
+from custom_components.smartheat.const import BRIDGE_ACCESS_OPTIONS
+from custom_components.smartheat.provisioning import CLOUDFLARED_CLEARED_OPTIONS
 from custom_components.smartheat.texts import async_hint
 
 from .addon_fakes import FakeAddon, FakeSupervisor, status_event
@@ -16,6 +19,15 @@ AC = "custom_components.smartheat.addon_control"
 TENANT = "wohnung1"
 REGELT = frozenset({"regelt"})
 FAILED = frozenset({"konfigurationsfehler", "zugang_abgelehnt"})
+MOSQUITTO = json.dumps({"host": "127.0.0.1", "kind": "mosquitto_cloudflared", "port": 18830}, sort_keys=True)
+IOT_CORE = json.dumps({
+    "alpn": "x-amzn-mqtt-ca", "ca_pem": "CA", "client_id": TENANT, "host": "iot.example.test", "kind": "iot_core", "port": 443,
+}, sort_keys=True)
+# Zugang einer Mosquitto-Anlage wie nach dem Wizard (Installations-Token in den Add-on-Optionen).
+BRIDGE_ACCESS = {
+    "tenant_id": TENANT, "transport": MOSQUITTO, "installation_token": "tok-1", "mqtt_username": "u", "mqtt_password": "p",
+}
+CLEARED = {key: "" for key in BRIDGE_ACCESS_OPTIONS}
 
 
 async def test_listener_ignores_foreign_tenants_other_schemas_and_other_setup_ids(hass):
@@ -132,8 +144,8 @@ class FakeServer:
         server = self
 
         class _Client:
-            async def delete_installation(self, tenant_id, username, password):
-                server.log.append(("revoke", tenant_id, {"base_url": base_url, "username": username, "password": password}))
+            async def delete_installation(self, tenant_id, token):
+                server.log.append(("revoke", tenant_id, {"base_url": base_url, "token": token}))
                 return server.status
 
         return _Client()
@@ -150,7 +162,7 @@ def _addons(
 
     bridge = FakeAddon(
         "a_heizungsbruecke", log, on_restart=_answer, error=bridge_error,
-        options=bridge_options if bridge_options is not None else {"tenant_id": TENANT, "mqtt_username": "u", "mqtt_password": "p"},
+        options=bridge_options if bridge_options is not None else dict(BRIDGE_ACCESS),
     )
     cloudflared = FakeAddon("a_cloudflared_access_mqtt", log, options={
         "hostname": "h", "local_port": 18830, "service_token_id": "i", "service_token_secret": "s",
@@ -178,11 +190,11 @@ async def test_sign_off_order(hass, monkeypatch, dismissed):
         ("revoke", TENANT),
         ("options", "a_heizungsbruecke"), ("options", "a_cloudflared_access_mqtt"),
     ]
-    assert log[6][2] == {"base_url": "https://accounts.hartfussha.org", "username": "u", "password": "p"}
+    assert log[6][2] == {"base_url": "https://accounts.hartfussha.org", "token": "tok-1"}
     assert log[0][2]["abgemeldet"] is True
     assert log[4][2] == {"boot": "manual", "watchdog": False}
-    assert bridge.options == {"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": "", "abgemeldet": True}
-    assert cloudflared.options == {"hostname": "h", "local_port": 18830, "service_token_id": "", "service_token_secret": ""}
+    assert bridge.options == {"tenant_id": TENANT, **CLEARED, "abgemeldet": True}
+    assert cloudflared.options == {"local_port": 18830, **CLOUDFLARED_CLEARED_OPTIONS}
     assert dismissed == ["smartheat_wohnung1_addon"]
 
 
@@ -203,20 +215,18 @@ async def test_sign_off_keeps_the_bridge_running_while_its_boost_is_not_reset(ha
         ("revoke", TENANT),
         ("options", "a_heizungsbruecke"), ("options", "a_cloudflared_access_mqtt"),
     ]
-    assert bridge.options == {"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": "", "abgemeldet": True}
+    assert bridge.options == {"tenant_id": TENANT, **CLEARED, "abgemeldet": True}
     assert "laeuft weiter" in caplog.text
 
 
 async def test_revoke_uses_the_base_url_from_the_bridge_options(hass, monkeypatch, dismissed):
     log = []
-    _addons(hass, monkeypatch, log, bridge_options={
-        "tenant_id": TENANT, "mqtt_username": "u", "mqtt_password": "p", "accounts_api_base_url": "https://test.example",
-    })
+    _addons(hass, monkeypatch, log, bridge_options={**BRIDGE_ACCESS, "accounts_api_base_url": "https://test.example"})
 
     await addon_control.async_sign_off(hass, TENANT)
 
     revoke = [entry for entry in log if entry[0] == "revoke"]
-    assert revoke == [("revoke", TENANT, {"base_url": "https://test.example", "username": "u", "password": "p"})]
+    assert revoke == [("revoke", TENANT, {"base_url": "https://test.example", "token": "tok-1"})]
 
 
 @pytest.mark.parametrize("server_status,message", [
@@ -225,7 +235,7 @@ async def test_revoke_uses_the_base_url_from_the_bridge_options(hass, monkeypatc
 async def test_remove_completes_when_the_server_refuses_or_is_away(hass, monkeypatch, dismissed, caplog, server_status, message):
     log = []
     bridge, cloudflared = _addons(hass, monkeypatch, log, server_status=server_status, bridge_options={
-        "tenant_id": TENANT, "mqtt_username": "wohnung1_abc", "mqtt_password": "geheim-pw-123",
+        **BRIDGE_ACCESS, "installation_token": "geheim-tok-123", "mqtt_password": "geheim-pw-123",
     })
 
     await addon_control.async_sign_off(hass, TENANT)
@@ -233,7 +243,7 @@ async def test_remove_completes_when_the_server_refuses_or_is_away(hass, monkeyp
     assert bridge.options["mqtt_password"] == "" and cloudflared.options["service_token_secret"] == ""
     assert dismissed == ["smartheat_wohnung1_addon"]
     assert message in caplog.text
-    assert "geheim-pw-123" not in caplog.text
+    assert "geheim-pw-123" not in caplog.text and "geheim-tok-123" not in caplog.text
 
 
 async def test_remove_completes_when_the_server_call_raises_unexpectedly(hass, monkeypatch, dismissed, caplog):
@@ -242,12 +252,12 @@ async def test_remove_completes_when_the_server_call_raises_unexpectedly(hass, m
     Exception abbrechen lassen -- das Leeren der Add-on-Optionen und das Entfernen der
     Benachrichtigung muessen trotzdem laufen."""
     class _BrokenClient:
-        async def delete_installation(self, tenant_id, username, password):
+        async def delete_installation(self, tenant_id, token):
             raise RuntimeError("unerwarteter Bug")
 
     log = []
     bridge, cloudflared = _addons(hass, monkeypatch, log, bridge_options={
-        "tenant_id": TENANT, "mqtt_username": "wohnung1_abc", "mqtt_password": "geheim-pw-123",
+        **BRIDGE_ACCESS, "installation_token": "geheim-tok-123", "mqtt_password": "geheim-pw-123",
     })
     monkeypatch.setattr(f"{AC}.HeizungsserverClient", lambda session, base_url: _BrokenClient())
 
@@ -256,15 +266,47 @@ async def test_remove_completes_when_the_server_call_raises_unexpectedly(hass, m
     assert bridge.options["mqtt_password"] == "" and cloudflared.options["service_token_secret"] == ""
     assert dismissed == ["smartheat_wohnung1_addon"]
     assert "unerwartet" in caplog.text
-    assert "geheim-pw-123" not in caplog.text
+    assert "geheim-pw-123" not in caplog.text and "geheim-tok-123" not in caplog.text
 
 
 async def test_no_revoke_without_credentials(hass, monkeypatch, dismissed, caplog):
     log = []
-    _addons(hass, monkeypatch, log, bridge_options={"tenant_id": TENANT, "mqtt_username": "", "mqtt_password": ""})
+    _addons(hass, monkeypatch, log, bridge_options={**BRIDGE_ACCESS, "installation_token": ""})
 
     await addon_control.async_sign_off(hass, TENANT)
 
+    assert "revoke" not in [entry[0] for entry in log]
+
+
+@pytest.mark.parametrize("transport, credentials", [
+    (MOSQUITTO, {"mqtt_username": "u", "mqtt_password": "p", "tls_certificate": "", "tls_private_key": ""}),
+    (IOT_CORE, {"mqtt_username": "", "mqtt_password": "", "tls_certificate": "CERT", "tls_private_key": "KEY"}),
+])
+async def test_removal_revokes_with_the_installation_token_and_clears_every_access_option(
+    hass, monkeypatch, dismissed, transport, credentials,
+):
+    log = []
+    bridge, cloudflared = _addons(hass, monkeypatch, log, bridge_options={
+        **BRIDGE_ACCESS, "transport": transport, **credentials, "accounts_api_base_url": "https://a.example.test",
+    })
+
+    problems = await addon_control.async_sign_off(hass, TENANT)
+
+    assert problems == []
+    assert [entry for entry in log if entry[0] == "revoke"] == [
+        ("revoke", TENANT, {"base_url": "https://a.example.test", "token": "tok-1"}),
+    ]
+    assert all(bridge.options[key] == "" for key in BRIDGE_ACCESS_OPTIONS)
+    assert cloudflared.options == {"local_port": 18830, **CLOUDFLARED_CLEARED_OPTIONS}
+
+
+async def test_removal_without_a_token_skips_the_revocation(hass, monkeypatch, dismissed):
+    log = []
+    _addons(hass, monkeypatch, log, bridge_options={**BRIDGE_ACCESS, "installation_token": ""})
+
+    problems = await addon_control.async_sign_off(hass, TENANT)
+
+    assert problems == []  # kein PROBLEM_REVOKE
     assert "revoke" not in [entry[0] for entry in log]
 
 
@@ -333,7 +375,7 @@ async def test_listener_ignores_an_unknown_status(hass):
 
 async def test_sign_off_leaves_an_addon_of_another_tenant_alone(hass, monkeypatch, dismissed, created):
     log = []
-    _addons(hass, monkeypatch, log, bridge_options={"tenant_id": "haus2", "mqtt_username": "u", "mqtt_password": "p"})
+    _addons(hass, monkeypatch, log, bridge_options={**BRIDGE_ACCESS, "tenant_id": "haus2"})
 
     problems = await addon_control.async_sign_off(hass, TENANT)
 
@@ -350,7 +392,7 @@ async def test_sign_off_leaves_an_addon_of_another_tenant_alone(hass, monkeypatc
 async def test_sign_off_without_tenant_id_in_the_addon_is_not_foreign(hass, monkeypatch, dismissed, created):
     """Review Focus 5."""
     log = []
-    _addons(hass, monkeypatch, log, bridge_options={"mqtt_username": "u", "mqtt_password": "p"})
+    _addons(hass, monkeypatch, log, bridge_options={key: value for key, value in BRIDGE_ACCESS.items() if key != "tenant_id"})
 
     problems = await addon_control.async_sign_off(hass, TENANT)
 
