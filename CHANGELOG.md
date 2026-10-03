@@ -3,6 +3,27 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.12.0
+
+- **Hersteller-Abstraktion (Plan 3c):** Katalog v3. Der Wizard erkennt neben myVAILLANT auch Weishaupt (`weishaupt_modbus`)
+  und Viessmann (`vicare`); deren Server-Profile sind noch inaktiv, bis die Inventur durch ist (der Server lehnt die
+  Einrichtung dann ab).
+- Neuer Schritt „Hebelsatz“ (`lever_set`), nur wenn das Profil mehrere Hebelsätze anbietet (heute Weishaupt:
+  `weishaupt_wwp` und der Rückfall `weishaupt_wwp_basis` nur mit dem Raumsoll); vorbelegt ist der Hebelsatz, dessen
+  Entities alle erkannt wurden. Die Pflichtfelder im Schritt „Anlagenwerte“ richten sich nach dem Hebelsatz.
+- Hersteller-Hinweise im Systemschritt (Text aus dem Katalog), optionales Abfrageintervall (`poll_interval_seconds`) bei
+  Herstellern, die es einstellen lassen.
+- Status-Entities je Hebel des Hebelsatzes (`heizkurve`, `heizgrenze`, `mindestvorlauf`, `niveau`,
+  `parallelverschiebung` bzw. `raum_soll`; die Entity-IDs von `client1` bleiben gleich) und neu `gelernte_steigung`,
+  `gelernte_heizgrenze` mit den Lernwerten des Servers. Verwaiste Entities räumt die Integration nur bei vollständigen
+  Einträgen auf.
+- Der Provisioning-Aufruf sendet `client_type` (`ha`) und die Integrationsversion (`client_version`, nur Diagnose).
+- Die Hinweis-Schalter kennen `schreibbudget` und `schreibzaehler`; Energiekanal `electrical_total`.
+- Voraussetzung: Heizungsbrücke ≥ 0.33.0 (Statusereignis Schema 2) und Server mit Katalog v3 (Server vor Add-on vor
+  Integration; Add-on und Integration innerhalb von 15 Minuten nacheinander).
+- **Nach dem Update: Neu konfigurieren** (ein Eintrag ohne Hebelsatz gilt als unvollständig, es gibt keinen stillen
+  Rückfall).
+
 ## 0.11.0
 
 - Provisioning mit Schlüssel/CSR und Transport-Deskriptor (AWS IoT Core vorbereitet): Die Integration erzeugt
