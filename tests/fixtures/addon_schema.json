@@ -30,9 +30,10 @@
     "entity_room_target": "str",
     "entity_shift_current": "str?",
     "entity_system_water_pressure": "str?",
+    "installation_token": "password?",
     "local_check_interval_seconds": "int(1,3600)?",
-    "mqtt_password": "password",
-    "mqtt_username": "str",
+    "mqtt_password": "password?",
+    "mqtt_username": "str?",
     "notify_hints_off": [
       "list(raumfuehler|batterie|manueller_eingriff|quellwechsel|therme)?"
     ],
@@ -45,6 +46,9 @@
     "setup_id": "str?",
     "telemetry_interval_seconds": "int(10,600)?",
     "tenant_id": "str",
+    "tls_certificate": "str?",
+    "tls_private_key": "password?",
+    "transport": "str?",
     "verteilsystem": "list(Heizkoerper|Fussbodenheizung)?"
   }
 }

@@ -1,5 +1,6 @@
 """Neu konfigurieren und Reauth (Spec TP7 2.3, 2.4)."""
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, call
 
@@ -7,7 +8,7 @@ from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat import setup_rollback
+from custom_components.smartheat import provisioning, setup_rollback
 from custom_components.smartheat.api_client import ApiError, InvalidAuth, ProfileRejected
 from custom_components.smartheat.const import DOMAIN
 from custom_components.smartheat.texts import async_hint
@@ -21,7 +22,10 @@ from .flow_helpers import (
     CURVE,
     FLOW,
     FLOW_SETPOINT,
+    INSTALLATION_TOKEN,
+    IOT_PROVISIONING,
     MIN_FLOW,
+    MOSQUITTO_TRANSPORT,
     MQTT_PASSWORD,
     PLANT_INPUT,
     PROVISIONING,
@@ -46,9 +50,9 @@ from .flow_helpers import (
 )
 
 
-def _prepare(hass, monkeypatch, *, tenants=(TENANT,), **addons):
+def _prepare(hass, monkeypatch, *, tenants=(TENANT,), server=None, **addons):
     enable_supervisor(hass, monkeypatch)
-    mocks = mock_server(monkeypatch, tenants=tenants)
+    mocks = mock_server(monkeypatch, tenants=tenants, **(server or {}))
     mypyllant = setup_mypyllant(hass)
     setup_rooms(hass)
     register_phones(hass, "mobile_app_pixel")
@@ -181,11 +185,102 @@ async def test_reconfigure_without_credentials_in_the_addon_issues_new_ones(hass
     await hass.async_block_till_done()
 
     assert result["reason"] == "reconfigure_successful_new_credentials"
-    mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.provision.assert_awaited_once()
+    assert mocks.provision.call_args.args[:3] == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     mocks.update_profile.assert_not_awaited()
     options = calls.options["heizungsbruecke"]
     assert (options["mqtt_password"], options["abgemeldet"]) == (MQTT_PASSWORD, False)
     assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
+
+
+async def _reconfigure(hass, monkeypatch, *, server=None, **addons):
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, server=server, **addons)
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    assert result["step_id"] == "summary"
+    note = result["description_placeholders"]["credentials_note"]
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    await hass.async_block_till_done()
+    return result, mocks, calls, note
+
+
+async def test_reconfigure_keeps_a_complete_access_and_only_changes_the_profile(hass, monkeypatch):
+    result, server, calls, note = await _reconfigure(
+        hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+    )
+
+    assert (result["reason"], note) == ("reconfigure_successful", "")
+    server.provision.assert_not_called()
+    options = calls.options["heizungsbruecke"]
+    assert options["installation_token"] == "alt-token"
+    assert json.loads(options["transport"]) == MOSQUITTO_TRANSPORT
+    assert calls.options["cloudflared_access_mqtt"] == CF_OPTIONS and calls.stops == []
+
+
+async def test_reconfigure_with_a_pre_aws2_configuration_provisions_again(hass, monkeypatch):
+    old = {key: value for key, value in BRIDGE_OPTIONS.items()
+           if key not in ("transport", "installation_token", "tls_certificate", "tls_private_key")}
+
+    result, server, calls, note = await _reconfigure(
+        hass, monkeypatch, existing_options=old, cloudflared_options=CF_OPTIONS,
+    )
+
+    assert result["reason"] == "reconfigure_successful_new_credentials"
+    assert note == "New access credentials will be issued."
+    server.provision.assert_awaited_once()
+    options = calls.options["heizungsbruecke"]
+    assert options["installation_token"] == INSTALLATION_TOKEN
+    assert json.loads(options["transport"]) == MOSQUITTO_TRANSPORT
+    assert options["mqtt_password"] == MQTT_PASSWORD
+
+
+async def test_reconfigure_provisions_again_when_the_server_changed_the_transport(hass, monkeypatch):
+    result, server, calls, note = await _reconfigure(
+        hass, monkeypatch, server={"provisioning": IOT_PROVISIONING, "transport_kind": "iot_core"},
+        existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS,
+    )
+
+    assert result["reason"] == "reconfigure_successful_new_credentials" and note
+    server.provision.assert_awaited_once()
+    options = calls.options["heizungsbruecke"]
+    assert json.loads(options["transport"])["kind"] == "iot_core"
+    assert options["mqtt_username"] == "" and options["mqtt_password"] == ""
+    assert options["tls_private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert "cloudflared_access_mqtt" in calls.stops and "cloudflared_access_mqtt" not in calls.restarts
+    assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == ""
+    assert _supervision_by_slug(calls)["cloudflared_access_mqtt"] == {"boot": "manual", "watchdog": False}
+
+
+async def test_reconfigure_keeps_a_complete_iot_core_access_and_leaves_cloudflared_stopped(hass, monkeypatch):
+    access = provisioning.parse_provisioning(IOT_PROVISIONING, "KEY-PEM")
+    iot_options = {**BRIDGE_OPTIONS, **provisioning.bridge_access_options(access)}
+    cleared = {**CF_OPTIONS, **provisioning.CLOUDFLARED_CLEARED_OPTIONS}
+
+    result, server, calls, note = await _reconfigure(
+        hass, monkeypatch, server={"provisioning": IOT_PROVISIONING, "transport_kind": "iot_core"},
+        existing_options=iot_options, cloudflared_options=cleared,
+    )
+
+    assert (result["reason"], note) == ("reconfigure_successful", "")
+    server.provision.assert_not_called()
+    assert calls.options["heizungsbruecke"]["tls_private_key"] == "KEY-PEM"
+    assert calls.options["heizungsbruecke"]["installation_token"] == INSTALLATION_TOKEN
+    assert "cloudflared_access_mqtt" in calls.stops and "cloudflared_access_mqtt" not in calls.restarts
+
+
+async def test_reconfigure_keeps_the_access_when_the_server_names_no_transport(hass, monkeypatch):
+    """Aeltere Server melden kein transport_kind: dann gilt der laufende Zugang."""
+    result, server, calls, _ = await _reconfigure(
+        hass, monkeypatch, server={"transport_kind": None}, existing_options=BRIDGE_OPTIONS,
+        cloudflared_options=CF_OPTIONS,
+    )
+
+    assert result["reason"] == "reconfigure_successful"
+    server.provision.assert_not_called()
+
+
+def _supervision_by_slug(calls) -> dict:
+    return {slug: options for _, slug, options in calls.supervision}
 
 
 async def test_reconfigure_of_an_incomplete_entry_uses_the_detection_and_clears_the_repair_issue(hass, monkeypatch):
@@ -245,11 +340,12 @@ async def test_reauth_issues_new_credentials_and_keeps_everything_else(hass, mon
     await hass.async_block_till_done()
 
     assert (result["type"], result["reason"]) == ("abort", "reauth_successful")
-    mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.provision.assert_awaited_once()
+    assert mocks.provision.call_args.args[:3] == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     options = calls.options["heizungsbruecke"]
     assert options == {
-        **BRIDGE_OPTIONS, "mqtt_username": PROVISIONING["username"], "mqtt_password": MQTT_PASSWORD,
-        "setup_id": options["setup_id"], "abgemeldet": False,
+        **BRIDGE_OPTIONS, "mqtt_username": PROVISIONING["credential"]["username"], "mqtt_password": MQTT_PASSWORD,
+        "installation_token": INSTALLATION_TOKEN, "setup_id": options["setup_id"], "abgemeldet": False,
     }
     assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
     mocks.logout.assert_awaited_once_with("tok123")
@@ -342,7 +438,8 @@ async def test_reconfigure_with_missing_cloudflared_credentials_issues_new_ones(
     await hass.async_block_till_done()
 
     assert result["reason"] == "reconfigure_successful_new_credentials"
-    mocks.provision.assert_awaited_once_with("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    mocks.provision.assert_awaited_once()
+    assert mocks.provision.call_args.args[:3] == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     mocks.update_profile.assert_not_awaited()
     assert calls.options["heizungsbruecke"]["mqtt_password"] == MQTT_PASSWORD
     assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
@@ -492,7 +589,7 @@ async def test_reconfigure_cancel_restores_through_the_rollback(hass, monkeypatc
     assert kwargs["snapshot"].bridge_options == BRIDGE_OPTIONS
     assert kwargs["snapshot"].cloudflared_options == CF_OPTIONS
     assert kwargs["snapshot"].profile_id == "vaillant_gastherme_heizkoerper"
-    assert (kwargs["token"], kwargs["new_credentials"]) == ("tok123", None)
+    assert (kwargs["token"], kwargs["new_token"]) == ("tok123", None)
     rollback.reconfigure.assert_awaited_once()
     mocks.logout.assert_awaited_once()
 
@@ -532,7 +629,7 @@ async def test_reconfigure_with_new_credentials_hands_them_to_the_rollback(hass,
     await configure(hass, result, {"next_step_id": "cancel"})
     await hass.async_block_till_done()
 
-    assert rollback.reconfigure.await_args.kwargs["new_credentials"] == (PROVISIONING["username"], MQTT_PASSWORD)
+    assert rollback.reconfigure.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
 
 
 async def test_closing_the_dialog_after_a_failed_reconfigure_rolls_back_once(hass, monkeypatch, rollback):
@@ -618,7 +715,7 @@ async def test_closing_the_dialog_during_the_profile_change_resets_the_profile(h
     assert (kwargs["first_setup"], kwargs["previous_profile_id"], kwargs["profile_id"], kwargs["token"]) == (
         False, "altes_profil", "vaillant_gastherme_heizkoerper", "tok123",
     )
-    assert kwargs["new_credentials"] is None
+    assert kwargs["new_token"] is None
     rollback.reconfigure.assert_not_awaited()
     assert calls.options == {}
 

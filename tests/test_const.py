@@ -51,7 +51,7 @@ def test_heat_limit_is_a_writable_number_tp12h():
 
 
 def test_min_addon_version():
-    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.27.0"
+    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.32.0"
 
 
 def test_wait_seconds_are_the_plan_values():

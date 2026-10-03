@@ -25,10 +25,20 @@ TENANT = "wohnung1"
 MQTT_PASSWORD = "mqtt-geheim-123"
 CF_SECRET = "cf-secret-789"
 PROFILE_PARAMS = {"verteilsystem": "Heizkoerper", "daily_trigger_time": "12:00"}
+INSTALLATION_TOKEN = "inst-token-abc"
+MOSQUITTO_TRANSPORT = {"kind": "mosquitto_cloudflared", "host": "127.0.0.1", "port": 18830}
 PROVISIONING = {
-    "username": "wohnung1_a1b2c3d4", "password": MQTT_PASSWORD,
-    "cloudflared_hostname": "mqtt.example.org", "cloudflared_local_port": 18830,
-    "cloudflared_service_token_id": "cf-id-456", "cloudflared_service_token_secret": CF_SECRET,
+    "transport": {**MOSQUITTO_TRANSPORT, "cloudflared": {
+        "hostname": "mqtt.example.org", "service_token_id": "cf-id-456", "service_token_secret": CF_SECRET}},
+    "credential": {"kind": "password", "username": "wohnung1_a1b2c3d4", "password": MQTT_PASSWORD},
+    "installation_token": INSTALLATION_TOKEN,
+    "profile_params": PROFILE_PARAMS,
+}
+IOT_PROVISIONING = {
+    "transport": {"kind": "iot_core", "host": "abc-ats.iot.eu-central-1.amazonaws.com", "port": 8883, "alpn": None,
+                  "ca_pem": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n", "client_id": TENANT},
+    "credential": {"kind": "certificate", "certificate_pem": "-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n"},
+    "installation_token": INSTALLATION_TOKEN,
     "profile_params": PROFILE_PARAMS,
 }
 CURVE = "number.zuhause_circuit_0_heating_curve"
@@ -45,7 +55,9 @@ PLANT_INPUT = {
     "entity_flow_setpoint": FLOW_SETPOINT, "advanced": {},
 }
 BRIDGE_OPTIONS = {
-    "tenant_id": TENANT, "mqtt_username": "wohnung1_alt", "mqtt_password": "alt-geheim",
+    "tenant_id": TENANT, "transport": json.dumps(MOSQUITTO_TRANSPORT, sort_keys=True),
+    "installation_token": "alt-token", "mqtt_username": "wohnung1_alt", "mqtt_password": "alt-geheim",
+    "tls_certificate": "", "tls_private_key": "",
     "local_check_interval_seconds": 120, "room_sensors": ["sensor.wz_temperatur"],
     # Pflichtfelder des Add-on-Schemas: die Optionen eines eingerichteten Add-ons sind vollstaendig.
     "entity_room_target": "climate.wz::temperature", "entity_curve_current": "number.zuhause_circuit_0_heating_curve",
@@ -71,10 +83,13 @@ def enable_supervisor(hass, monkeypatch, versions: dict[str, str] | None = None)
     return resolve
 
 
-def mock_server(monkeypatch, *, tenants=(TENANT,), catalog=CATALOG, provisioning=PROVISIONING) -> SimpleNamespace:
+def mock_server(monkeypatch, *, tenants=(TENANT,), catalog=CATALOG, provisioning=PROVISIONING,
+                transport_kind="mosquitto_cloudflared") -> SimpleNamespace:
     mocks = SimpleNamespace(
         login=AsyncMock(return_value="tok123"),
-        list_tenants=AsyncMock(return_value=[{"tenant_id": tenant} for tenant in tenants]),
+        list_tenants=AsyncMock(
+            return_value=[{"tenant_id": tenant, "transport_kind": transport_kind} for tenant in tenants],
+        ),
         get_catalog=AsyncMock(return_value=catalog),
         provision=AsyncMock(return_value=provisioning),
         update_profile=AsyncMock(return_value=PROFILE_PARAMS),
@@ -165,7 +180,7 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
                 set_error=None, status_setup_id=None, supervision_error=None) -> SimpleNamespace:
     """AddonManager-Aufrufe aufzeichnen. Der Neustart der Heizungsbruecke feuert das Status-Event
     wie das echte Add-on (mit der setup_id aus den gesetzten Optionen, ausser status_setup_id)."""
-    calls = SimpleNamespace(options={}, restarts=[], supervision=[], history=[])
+    calls = SimpleNamespace(options={}, restarts=[], stops=[], supervision=[], history=[])
 
     async def set_options(manager, config):
         if set_error is not None:
@@ -183,6 +198,9 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
                 hass.bus.async_fire, "smartheat_status", status_event(TENANT, status, setup_id=setup_id, grund=grund),
             )
 
+    async def stop(manager):
+        calls.stops.append(manager.addon_slug)
+
     async def info(manager):
         source = existing_options if manager.addon_slug == "heizungsbruecke" else cloudflared_options
         return SimpleNamespace(options=dict(source or {}))
@@ -190,6 +208,7 @@ def mock_addons(hass, monkeypatch, *, status="regelt", grund=None, existing_opti
     supervisor_log = []
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_set_addon_options", set_options)
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_restart_addon", restart)
+    monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_stop_addon", stop)
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_get_addon_info", info)
     monkeypatch.setattr(
         "custom_components.smartheat.addon_control.get_supervisor_client",

@@ -3,8 +3,26 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
-## Unveröffentlicht
+## 0.11.0
 
+- Provisioning mit Schlüssel/CSR und Transport-Deskriptor (AWS IoT Core vorbereitet): Die Integration erzeugt
+  den privaten Schlüssel selbst (er verlässt das Gerät nie), der Server liefert Transport und Zugang, die
+  Heizungsbrücke bekommt `transport`, `installation_token` und je nach Art Benutzer/Passwort oder
+  Zertifikat/Schlüssel.
+- Abmelden und Rückbau mit dem Installations-Token: Das Entfernen widerruft den Zugang mit dem Token aus den
+  Add-on-Optionen (Best Effort) und leert alle Zugangs-Optionen der Heizungsbrücke sowie Ziel und
+  Service-Token von cloudflared. Der Rückbau von „Neu konfigurieren“ schaltet Watchdog und Boot von
+  cloudflared wieder ein, wenn der gesicherte Stand Mosquitto war.
+- cloudflared nur beim Mosquitto-Deskriptor: Bei `iot_core` bleibt cloudflared gestoppt, ohne Watchdog und
+  ohne Ziel, und der Wächter der Integration ignoriert es.
+- Neu konfigurieren provisioniert neu, wenn der Zugang von vor dieser Version stammt oder der Server die
+  Transportart gewechselt hat.
+- Voraussetzung: Heizungsbrücke ≥ 0.32.0 und SmartHeat-Server mit dem neuen Provisioning (Server vor Add-on
+  vor Integration).
+- **Jede Installation von vor 0.32.0/0.11.0 (auch `client1`) regelt nach dem Add-on-Update nicht mehr, bis
+  „Neu konfigurieren“ ausgeführt wurde** („Konfiguration veraltet“, die Anlage behält ihre letzten Werte).
+  Ein neuer Zugang wird nur ausgestellt, wenn der Server schon die Provisioning-Antwort von AWS-1 liefert;
+  gegen einen älteren Server nicht „Neu konfigurieren“ ausführen.
 - Eigenes Icon (SmartHeat-Flamme) unter `custom_components/smartheat/brand/`; Home Assistant zeigt es
   bei Integrationen und Geräten an (lokale Brand-Bilder, ohne Eintrag im Brands-Repository).
 

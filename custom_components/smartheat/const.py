@@ -18,8 +18,30 @@ HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechse
 # Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
 # entfallen), er bleibt als Merkmal fuer entry_incomplete().
 DATA_INCOMPLETE = "unvollstaendig"
-BRIDGE_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
-CLOUDFLARED_CREDENTIAL_OPTIONS = ("service_token_id", "service_token_secret")
+# Zugang der Anlage (Spec AWS-IoT 4.1/4.2, Plan AWS-2); Werte wie Server broker/wire.py, Contract-Check 41.
+OPTION_TRANSPORT = "transport"
+OPTION_INSTALLATION_TOKEN = "installation_token"
+PASSWORD_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
+CERTIFICATE_CREDENTIAL_OPTIONS = ("tls_certificate", "tls_private_key")
+BRIDGE_ACCESS_OPTIONS = (OPTION_TRANSPORT, OPTION_INSTALLATION_TOKEN, *PASSWORD_CREDENTIAL_OPTIONS,
+                         *CERTIFICATE_CREDENTIAL_OPTIONS)
+CLOUDFLARED_ACCESS_OPTIONS = ("hostname", "service_token_id", "service_token_secret")
+
+TRANSPORT_MOSQUITTO = "mosquitto_cloudflared"
+TRANSPORT_IOT_CORE = "iot_core"
+CREDENTIAL_PASSWORD = "password"
+CREDENTIAL_CERTIFICATE = "certificate"
+DESCRIPTOR_KEYS = {
+    TRANSPORT_MOSQUITTO: frozenset({"kind", "host", "port", "cloudflared"}),
+    TRANSPORT_IOT_CORE: frozenset({"kind", "host", "port", "alpn", "ca_pem", "client_id"}),
+}
+CLOUDFLARED_KEYS = frozenset({"hostname", "service_token_id", "service_token_secret"})
+CREDENTIAL_FOR_TRANSPORT = {TRANSPORT_MOSQUITTO: CREDENTIAL_PASSWORD, TRANSPORT_IOT_CORE: CREDENTIAL_CERTIFICATE}
+CREDENTIAL_KEYS = {
+    CREDENTIAL_PASSWORD: frozenset({"kind", "username", "password"}),
+    CREDENTIAL_CERTIFICATE: frozenset({"kind", "certificate_pem"}),
+}
+PROVISION_RESPONSE_KEYS = frozenset({"transport", "credential", "installation_token", "profile_params"})
 # Profilwechsel ohne neue Zugangsdaten; Route im Server: accounts_api.py (Contract-Check 17).
 PROFILE_PATH = "/tenants/{tenant_id}/profile"
 INSTALLATION_PATH = "/tenants/{tenant_id}/installation"
@@ -265,7 +287,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.27.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.32.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 

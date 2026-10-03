@@ -8,14 +8,22 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from homeassistant.components.hassio import AddonError
 from homeassistant.core import HomeAssistant
 
-from .addon_control import async_notify_open_steps, async_sign_off
+from . import provisioning
+from .addon_control import async_notify_open_steps, async_set_supervision, async_sign_off
 from .api_client import ApiError, HeizungsserverClient
-from .const import ADDON_SPECS, PROBLEM_ADDONS, PROBLEM_PROFILE, PROBLEM_REVOKE, setup_notification_id
+from .const import (
+    ADDON_SPECS,
+    CLOUDFLARED_ADDON_SLUG,
+    PROBLEM_ADDONS,
+    PROBLEM_PROFILE,
+    PROBLEM_REVOKE,
+    setup_notification_id,
+)
 from .supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
@@ -29,9 +37,10 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class ReconfigureSnapshot:
     """Stand vor dem ersten Schreiben eines Neu-konfigurieren-Laufs. profile_id None: der Eintrag
-    hatte keins (dann bleibt das Profil auf dem Server, wie es ist)."""
-    bridge_options: dict
-    cloudflared_options: dict
+    hatte keins (dann bleibt das Profil auf dem Server, wie es ist). Die Optionen enthalten Geheimnisse
+    (privater Schluessel, Token, Passwort, Service-Token): nie in die repr."""
+    bridge_options: dict = field(repr=False)
+    cloudflared_options: dict = field(repr=False)
     profile_id: str | None
 
 
@@ -52,12 +61,12 @@ async def async_rollback_first_setup(hass: HomeAssistant, tenant_id: str) -> Non
 
 async def async_rollback_reconfigure(
     hass: HomeAssistant, *, client: HeizungsserverClient, token: str | None, tenant_id: str,
-    snapshot: ReconfigureSnapshot, profile_id: str, new_credentials: tuple[str, str] | None,
+    snapshot: ReconfigureSnapshot, profile_id: str, new_token: str | None,
 ) -> None:
     """Neu konfigurieren: neu ausgestellte Zugangsdaten widerrufen, Profil und Add-on-Optionen auf
     den gesicherten Stand, beide Add-ons neu starten. Watchdog/Boot bleiben an (Spec 3.2)."""
     _LOGGER.info("Rueckbau des abgebrochenen Neu konfigurieren gestartet")
-    problems = await _async_undo_server_changes(client, token, tenant_id, new_credentials, snapshot.profile_id, profile_id)
+    problems = await _async_undo_server_changes(client, token, tenant_id, new_token, snapshot.profile_id, profile_id)
     if not await _async_restore_addons(hass, snapshot):
         problems.append(PROBLEM_ADDONS)
     _LOGGER.info("Rueckbau des Neu konfigurieren beendet, offene Schritte: %s", problems or "keine")
@@ -68,26 +77,26 @@ async def async_rollback_reconfigure(
 
 async def async_rollback_server_only(
     hass: HomeAssistant, *, client: HeizungsserverClient, token: str | None, tenant_id: str, first_setup: bool,
-    new_credentials: tuple[str, str] | None, previous_profile_id: str | None, profile_id: str | None,
+    new_token: str | None, previous_profile_id: str | None, profile_id: str | None,
 ) -> None:
     """Abbruch, bevor in die Add-ons geschrieben wurde: nur die Aenderungen auf dem Server
     zuruecknehmen (neu ausgestellte Zugangsdaten widerrufen, beim Neu konfigurieren das Profil
     zuruecksetzen). Kein Abmelden, kein Neustart. Dieselbe Benachrichtigung wie der volle Rueckbau."""
     _LOGGER.info("Rueckbau ohne geschriebene Add-ons gestartet (nur Server)")
-    problems = await _async_undo_server_changes(client, token, tenant_id, new_credentials, previous_profile_id, profile_id)
+    problems = await _async_undo_server_changes(client, token, tenant_id, new_token, previous_profile_id, profile_id)
     _LOGGER.info("Rueckbau ohne geschriebene Add-ons beendet, offene Schritte: %s", problems or "keine")
     key = "rollback_first_setup" if first_setup else "rollback_reconfigure"
     await async_notify_open_steps(hass, setup_notification_id(tenant_id), _headline(key, problems), problems)
 
 
 async def _async_undo_server_changes(
-    client: HeizungsserverClient, token: str | None, tenant_id: str, new_credentials: tuple[str, str] | None,
+    client: HeizungsserverClient, token: str | None, tenant_id: str, new_token: str | None,
     previous_profile_id: str | None, profile_id: str | None,
 ) -> list[str]:
     """Neu ausgestellte Zugangsdaten widerrufen, dann das Profil auf den gesicherten Stand. Ohne
     gesichertes Profil (Ersteinrichtung, Eintrag ohne Profil) bleibt es auf dem Server, wie es ist."""
     problems: list[str] = []
-    if new_credentials is not None and not await _async_revoke(client, tenant_id, new_credentials):
+    if new_token is not None and not await _async_revoke(client, tenant_id, new_token):
         problems.append(PROBLEM_REVOKE)
     if previous_profile_id is not None and profile_id != previous_profile_id and not await _async_reset_profile(
         client, token, tenant_id, previous_profile_id,
@@ -96,9 +105,9 @@ async def _async_undo_server_changes(
     return problems
 
 
-async def _async_revoke(client: HeizungsserverClient, tenant_id: str, credentials: tuple[str, str]) -> bool:
-    # Nur die in diesem Lauf ausgestellten Zugangsdaten; nie loggen.
-    status = await client.delete_installation(tenant_id, *credentials)
+async def _async_revoke(client: HeizungsserverClient, tenant_id: str, installation_token: str) -> bool:
+    # Nur der in diesem Lauf ausgestellte Zugang (Installations-Token); nie loggen.
+    status = await client.delete_installation(tenant_id, installation_token)
     if status not in (204, 401):
         _LOGGER.warning("Rueckbau: neue Zugangsdaten nicht widerrufen (HTTP %s)", status)
         return False
@@ -120,19 +129,34 @@ async def _async_reset_profile(client: HeizungsserverClient, token: str | None, 
 
 
 async def _async_restore_addons(hass: HomeAssistant, snapshot: ReconfigureSnapshot) -> bool:
-    """Jeder der vier Schritte fuer sich: ein gescheiterter Neustart von cloudflared darf nicht
-    verhindern, dass die Heizungsbruecke mit den alten Optionen neu startet."""
+    """Jeder Schritt fuer sich: ein gescheiterter Neustart von cloudflared darf nicht verhindern, dass
+    die Heizungsbruecke mit den alten Optionen neu startet. Welche Add-ons laufen und ueberwacht
+    werden, bestimmt der gesicherte Transport (provisioning.watched_addon_slugs): Beim Mosquitto-Stand
+    (oder einem Stand ohne lesbaren Transport) schaltet der Rueckbau Watchdog/Boot beider Add-ons wieder
+    ein und startet cloudflared neu -- auch wenn der abgebrochene Lauf auf iot_core umgestellt und die
+    Ueberwachung abgeschaltet hatte. Bei iot_core bleibt cloudflared gestoppt und ohne Ueberwachung
+    (Plan AWS-2, Praez. 1)."""
     try:
         heizungsbruecke, cloudflared = await async_get_addon_managers(hass, ADDON_SPECS)
     except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
         _LOGGER.warning("Rueckbau: Add-ons nicht gefunden: %s", type(error).__name__)
         return False
+    cloudflared_watched = CLOUDFLARED_ADDON_SLUG in provisioning.watched_addon_slugs(snapshot.bridge_options)
+
+    async def restore_supervision() -> None:
+        failed = await async_set_supervision(hass, [heizungsbruecke.addon_slug], enabled=True)
+        failed += await async_set_supervision(hass, [cloudflared.addon_slug], enabled=cloudflared_watched)
+        if failed:
+            raise AddonError("Watchdog/Boot nicht gesetzt")
+
     steps: list[tuple[str, Callable[[], Awaitable[None]]]] = [
         ("Optionen der Heizungsbruecke wiederherstellen",
          lambda: heizungsbruecke.async_set_addon_options(snapshot.bridge_options)),
         ("Optionen von cloudflared wiederherstellen",
          lambda: cloudflared.async_set_addon_options(snapshot.cloudflared_options)),
-        ("cloudflared neu starten", cloudflared.async_restart_addon),
+        ("Watchdog und Boot wiederherstellen", restore_supervision),
+        ("cloudflared neu starten" if cloudflared_watched else "cloudflared stoppen",
+         cloudflared.async_restart_addon if cloudflared_watched else cloudflared.async_stop_addon),
         ("Heizungsbruecke neu starten", heizungsbruecke.async_restart_addon),
     ]
     ok = True

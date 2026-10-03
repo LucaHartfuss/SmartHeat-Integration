@@ -1,5 +1,4 @@
 import asyncio
-import base64
 
 import aiohttp
 import pytest
@@ -100,7 +99,7 @@ async def test_provision_raises_api_error_on_failure(aiohttp_client):
     client = await aiohttp_client(app)
 
     with pytest.raises(ApiError):
-        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper", "CSR")
 
 
 async def test_provision_raises_invalid_auth_on_401(aiohttp_client):
@@ -116,7 +115,7 @@ async def test_provision_raises_invalid_auth_on_401(aiohttp_client):
     client = await aiohttp_client(app)
 
     with pytest.raises(InvalidAuth):
-        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper", "CSR")
 
 
 async def test_provision_raises_api_error_on_a_200_with_the_wrong_content_type(aiohttp_client):
@@ -131,7 +130,7 @@ async def test_provision_raises_api_error_on_a_200_with_the_wrong_content_type(a
     client = await aiohttp_client(app)
 
     with pytest.raises(ApiError):
-        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper", "CSR")
 
 
 async def test_provision_raises_api_error_on_invalid_json_body(aiohttp_client):
@@ -143,7 +142,7 @@ async def test_provision_raises_api_error_on_invalid_json_body(aiohttp_client):
     client = await aiohttp_client(app)
 
     with pytest.raises(ApiError):
-        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper")
+        await HeizungsserverClient(client, "").provision("tok123", "wohnung1", "vaillant_gastherme_heizkoerper", "CSR")
 
 
 @pytest.mark.parametrize("status", [200, 204])
@@ -245,7 +244,7 @@ async def test_update_profile_raises_api_error_on_invalid_json_body(aiohttp_clie
 
 
 @pytest.mark.parametrize("status", [204, 401, 500])
-async def test_delete_installation_sends_basic_auth_and_returns_the_status(aiohttp_client, status):
+async def test_delete_installation_sends_the_installation_token_and_returns_the_status(aiohttp_client, status):
     seen = {}
 
     async def handler(request):
@@ -256,18 +255,29 @@ async def test_delete_installation_sends_basic_auth_and_returns_the_status(aioht
     app = web.Application()
     app.router.add_delete("/tenants/{tenant_id}/installation", handler)
     client = await aiohttp_client(app)
+    assert await HeizungsserverClient(client, "").delete_installation("wohnung1", "tok-xyz") == status
+    assert seen == {"auth": "Bearer tok-xyz", "tenant": "wohnung1"}
 
-    result = await HeizungsserverClient(client, "").delete_installation("wohnung1", "wohnung1_abc", "geheim")
 
-    assert result == status
-    expected_token = base64.b64encode(b"wohnung1_abc:geheim").decode()
-    assert seen == {"auth": f"Basic {expected_token}", "tenant": "wohnung1"}
+async def test_provision_sends_profile_and_csr(aiohttp_client):
+    seen = {}
+
+    async def handler(request):
+        seen["body"] = await request.json()
+        seen["auth"] = request.headers.get("Authorization")
+        return web.json_response({"ok": True})
+
+    app = web.Application()
+    app.router.add_post("/tenants/{tenant_id}/provision", handler)
+    client = await aiohttp_client(app)
+    await HeizungsserverClient(client, "").provision("sess", "wohnung1", "vaillant", "CSR-PEM")
+    assert seen == {"body": {"profile_id": "vaillant", "csr": "CSR-PEM"}, "auth": "Bearer sess"}
 
 
 async def test_delete_installation_returns_none_without_connection():
     session = aiohttp.ClientSession()
     try:
-        result = await HeizungsserverClient(session, "http://127.0.0.1:9").delete_installation("w", "u", "p")
+        result = await HeizungsserverClient(session, "http://127.0.0.1:9").delete_installation("w", "tok")
     finally:
         await session.close()
     assert result is None
@@ -328,7 +338,7 @@ async def test_403_carries_the_server_text(aiohttp_client):
 
     client = await _server(aiohttp_client, "POST", "/tenants/t1/provision", handler)
     with pytest.raises(AccessDenied) as caught:
-        await client.provision("tok", "t1", "p")
+        await client.provision("tok", "t1", "p", "CSR")
     assert caught.value.reason == text
 
 
@@ -340,10 +350,10 @@ async def test_403_reason_is_shortened_and_may_be_empty(aiohttp_client):
         return web.Response(text="nope", status=403)
 
     with pytest.raises(AccessDenied) as caught:
-        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", long_handler)).provision("tok", "t1", "p")
+        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", long_handler)).provision("tok", "t1", "p", "CSR")
     assert len(caught.value.reason) == 200
     with pytest.raises(AccessDenied) as caught:
-        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", plain_handler)).provision("tok", "t1", "p")
+        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", plain_handler)).provision("tok", "t1", "p", "CSR")
     assert caught.value.reason == ""
 
 
@@ -362,6 +372,6 @@ async def test_rejections_are_logged_without_secrets(aiohttp_client, caplog):
 
     client = await _server(aiohttp_client, "POST", "/tenants/t1/provision", handler)
     with pytest.raises(ApiError):
-        await client.provision("geheimes-token-123", "t1", "p")
+        await client.provision("geheimes-token-123", "t1", "p", "CSR")
     assert "HTTP 500" in caplog.text and "kaputt" in caplog.text
     assert "geheimes-token-123" not in caplog.text

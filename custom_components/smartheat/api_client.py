@@ -5,7 +5,6 @@ aus dem alten heizungsbruecke/web.py-Wizard -- dieselbe API, nur async und ohne 
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from typing import Any
 
@@ -20,17 +19,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _basic_auth_header(username: str, password: str) -> str:
-    """Baut den Authorization-Header fuer HTTP Basic selbst (RFC 7617), statt der von aiohttp
-    3.14 als deprecated markierten `auth=aiohttp.BasicAuth(...)`. `aiohttp.encode_basic_auth()`
-    scheidet aus: die Mindestversion in hacs.json (HA 2026.4.0) bindet keine aiohttp-Version, in
-    der diese Funktion garantiert existiert -- ein AttributeError daraus liegt ausserhalb der in
-    delete_installation() gefangenen Exceptions und wuerde das Entfernen der Integration
-    abbrechen. Niemals loggen (Regel 6)."""
-    token = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return f"Basic {token}"
 
 
 class ApiError(Exception):
@@ -94,10 +82,11 @@ class HeizungsserverClient:
             raise InvalidResponse("Katalog-Antwort ohne 'profiles'-Liste")
         return catalog
 
-    async def provision(self, token: str, tenant_id: str, profile_id: str) -> dict:
+    async def provision(self, token: str, tenant_id: str, profile_id: str, csr: str) -> dict:
+        """Spec AWS-IoT 4.1: der CSR geht immer mit; der Server entscheidet anhand seines Provisioners."""
         body = await self._request(
             "POST", f"/tenants/{tenant_id}/provision", "Provisioning",
-            json={"profile_id": profile_id}, headers=_bearer(token),
+            json={"profile_id": profile_id, "csr": csr}, headers=_bearer(token),
         )
         if not isinstance(body, dict):
             raise InvalidResponse("Provisioning-Antwort ist kein Objekt")
@@ -119,15 +108,15 @@ class HeizungsserverClient:
         ein Fehler dort wird nur geloggt."""
         await self._request("POST", "/auth/logout", "Logout", ok=(200, 204), expect_json=False, headers=_bearer(token))
 
-    async def delete_installation(self, tenant_id: str, username: str, password: str) -> int | None:
-        """Widerruft die MQTT-Zugangsdaten dieser Anlage auf dem Server (Spec TP8 4), angemeldet mit
-        genau diesen Zugangsdaten. Gibt den HTTP-Status zurueck, None ohne Verbindung/Timeout. Wirft
+    async def delete_installation(self, tenant_id: str, installation_token: str) -> int | None:
+        """Widerruft die Zugangsdaten dieser Anlage auf dem Server (Spec TP8 4, AWS-IoT 4.3), angemeldet
+        mit dem Installations-Token. Gibt den HTTP-Status zurueck, None ohne Verbindung/Timeout. Wirft
         nie: das Entfernen der Integration laeuft in jedem Fall weiter."""
         try:
             async with asyncio.timeout(REVOKE_TIMEOUT_SECONDS):
                 async with self._session.delete(
                     f"{self._base_url}{INSTALLATION_PATH.format(tenant_id=tenant_id)}",
-                    headers={"Authorization": _basic_auth_header(username, password)},
+                    headers=_bearer(installation_token),
                 ) as response:
                     return response.status
         except (aiohttp.ClientError, TimeoutError):
