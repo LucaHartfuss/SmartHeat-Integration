@@ -173,11 +173,13 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
 
     _fire(hass, status_event(
         TENANT, "notbetrieb", notbetrieb=True, boost="notfall", datenfehler={"art": "lokal", "rollen": ["dat"]},
-        kurve=1.1, parallelverschiebung=24.0, mindestvorlauf=20.5, heizgrenze=16.0,
+        hebel={"curve": 1.1, "room_setpoint": 24.0, "min_flow": 20.5, "heat_limit": 16.0},
+        gelernt={"curve": 1.08, "heat_limit": 16.4},
         letzte_serverantwort="2026-10-01T12:00:05+02:00",
         abo="inaktiv",
         abo_frist_ende="2026-10-31",
-        hinweise={"raumfuehler_ausgefallen": ["sensor.a"], "batterie_niedrig": [], "manueller_eingriff": None,
+        hinweise={"raumfuehler_ausgefallen": ["sensor.a"], "batterie_niedrig": [],
+                  "manueller_eingriff": {"hebel": {"curve": 1.4}, "erkannt": "2026-10-01T04:00:00+02:00"},
                   "waerme_fehlt": "2026-10-01T05:11:00+02:00"},
     ))
     await hass.async_block_till_done()
@@ -186,6 +188,8 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
     assert status.state == "notbetrieb"
     assert status.attributes["raumfuehler_ausgefallen"] == ["sensor.a"]
     assert status.attributes["waerme_fehlt"] == "2026-10-01T05:11:00+02:00"
+    # Schema 2: manueller_eingriff ist ein Objekt (hebel/erkannt); die Integration reicht es unveraendert durch.
+    assert status.attributes["manueller_eingriff"] == {"hebel": {"curve": 1.4}, "erkannt": "2026-10-01T04:00:00+02:00"}
     assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"
     fault = hass.states.get("sensor.smartheat_wohnung1_datenfehler")
     assert (fault.state, fault.attributes["rollen"]) == ("lokal", ["dat"])
@@ -194,6 +198,8 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
     assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung").state == "24.0"
     assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
     assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze").state == "16.0"
+    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_steigung").state == "1.08"
+    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_heizgrenze").state == "16.4"
     assert hass.states.get("sensor.smartheat_wohnung1_abo").attributes["frist_ende"] == "2026-10-31"
     assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "2026-10-01T10:00:05+00:00"
     assert hass.states.get("sensor.smartheat_wohnung1_addon_version").state == "0.20.0"
@@ -397,7 +403,7 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, mon
         TENANT, "regelt", boost="unbekannt", datenfehler={"art": "unbekannt", "rollen": []},
         letzte_serverantwort="2026-10-01T12:00:05",  # kein Zeitzonen-Offset: naiv
     )
-    assert "kurve" not in event  # fehlender Schluessel (Schema 2 kennt kurve nicht mehr; Sensoren je Hebel: Task 12)
+    assert event["hebel"] is None and event["gelernt"] is None  # fehlende Werte (kein Hebel-Objekt im Event)
 
     _fire(hass, event)
     await hass.async_block_till_done()
@@ -406,6 +412,7 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, mon
     assert hass.states.get("sensor.smartheat_wohnung1_datenfehler").state == "unknown"
     assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "unknown"
     assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_steigung").state == "unknown"
     # Der Rest der Entities bleibt unberuehrt.
     assert hass.states.get(STATUS).state == "regelt"
 
@@ -450,31 +457,34 @@ async def test_restore_ignores_an_out_of_options_value(hass, monkeypatch, clock)
     assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
 
 
-async def test_event_with_non_numeric_shift_and_curve_does_not_crash_entities(hass, monkeypatch, clock):
-    """Fix-Runde 2, Fund 2: wie bei Enum-/Zeitstempel-Feldern (M2) darf ein nicht-numerischer
-    oder nicht endlicher Wert bei parallelverschiebung/mindestvorlauf (Device-Class TEMPERATURE,
-    HA validiert das) oder heizkurve (ohne Device-Class, aber aus Konsistenz genauso behandelt)
-    nicht zu einer haengenden bzw. kaputten Entity fuehren."""
+@pytest.mark.parametrize("hebel, gelernt", [
+    (None, None),
+    ("kaputt", ["kaputt"]),
+    ({"curve": "ungueltig", "room_setpoint": float("nan"), "min_flow": float("inf"), "heat_limit": float("nan")},
+     {"curve": "ungueltig", "heat_limit": float("-inf")}),
+    ({}, {}),
+])
+async def test_event_with_broken_lever_values_does_not_crash_entities(hass, monkeypatch, clock, hebel, gelernt):
+    """Fix-Runde 2, Fund 2 (Plan 3c: je Hebel und Lernwert): fehlende, nicht-numerische oder nicht endliche Werte
+    in hebel/gelernt (Device-Class TEMPERATURE, HA validiert das) duerfen nicht zu einer haengenden bzw. kaputten
+    Entity fuehren, sondern zeigen unknown."""
     await _setup(hass, monkeypatch, {})
 
-    _fire(hass, status_event(
-        TENANT, "regelt", parallelverschiebung=float("nan"), mindestvorlauf=float("nan"), heizgrenze=float("nan"),
-        kurve="ungueltig",
-    ))
+    _fire(hass, status_event(TENANT, "regelt", hebel=hebel, gelernt=gelernt))
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+    for key in ("heizkurve", "parallelverschiebung", "mindestvorlauf", "heizgrenze",
+                "gelernte_steigung", "gelernte_heizgrenze"):
+        assert hass.states.get(f"sensor.smartheat_wohnung1_{key}").state == "unknown", key
+    assert hass.states.get(STATUS).state == "regelt"
 
 
 async def test_parallel_shift_and_min_flow_sensors(hass, monkeypatch, clock):
-    """Task 20: offset entfaellt, dessen Rolle uebernehmen die beiden neuen Temperatur-Sensoren
-    parallelverschiebung und mindestvorlauf; die alte offset-Entity wird nicht mehr erzeugt."""
+    """Task 20: offset entfaellt, dessen Rolle uebernehmen die beiden Temperatur-Sensoren
+    parallelverschiebung und mindestvorlauf (jetzt aus hebel); die alte offset-Entity wird nicht erzeugt."""
     await _setup(hass, monkeypatch, {})
 
-    _fire(hass, status_event(TENANT, "regelt", parallelverschiebung=21.0, mindestvorlauf=20.5))
+    _fire(hass, status_event(TENANT, "regelt", hebel={"room_setpoint": 21.0, "min_flow": 20.5}))
     await hass.async_block_till_done()
 
     shift = hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung")
@@ -482,6 +492,37 @@ async def test_parallel_shift_and_min_flow_sensors(hass, monkeypatch, clock):
     assert (shift.state, min_flow.state) == ("21.0", "20.5")
     assert shift.attributes["unit_of_measurement"] == min_flow.attributes["unit_of_measurement"] == "°C"
     assert hass.states.get("sensor.smartheat_wohnung1_offset") is None
+    # Ein Hebel, der im Event fehlt, ist unknown, die uebrigen Sensoren bleiben davon unberuehrt.
+    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+
+
+async def test_viessmann_entry_shows_level_and_room_setpoint(hass, monkeypatch, clock):
+    monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(return_value={}))
+    entry = make_entry(hass, data={
+        "tenant_id": TENANT, "profile_id": "viessmann_vicare", "integration_domain": "vicare",
+        "circuit": {"config_entry_id": "vicare-entry", "system_key": "SYSTEM", "circuit": "0"},
+        "entities": {
+            "entity_curve_current": "number.slope", "entity_level_current": "number.level",
+            "entity_shift_current": "number.comfort", "entity_mode_select": "climate.vicare",
+            "entity_outdoor_temp": "sensor.aussen",
+        },
+        "lever_set": "viessmann_vicare", "shift_lever": "level",
+    })
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    _fire(hass, status_event(
+        TENANT, "regelt", hebelsatz="viessmann_vicare", hebel={"curve": 1.2, "level": 3.0, "room_setpoint": 21.0},
+        gelernt={"curve": 1.2},
+    ))
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.2"
+    niveau = hass.states.get("sensor.smartheat_wohnung1_niveau")
+    assert (niveau.state, niveau.attributes["unit_of_measurement"]) == ("3.0", "K")
+    assert hass.states.get("sensor.smartheat_wohnung1_raum_soll").state == "21.0"
+    assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung") is None
+    assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze") is None
 
 
 async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, monkeypatch, clock, notes):

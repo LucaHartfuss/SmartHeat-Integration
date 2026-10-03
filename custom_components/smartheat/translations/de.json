@@ -230,6 +230,10 @@
       "parallelverschiebung": {"name": "Gelernte Parallelverschiebung"},
       "mindestvorlauf": {"name": "Mindestvorlauftemperatur"},
       "heizgrenze": {"name": "Heizgrenze (von SmartHeat geregelt)"},
+      "niveau": {"name": "Niveau"},
+      "raum_soll": {"name": "Raum-Soll"},
+      "gelernte_steigung": {"name": "Gelernte Steigung"},
+      "gelernte_heizgrenze": {"name": "Gelernte Heizgrenze (Fußpunkt)"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
       "addon_version": {"name": "Add-on-Version"}
     },

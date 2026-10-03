@@ -29,6 +29,7 @@ from homeassistant.data_entry_flow import AbortFlow, section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
+from homeassistant.loader import async_get_integration
 
 from . import detection, provisioning, validation
 from .addon_control import (
@@ -1019,8 +1020,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert token is not None  # dieser Schritt folgt nur nach erfolgreichem Login
         assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
         key_pem, csr = await self.hass.async_add_executor_job(provisioning.generate_key_and_csr, tenant_id)
+        version = str((await async_get_integration(self.hass, DOMAIN)).version)
         try:
-            body = await self._client().provision(token, tenant_id, profile_id, csr)
+            body = await self._client().provision(token, tenant_id, profile_id, csr, version)
         except InvalidAuth:
             return self._expire_session()
         except AccessDenied as error:

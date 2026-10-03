@@ -12,6 +12,7 @@ import aiohttp
 
 from .const import (
     ACCESS_DENIED_REASON_MAX,
+    CLIENT_TYPE_HA,
     INSTALLATION_PATH,
     PROFILE_PATH,
     REQUEST_TIMEOUT_SECONDS,
@@ -82,11 +83,13 @@ class HeizungsserverClient:
             raise InvalidResponse("Katalog-Antwort ohne 'profiles'-Liste")
         return catalog
 
-    async def provision(self, token: str, tenant_id: str, profile_id: str, csr: str) -> dict:
-        """Spec AWS-IoT 4.1: der CSR geht immer mit; der Server entscheidet anhand seines Provisioners."""
+    async def provision(self, token: str, tenant_id: str, profile_id: str, csr: str, client_version: str) -> dict:
+        """Spec AWS-IoT 4.1: der CSR geht immer mit; der Server entscheidet anhand seines Provisioners. Seit Plan 3c
+        meldet der Client Typ und Version (Server broker/wire.py, Contract-Check 43)."""
         body = await self._request(
             "POST", f"/tenants/{tenant_id}/provision", "Provisioning",
-            json={"profile_id": profile_id, "csr": csr}, headers=_bearer(token),
+            json={"profile_id": profile_id, "csr": csr, "client_type": CLIENT_TYPE_HA, "client_version": client_version},
+            headers=_bearer(token),
         )
         if not isinstance(body, dict):
             raise InvalidResponse("Provisioning-Antwort ist kein Objekt")

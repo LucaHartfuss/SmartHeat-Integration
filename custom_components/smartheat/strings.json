@@ -230,6 +230,10 @@
       "parallelverschiebung": {"name": "Learned parallel shift"},
       "mindestvorlauf": {"name": "Minimum flow temperature"},
       "heizgrenze": {"name": "Heating limit (controlled by SmartHeat)"},
+      "niveau": {"name": "Level"},
+      "raum_soll": {"name": "Room setpoint"},
+      "gelernte_steigung": {"name": "Learned slope"},
+      "gelernte_heizgrenze": {"name": "Learned heating limit (anchor point)"},
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
       "addon_version": {"name": "Add-on version"}
     },

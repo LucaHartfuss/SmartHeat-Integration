@@ -33,8 +33,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _remove_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry, tenant_id: str) -> None:
-    """B-TP11-4: Registry-Eintraege dieses Eintrags ohne aktuelle Entity (z. B. offset aus 0.7.x)."""
-    wanted = {f"{tenant_id}_{key}" for key in (*sensor.ENTITY_KEYS, *binary_sensor.ENTITY_KEYS)}
+    """B-TP11-4: Registry-Eintraege dieses Eintrags ohne aktuelle Entity (z. B. offset aus 0.7.x, Hebel eines anderen
+    Hebelsatzes). Nur fuer vollstaendige Eintraege: bis "Neu konfigurieren" behaelt ein unvollstaendiger Eintrag seine
+    Entities (Plan 3c, Praezisierung 8)."""
+    if entry_incomplete(entry.data):
+        return
+    wanted = {f"{tenant_id}_{key}" for key in (*sensor.entity_keys(entry.data), *binary_sensor.ENTITY_KEYS)}
     registry = er.async_get(hass)
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if registry_entry.platform == DOMAIN and registry_entry.unique_id not in wanted:

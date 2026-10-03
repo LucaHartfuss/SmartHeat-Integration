@@ -747,6 +747,7 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
     assert CF_SECRET not in str(result["data"]) + str(result["options"])
     mocks.provision.assert_awaited_once()
     assert mocks.provision.call_args.args[:3] == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    assert mocks.provision.await_args.args[-1] == json.loads((_COMPONENT / "manifest.json").read_text())["version"]
     mocks.update_profile.assert_not_awaited()
     mocks.logout.assert_awaited_once_with("tok123")
     assert calls.restarts == ["cloudflared_access_mqtt", "heizungsbruecke"]
@@ -937,7 +938,7 @@ async def test_first_setup_sends_a_csr_and_writes_the_mosquitto_access(hass, mon
     result, server, calls = await _run_setup(hass, monkeypatch)
 
     assert result["type"] == "create_entry"
-    token, tenant, profile, csr = server.provision.call_args.args
+    token, tenant, profile, csr, _version = server.provision.call_args.args
     assert (token, tenant, profile) == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     assert x509.load_pem_x509_csr(csr.encode()).subject.rfc4514_string() == f"CN={TENANT}"
     bridge = calls.options["heizungsbruecke"]
