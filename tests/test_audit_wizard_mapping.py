@@ -34,7 +34,7 @@ from .flow_helpers import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-[MYPYLLANT] = parse_integrations(json.loads((FIXTURES / "catalog.json").read_text()))
+[MYPYLLANT, _WEISHAUPT, _VICARE] = parse_integrations(json.loads((FIXTURES / "catalog.json").read_text()))
 
 
 async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entities(hass, monkeypatch):
@@ -135,4 +135,4 @@ def test_zone_of_another_circuit_is_not_suggested():
     circuit_0 = next(c for c in find_circuits(MYPYLLANT, entries, []) if c.circuit == "0")
 
     # Erwartet: keine Vorbelegung (oder die Zone von Kreis 0), nie die Zone eines anderen Kreises.
-    assert circuit_0.roles.get("shift_current") in (None, "climate.zone_b")
+    assert circuit_0.roles.get("room_setpoint") in (None, "climate.zone_b")

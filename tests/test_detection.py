@@ -22,12 +22,13 @@ from custom_components.smartheat.detection import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-[MYPYLLANT] = parse_integrations(json.loads((FIXTURES / "catalog.json").read_text()))
+[_MYPYLLANT, WEISHAUPT, VICARE] = parse_integrations(json.loads((FIXTURES / "catalog.json").read_text()))
+MYPYLLANT = _MYPYLLANT
 
 # Wie im Server-Test tests/generic/test_catalog_registry_fixture.py (gleiche Suchregeln).
 EXPECTED = {
-    "curve_current": "number.zuhause_circuit_0_heating_curve",
-    "shift_current": "climate.zuhause_zone_1_circuit_0_climate",
+    "curve": "number.zuhause_circuit_0_heating_curve",
+    "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
     "min_flow": "number.zuhause_circuit_0_min_flow_temperature_setpoint",
     "flow_setpoint": "sensor.heizraum_zuhause_circuit_0_flow_temperature_setpoint",
     "heat_limit": "number.zuhause_circuit_0_heat_demand_limited_by_outside_temperature",
@@ -99,14 +100,14 @@ def test_two_systems_in_one_account_are_separated_by_system_key():
 
 
 def test_circuit_without_matching_zone_is_still_offered():
-    # shift_current ist keine Pflichtrolle der Kreiserkennung (Praezisierung 9): der Zonen-Index
-    # entspricht nicht immer der Kreisnummer. Ohne die Climate-Zeile fehlt shift_current in
+    # room_setpoint ist keine Pflichtrolle der Kreiserkennung (Praezisierung 9): der Zonen-Index
+    # entspricht nicht immer der Kreisnummer. Ohne die Climate-Zeile fehlt room_setpoint in
     # `found`, der Kreis wird trotzdem angeboten - der Kunde waehlt die Zone dann selbst.
     entries = [e for e in _fixture_entries() if e.entity_id != "climate.zuhause_zone_1_circuit_0_climate"]
 
     [circuit] = find_circuits(MYPYLLANT, entries, [])
 
-    assert "shift_current" not in circuit.roles
+    assert "room_setpoint" not in circuit.roles
 
 
 def test_circuit_with_missing_required_role_is_not_offered():
@@ -115,7 +116,7 @@ def test_circuit_with_missing_required_role_is_not_offered():
 
 def test_circuit_with_ambiguous_required_role_is_not_offered():
     entries = _circuit_entries() + [_entry("number.dup", "mypyllant S_circuit_0_heating_curve", entry="e1")]
-    # Gleicher Config-Entry, gleiche Kennung, gleicher Kreis: zwei Treffer fuer curve_current.
+    # Gleicher Config-Entry, gleiche Kennung, gleicher Kreis: zwei Treffer fuer curve.
     assert find_circuits(MYPYLLANT, entries, []) == []
 
 
@@ -127,7 +128,7 @@ def test_other_platforms_and_domains_are_ignored():
 
     [circuit] = find_circuits(MYPYLLANT, entries, [])
 
-    assert circuit.roles["curve_current"] == "number.a_curve_0"
+    assert circuit.roles["curve"] == "number.a_curve_0"
 
 
 def test_device_name_labels_the_circuit():
@@ -258,8 +259,8 @@ def test_zone_is_bound_to_the_circuit_named_in_it():
 
     circuits = {c.circuit: c for c in find_circuits(MYPYLLANT, entries, [])}
 
-    assert circuits["0"].roles["shift_current"] == "climate.zone_b"
-    assert circuits["1"].roles["shift_current"] == "climate.zone_a"
+    assert circuits["0"].roles["room_setpoint"] == "climate.zone_b"
+    assert circuits["1"].roles["room_setpoint"] == "climate.zone_a"
 
 
 def test_zone_without_circuit_in_its_name_is_not_suggested():
@@ -267,7 +268,7 @@ def test_zone_without_circuit_in_its_name_is_not_suggested():
 
     [circuit] = find_circuits(MYPYLLANT, entries, [])
 
-    assert "shift_current" not in circuit.roles
+    assert "room_setpoint" not in circuit.roles
 
 
 def test_two_zones_named_for_the_same_circuit_are_not_suggested():
@@ -278,7 +279,7 @@ def test_two_zones_named_for_the_same_circuit_are_not_suggested():
 
     [circuit] = find_circuits(MYPYLLANT, entries, [])
 
-    assert "shift_current" not in circuit.roles
+    assert "room_setpoint" not in circuit.roles
 
 
 def test_zone_of_another_system_is_not_mixed_in():
@@ -288,4 +289,57 @@ def test_zone_of_another_system_is_not_mixed_in():
 
     [circuit] = find_circuits(MYPYLLANT, entries, [])
 
-    assert "shift_current" not in circuit.roles
+    assert "room_setpoint" not in circuit.roles
+
+
+def _derived_entries(name: str, config_entry_id: str = "e1") -> list[RegistryEntry]:
+    data = json.loads((FIXTURES / name).read_text())
+    return [RegistryEntry(e["entity_id"], e["unique_id"], e["platform"], e["original_name"], config_entry_id, None, None)
+            for e in data["entities"]]
+
+
+def test_weishaupt_circuits_one_and_two():
+    circuits = find_circuits(WEISHAUPT, _derived_entries("weishaupt_modbus_registry_from_code.json"), [])
+    assert [(c.system_key, c.circuit) for c in circuits] == [("weishaupt_wbb", "1"), ("weishaupt_wbb", "2")]
+    first = circuits[0]
+    assert first.roles["curve"] == "number.weishaupt_wbb_heizkennlinie"
+    assert first.roles["room_setpoint"] == "number.weishaupt_wbb_raumsolltemperatur_normal"
+    assert first.roles["mode_select"] == "select.weishaupt_wbb_betriebsart"
+    assert circuits[1].roles["heat_limit"] == "number.weishaupt_wbb_sommer_winter_umschaltung_2"
+
+
+def test_weishaupt_circuit_without_curve_and_heat_limit_is_still_offered():
+    entries = [e for e in _derived_entries("weishaupt_modbus_registry_from_code.json")
+               if "Heizkennlinie" not in e.unique_id and "Sommer Winter" not in e.unique_id]
+    circuits = find_circuits(WEISHAUPT, entries, [])
+    assert [c.circuit for c in circuits] == ["1", "2"]
+    assert "curve" not in circuits[0].roles and "heat_limit" not in circuits[0].roles
+
+
+def test_weishaupt_system_roles_need_the_exact_unique_id():
+    entries = _derived_entries("weishaupt_modbus_registry_from_code.json")
+    [circuit, _] = find_circuits(WEISHAUPT, entries, [])
+    found = system_role_suggestions(WEISHAUPT, circuit, entries)
+    assert found["outdoor_temp"] == "sensor.weishaupt_wbb_aussentemperatur"
+    assert found["energy_thermal_heating"] == "sensor.weishaupt_wbb_heizen_energie_heute"
+    assert found["energy_electrical_total"] == "sensor.weishaupt_wbb_elektr_energie_heute"
+
+
+def test_vicare_circuits_and_system_roles():
+    entries = _derived_entries("vicare_registry_from_code.json")
+    circuits = find_circuits(VICARE, entries, [])
+    assert [(c.system_key, c.circuit) for c in circuits] == [("GW_DEV", "0"), ("GW_DEV", "1")]
+    assert circuits[0].roles["level"] == "number.vicare_heating_curve_shift"
+    assert circuits[0].roles["mode_select"] == "climate.vicare_heating"
+    found = system_role_suggestions(VICARE, circuits[0], entries)
+    assert found["energy_primary_heating"] == "sensor.vicare_gas_consumption_heating_today"
+    assert found["energy_primary_dhw"] == "sensor.vicare_hotwater_gas_consumption_today"
+    assert found["outdoor_temp"] == "sensor.vicare_outside_temperature"
+
+
+def test_mypyllant_system_roles_unchanged_by_exact_matching():
+    entries = _fixture_entries()
+    [circuit] = find_circuits(_MYPYLLANT, entries, [])
+    found = system_role_suggestions(_MYPYLLANT, circuit, entries)
+    assert found["outdoor_temp"] == EXPECTED["outdoor_temp"]
+    assert found["energy_primary_heating"] == EXPECTED["energy_primary_heating"]

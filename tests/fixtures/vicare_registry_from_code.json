@@ -1,0 +1,24 @@
+{
+  "quelle": "Aus dem Code abgeleitet, keine echte Registry (Spec Hersteller-Abstraktion 7.2): HA-Core vicare (entity.py: unique_id = '<Gateway>_<Geraet>-<key>' und bei Kreis-Entities '-<Kreis>'), Schluessel aus number.py, sensor.py, climate.py (translation_key 'heating'). Gateway/Geraet anonymisiert als GW_DEV. Nach der Inventur durch einen echten Registry-Auszug ersetzen.",
+  "entities": [
+    {"entity_id": "number.vicare_heating_curve_slope", "unique_id": "GW_DEV-heating curve slope-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_heating_curve_shift", "unique_id": "GW_DEV-heating curve shift-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_normal_temperature", "unique_id": "GW_DEV-normal_temperature-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_reduced_temperature", "unique_id": "GW_DEV-reduced_temperature-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_comfort_temperature", "unique_id": "GW_DEV-comfort_temperature-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "climate.vicare_heating", "unique_id": "GW_DEV-heating-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_supply_temperature", "unique_id": "GW_DEV-supply_temperature-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_heating_curve_slope_2", "unique_id": "GW_DEV-heating curve slope-1", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_heating_curve_shift_2", "unique_id": "GW_DEV-heating curve shift-1", "platform": "vicare", "original_name": null},
+    {"entity_id": "number.vicare_normal_temperature_2", "unique_id": "GW_DEV-normal_temperature-1", "platform": "vicare", "original_name": null},
+    {"entity_id": "climate.vicare_heating_2", "unique_id": "GW_DEV-heating-1", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_supply_temperature_2", "unique_id": "GW_DEV-supply_temperature-1", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_outside_temperature", "unique_id": "GW_DEV-outside_temperature", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_return_temperature", "unique_id": "GW_DEV-return_temperature", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_boiler_supply_temperature", "unique_id": "GW_DEV-boiler_supply_temperature", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_gas_consumption_heating_today", "unique_id": "GW_DEV-gas_consumption_heating_today", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_gas_consumption_heating_this_week", "unique_id": "GW_DEV-gas_consumption_heating_this_week", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_hotwater_gas_consumption_today", "unique_id": "GW_DEV-hotwater_gas_consumption_today", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_power_consumption_today", "unique_id": "GW_DEV-power consumption today", "platform": "vicare", "original_name": null}
+  ]
+}
