@@ -40,7 +40,6 @@ from .catalog import IntegrationDescriptor, parse_integrations, verified_profile
 from .const import (
     ADDON_REPOSITORY_URL,
     ADDON_SPECS,
-    BRIDGE_CREDENTIAL_OPTIONS,
     CLOUDFLARED_CREDENTIAL_OPTIONS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
@@ -57,6 +56,7 @@ from .const import (
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
     OPTIONAL_PLANT_FIELDS,
+    PASSWORD_CREDENTIAL_OPTIONS,
     PLANT_FIELDS,
     PLAUSIBLE_RANGES,
     POLL_INTERVAL_MAX_SECONDS,
@@ -104,7 +104,7 @@ def _has_credentials(bridge_options: dict, cloudflared_options: dict) -> bool:
     weil nur cloudflared neu installiert wurde, waeren sonst provision() uebersprungen und leere
     Token in _keep_access uebernommen worden (stiller setup_timeout, da der Tunnel nicht steht)."""
     return (
-        all(bridge_options.get(key) for key in BRIDGE_CREDENTIAL_OPTIONS)
+        all(bridge_options.get(key) for key in PASSWORD_CREDENTIAL_OPTIONS)
         and all(cloudflared_options.get(key) for key in CLOUDFLARED_CREDENTIAL_OPTIONS)
     )
 

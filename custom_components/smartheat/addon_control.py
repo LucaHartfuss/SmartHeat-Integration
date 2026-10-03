@@ -19,13 +19,13 @@ from .const import (
     ADDON_SPECS,
     ADDON_STATUS_VALUES,
     BOOST_KEINER,
-    BRIDGE_CREDENTIAL_OPTIONS,
     CLOUDFLARED_ADDON_SLUG,
     CLOUDFLARED_CREDENTIAL_OPTIONS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     HEIZUNGSBRUECKE_ADDON_SLUG,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
+    PASSWORD_CREDENTIAL_OPTIONS,
     PROBLEM_CLEAR,
     PROBLEM_FOREIGN_TENANT,
     PROBLEM_NO_SIGN_OFF,
@@ -158,7 +158,7 @@ async def _async_read_bridge_options(bridge: AddonManager | None) -> dict | None
 def _server_credentials(options: dict | None) -> _ServerCredentials | None:
     if options is None:
         return None
-    username_key, password_key = BRIDGE_CREDENTIAL_OPTIONS
+    username_key, password_key = PASSWORD_CREDENTIAL_OPTIONS
     username, password = options.get(username_key), options.get(password_key)
     if not username or not password:
         return None
@@ -257,7 +257,7 @@ async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentia
         problems.append(PROBLEM_REVOKE)
     elif not await _async_revoke_on_server(hass, tenant_id, credentials):
         problems.append(PROBLEM_REVOKE)
-    for manager, keys in ((bridge, BRIDGE_CREDENTIAL_OPTIONS), (cloudflared, CLOUDFLARED_CREDENTIAL_OPTIONS)):
+    for manager, keys in ((bridge, PASSWORD_CREDENTIAL_OPTIONS), (cloudflared, CLOUDFLARED_CREDENTIAL_OPTIONS)):
         if manager is None:
             continue
         try:
