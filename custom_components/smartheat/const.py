@@ -18,7 +18,7 @@ HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechse
 # Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
 # entfallen), er bleibt als Merkmal fuer entry_incomplete().
 DATA_INCOMPLETE = "unvollstaendig"
-# Zugang der Anlage (Spec AWS-IoT 4.1/4.2, Plan AWS-2); Werte wie Server broker/wire.py, Contract-Check 40.
+# Zugang der Anlage (Spec AWS-IoT 4.1/4.2, Plan AWS-2); Werte wie Server broker/wire.py, Contract-Check 41.
 OPTION_TRANSPORT = "transport"
 OPTION_INSTALLATION_TOKEN = "installation_token"
 PASSWORD_CREDENTIAL_OPTIONS = ("mqtt_username", "mqtt_password")
