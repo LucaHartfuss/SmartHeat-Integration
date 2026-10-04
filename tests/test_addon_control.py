@@ -33,7 +33,7 @@ CLEARED = {key: "" for key in BRIDGE_ACCESS_OPTIONS}
 async def test_listener_ignores_foreign_tenants_other_schemas_and_other_setup_ids(hass):
     listener = StatusListener(hass, TENANT)
     hass.bus.async_fire("smartheat_status", status_event("andere", "regelt", setup_id="a"))
-    hass.bus.async_fire("smartheat_status", {**status_event(TENANT, "regelt", setup_id="a"), "schema": 2})
+    hass.bus.async_fire("smartheat_status", {**status_event(TENANT, "regelt", setup_id="a"), "schema": 1})
     hass.bus.async_fire("smartheat_status", status_event(TENANT, "regelt", setup_id="alt"))
 
     assert await listener.async_wait(setup_id="a", done=REGELT, failed=FAILED, timeout=0.05) == (WAIT_TIMEOUT, None)

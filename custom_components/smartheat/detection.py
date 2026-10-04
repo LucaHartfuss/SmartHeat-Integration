@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .catalog import REQUIRED_CIRCUIT_ROLES, IntegrationDescriptor
+from .catalog import CIRCUIT_OPT_DEFAULT, IntegrationDescriptor
 from .const import TEMPERATURE_UNIT, WEATHER_TEMPERATURE_ATTRIBUTE, WEATHER_UNIT_ATTRIBUTE
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,10 +76,10 @@ def installed_integrations(descriptors: list[IntegrationDescriptor], entry_domai
 
 
 def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry], devices: list[DeviceInfo]) -> list[Circuit]:
-    """Kandidat = (Config-Entry, Anlagen-Kennung, Kreisnummer), bei dem jede Pflichtrolle genau
-    einmal gefunden wurde. Die Anlagen-Kennung ist der unique_id-Teil vor dem Suffix."""
+    """Kandidat = (Config-Entry, Anlagen-Kennung, Kreisnummer), bei dem jede kreisbildende Rolle des
+    Deskriptors genau einmal gefunden wurde. Die Anlagen-Kennung ist der unique_id-Teil vor dem Suffix."""
     groups: dict[tuple, dict[str, list[str]]] = {}
-    curve_devices: dict[tuple, str | None] = {}
+    label_devices: dict[tuple, str | None] = {}
     for entry in entries:
         if entry.platform != descriptor.domain or not entry.unique_id:
             continue
@@ -99,20 +99,21 @@ def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry
                 if circuit is None:
                     continue
             else:
-                circuit = match.group(1)
+                # {circuit_opt} ohne Ziffern: Kreis 1 (Katalog v3, weishaupt_modbus).
+                circuit = match.group(1) or CIRCUIT_OPT_DEFAULT
             key = (entry.config_entry_id, _normalize(entry.unique_id[:match.start()], descriptor.domain), circuit)
             groups.setdefault(key, {}).setdefault(role, []).append(entry.entity_id)
-            if role == "curve_current":
-                curve_devices[key] = entry.device_id
+            if role == descriptor.circuit_defining[0]:
+                label_devices[key] = entry.device_id
     devices_by_id = {device.id: device for device in devices}
     circuits = []
     for key in sorted(groups, key=lambda k: (str(k[0]), k[1], int(k[2]))):
         roles = groups[key]
-        if any(len(roles.get(role, [])) != 1 for role in REQUIRED_CIRCUIT_ROLES):
+        if any(len(roles.get(role, [])) != 1 for role in descriptor.circuit_defining):
             _LOGGER.info("Heizkreis %s unvollstaendig oder mehrdeutig, nicht angeboten: %s", key, roles)
             continue
-        curve_device_id = curve_devices.get(key)
-        device = devices_by_id.get(curve_device_id) if curve_device_id is not None else None
+        label_device_id = label_devices.get(key)
+        device = devices_by_id.get(label_device_id) if label_device_id is not None else None
         label = device.name if device is not None and device.name else f"Heizkreis {key[2]}"
         found = {role: ids[0] for role, ids in roles.items() if len(ids) == 1}
         circuits.append(Circuit(key[0], key[1], key[2], label, found))
@@ -125,7 +126,8 @@ def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry
 
 
 def system_role_suggestions(descriptor: IntegrationDescriptor, circuit: Circuit, entries: list[RegistryEntry]) -> dict[str, str]:
-    prefix = f"{circuit.system_key}_"
+    """Anlagenweite Rollen derselben Anlage: unique_id-Suche nur bei genau Kennung + Suffix (Katalog v3, Plan 3c:
+    weishaupt_modbus hat kein Trennzeichen), Namenssuche bei unique_ids, die mit der Kennung beginnen."""
     result = {}
     for role, matcher in descriptor.system_roles.items():
         hits = []
@@ -134,16 +136,16 @@ def system_role_suggestions(descriptor: IntegrationDescriptor, circuit: Circuit,
                 continue
             if _domain_of(entry.entity_id) != matcher.entity_domain:
                 continue
-            unique_id = entry.unique_id or ""
-            if not _normalize(unique_id, descriptor.domain).startswith(prefix):
-                continue
+            normalized = _normalize(entry.unique_id or "", descriptor.domain)
             if matcher.unique_id_suffix is not None:
-                if not unique_id.endswith(matcher.unique_id_suffix):
+                if normalized != circuit.system_key + matcher.unique_id_suffix:
                     continue
             else:
                 # _matcher() garantiert pro Rolle genau eine Suchart: ist unique_id_suffix None,
                 # ist original_name_suffix gesetzt (catalog.py).
                 assert matcher.original_name_suffix is not None
+                if not normalized.startswith(circuit.system_key):
+                    continue
                 if not (entry.original_name or "").lower().endswith(matcher.original_name_suffix.lower()):
                     continue
             hits.append(entry.entity_id)

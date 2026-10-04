@@ -72,7 +72,8 @@ async def test_wizard_write_path_demands_the_mandatory_options(hass, monkeypatch
 
     await write(bridge, BRIDGE_OPTIONS)
     await write(cloudflared, CF_OPTIONS)
-    with pytest.raises(AddonError, match="Pflichtfeld 'entity_curve_current' fehlt"):
-        await write(bridge, {k: v for k, v in BRIDGE_OPTIONS.items() if k != "entity_curve_current"})
+    # Seit Plan 3c sind die Hebel-Entities je Hebelsatz optional im Schema; Pflicht bleibt die Aussentemperatur.
+    with pytest.raises(AddonError, match="Pflichtfeld 'entity_outdoor_temp' fehlt"):
+        await write(bridge, {k: v for k, v in BRIDGE_OPTIONS.items() if k != "entity_outdoor_temp"})
     with pytest.raises(AddonError, match="Pflichtfeld 'hostname' fehlt"):
         await write(cloudflared, {k: v for k, v in CF_OPTIONS.items() if k != "hostname"})

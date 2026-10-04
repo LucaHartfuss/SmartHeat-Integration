@@ -44,8 +44,10 @@ from .flow_helpers import (
     PROVISIONING,
     ROOMS_INPUT,
     SYSTEM_INPUT,
+    SYSTEM_INPUT_WP,
     TENANT,
     ZONE,
+    _default,
     configure,
     enable_supervisor,
     fail_addon_reads_after,
@@ -61,8 +63,10 @@ from .flow_helpers import (
     select_values,
     setup_mypyllant,
     setup_rooms,
+    setup_weishaupt,
     start,
     suggested,
+    weishaupt_catalog,
 )
 
 # Die abweichende Heizkurve dieses Tests loest die Warnung "nicht als Teil des Kreises erkannt" aus.
@@ -212,7 +216,9 @@ async def test_no_supported_integration_lists_the_supported_ones(hass, monkeypat
     result = await login(hass, await start(hass))
 
     assert (result["type"], result["reason"]) == ("abort", "no_supported_integration")
-    assert result["description_placeholders"] == {"supported": "myVAILLANT"}
+    assert result["description_placeholders"] == {
+        "supported": "Viessmann ViCare, Weishaupt WBB (Modbus), myVAILLANT",
+    }
 
 
 async def test_two_installed_integrations_show_the_heating_form(hass, monkeypatch):
@@ -315,7 +321,22 @@ async def test_integration_without_complete_circuit_aborts(hass, monkeypatch):
     result = await login(hass, await start(hass))
 
     assert (result["type"], result["reason"]) == ("abort", "no_heating_circuit")
-    assert result["description_placeholders"] == {"integration": "myVAILLANT"}
+    assert result["description_placeholders"] == {"integration": "myVAILLANT", "hinweis": ""}
+
+
+async def test_weishaupt_with_device_postfix_aborts_with_the_manufacturer_hint(hass, monkeypatch):
+    # Schluss-Review Plan 3c: mit Geraete-Postfix erkennt der Katalog keinen Kreis (Praezisierung 3); der Abbruch
+    # nennt den Hersteller-Hinweis, der sagt, wie es geht.
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=weishaupt_catalog())
+    setup_weishaupt(hass, postfix="wp1")
+
+    result = await login(hass, await start(hass))
+
+    assert (result["type"], result["reason"]) == ("abort", "no_heating_circuit")
+    placeholders = result["description_placeholders"]
+    assert placeholders["integration"] == "Weishaupt WBB (Modbus)"
+    assert "Modbus TCP" in placeholders["hinweis"] and "Postfix" in placeholders["hinweis"]
 
 
 # --- E: Raeume ---
@@ -494,6 +515,23 @@ async def test_heat_limit_out_of_range(hass, monkeypatch):
     assert result["errors"] == {"entity_heat_limit": "out_of_range"}
 
 
+@pytest.mark.parametrize("entity,state,attributes,field,error", [
+    # client1-Pruefungen ueber check_plant_field (Plan 3c): Zone nur numerisch, Heizkurve numerisch,
+    # Aussentemperatur im Plausibilitaetsbereich, Mindestvorlauf in °C.
+    (ZONE, "auto", {"temperature": "aus"}, "entity_shift_current", "not_numeric"),
+    (CURVE, "steil", {}, "entity_curve_current", "not_numeric"),
+    (OUTDOOR, "50", {"unit_of_measurement": "°C"}, "entity_outdoor_temp", "out_of_range"),
+    (MIN_FLOW, "70", {"unit_of_measurement": "°F"}, "entity_min_flow", "unit_mismatch"),
+])
+async def test_vaillant_plant_value_checks(hass, monkeypatch, entity, state, attributes, field, error):
+    result, _ = await _reach(hass, monkeypatch, "plant_values")
+    hass.states.async_set(entity, state, attributes)
+
+    result = await configure(hass, result, PLANT_INPUT)
+
+    assert (result["step_id"], result["errors"]) == ("plant_values", {field: error})
+
+
 async def test_outdoor_equal_to_a_room_sensor_is_a_duplicate(hass, monkeypatch):
     result, _ = await _reach(hass, monkeypatch, "plant_values")
 
@@ -658,6 +696,10 @@ async def test_summary_without_warnings_has_no_checkboxes_and_shows_values(hass,
     assert placeholders["outdoor_source"] == OUTDOOR
     assert placeholders["recipients"] == "1"
     assert "sensor.wz_batterie" in placeholders["batteries"]
+    assert placeholders["plant_values"].splitlines() == [
+        "- Heating curve: 1.1", "- Parallel shift: 20", "- Minimum flow temperature: 22", "- Heating limit: 16",
+        "- Flow setpoint: 38.5",
+    ]
 
 
 async def test_deviating_room_sensor_needs_confirmation(hass, monkeypatch):
@@ -709,6 +751,7 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
             "entity_curve_current": CURVE, "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW,
             "entity_heat_limit": HEAT_LIMIT, "entity_outdoor_temp": OUTDOOR, "entity_flow_setpoint": FLOW_SETPOINT,
         },
+        "lever_set": "vaillant_vrc720", "shift_lever": "room_setpoint",
     }
     assert result["options"] == {
         "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz::temperature",
@@ -719,6 +762,7 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
     assert CF_SECRET not in str(result["data"]) + str(result["options"])
     mocks.provision.assert_awaited_once()
     assert mocks.provision.call_args.args[:3] == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
+    assert mocks.provision.await_args.args[-1] == json.loads((_COMPONENT / "manifest.json").read_text())["version"]
     mocks.update_profile.assert_not_awaited()
     mocks.logout.assert_awaited_once_with("tok123")
     assert calls.restarts == ["cloudflared_access_mqtt", "heizungsbruecke"]
@@ -739,6 +783,7 @@ async def test_ready_addon_creates_the_entry_without_credentials_and_logs_out(ha
         "notify_hints_off": [], "entity_room_target": "climate.wz::temperature", "entity_curve_current": CURVE,
         "entity_shift_current": ZONE, "entity_min_flow": MIN_FLOW, "entity_heat_limit": HEAT_LIMIT,
         "entity_outdoor_temp": OUTDOOR, "entity_flow_setpoint": FLOW_SETPOINT,
+        "lever_set": "vaillant_vrc720", "poll_interval_seconds": 1800,
     }
     assert calls.options["cloudflared_access_mqtt"]["service_token_secret"] == CF_SECRET
 
@@ -908,7 +953,7 @@ async def test_first_setup_sends_a_csr_and_writes_the_mosquitto_access(hass, mon
     result, server, calls = await _run_setup(hass, monkeypatch)
 
     assert result["type"] == "create_entry"
-    token, tenant, profile, csr = server.provision.call_args.args
+    token, tenant, profile, csr, _version = server.provision.call_args.args
     assert (token, tenant, profile) == ("tok123", TENANT, "vaillant_gastherme_heizkoerper")
     assert x509.load_pem_x509_csr(csr.encode()).subject.rfc4514_string() == f"CN={TENANT}"
     bridge = calls.options["heizungsbruecke"]
@@ -1285,6 +1330,7 @@ _EXPECTED_ABORTS = {
     "addon_outdated", "supervisor_unavailable", "no_supported_integration", "no_heating_circuit", "setup_cancelled",
     "wrong_account", "reconfigure_first", "reconfigure_successful",
     "reconfigure_successful_new_credentials", "reauth_successful", "access_denied", "catalog_outdated",
+    "lever_set_unsupported",
 }
 
 
@@ -1294,7 +1340,7 @@ def test_every_error_and_abort_has_a_text(path):
 
     assert set(config["error"]) >= _EXPECTED_ERRORS
     assert set(config["abort"]) >= _EXPECTED_ABORTS
-    assert {"user", "tenant", "heating", "system", "rooms", "plant_values", "notifications", "summary",
+    assert {"user", "tenant", "heating", "system", "lever_set", "rooms", "plant_values", "notifications", "summary",
             "setup_failed", "setup_timeout"} <= set(config["step"])
     assert "setup" in config["progress"]
     assert "setup_notes" in config["create_entry"]
@@ -1575,3 +1621,84 @@ async def test_catalog_without_poll_interval_option_checks_nothing(hass, monkeyp
     result = await _summary_with_mypyllant_options(hass, monkeypatch, {"update_interval": 7200}, catalog=catalog)
 
     assert not _asks_for(result, "poll_interval")
+
+
+# --- K: Hebelsatz (Plan 3c, Spec Hersteller-Abstraktion 5.5) ---
+
+async def test_vaillant_flow_writes_lever_set_and_skips_the_lever_set_step(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    setup_rooms(hass)
+    addons = mock_addons(hass, monkeypatch)
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    assert result["step_id"] == "rooms"                       # kein lever_set-Schritt bei einem Hebelsatz
+    result = await configure(hass, result, ROOMS_INPUT)
+    result = await configure(hass, result, PLANT_INPUT)
+    result = await configure(hass, result, {})                 # Benachrichtigungen
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    options = addons.options["heizungsbruecke"]
+    assert options["lever_set"] == "vaillant_vrc720"
+    assert options["poll_interval_seconds"] == 1800            # mypyllant-Standard, im Bereich 10-3600
+    entry = hass.config_entries.async_entries("smartheat")[0]
+    assert (entry.data["lever_set"], entry.data["shift_lever"]) == ("vaillant_vrc720", "room_setpoint")
+
+
+async def test_weishaupt_flow_offers_the_lever_set_step_with_full_set_detected(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=weishaupt_catalog())
+    setup_weishaupt(hass)
+    setup_rooms(hass)
+    mock_addons(hass, monkeypatch)
+    result = await login(hass, await start(hass))
+    assert "Modbus TCP" in result["description_placeholders"]["hinweis"]
+    result = await configure(hass, result, SYSTEM_INPUT_WP)
+    assert result["step_id"] == "lever_set"
+    assert select_values(result, "lever_set") == ["weishaupt_wwp", "weishaupt_wwp_basis"]
+    assert has_default(result, "lever_set") and _default(result, "lever_set") == "weishaupt_wwp"
+
+
+async def test_weishaupt_without_curve_defaults_to_the_fallback(hass, monkeypatch):
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=weishaupt_catalog())
+    setup_weishaupt(hass, with_curve=False)
+    setup_rooms(hass)
+    addons = mock_addons(hass, monkeypatch)
+    result = await configure(hass, await login(hass, await start(hass)), SYSTEM_INPUT_WP)
+    assert _default(result, "lever_set") == "weishaupt_wwp_basis"
+    result = await configure(hass, result, {"lever_set": "weishaupt_wwp_basis"})
+    result = await configure(hass, result, ROOMS_INPUT)
+    assert result["step_id"] == "plant_values"
+    fields = [str(key) for key in result["data_schema"].schema]
+    assert "entity_heat_limit" not in fields and "entity_min_flow" not in fields   # nicht Teil des Rueckfall-Hebelsatzes
+    assert "entity_curve_current" in fields                                      # optional (nur lesend)
+    assert suggested(result, "entity_mode_select") == "select.weishaupt_wbb_betriebsart"
+    result = await configure(hass, result, {
+        "entity_shift_current": "number.weishaupt_wbb_raumsolltemperatur_normal",
+        "entity_mode_select": "select.weishaupt_wbb_betriebsart",
+        "entity_setpoint_comfort": "number.weishaupt_wbb_raumsolltemperatur_komfort",
+        "entity_setpoint_setback": "number.weishaupt_wbb_raumsolltemperatur_absenk",
+        "entity_outdoor_temp": "sensor.weishaupt_wbb_aussentemperatur",
+        "advanced": {},
+    })
+    result = await configure(hass, result, {})
+    await finish_progress(hass, await configure(hass, result, {}))
+    options = addons.options["heizungsbruecke"]
+    assert options["lever_set"] == "weishaupt_wwp_basis"
+    assert "entity_heat_limit" not in options and "entity_min_flow" not in options
+    assert "poll_interval_seconds" not in options               # weishaupt_modbus hat keine Intervall-Option
+
+
+async def test_unknown_lever_set_aborts(hass, monkeypatch):
+    catalog = json.loads(json.dumps(CATALOG))
+    for profile in catalog["profiles"]:
+        if profile["profile_id"] == "vaillant_gastherme_heizkoerper":
+            profile["lever_sets"] = [{"id": "neu_hebelsatz", "levers": ["curve"], "client_derived": []}]
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch, catalog=catalog)
+    setup_mypyllant(hass)
+    setup_rooms(hass)
+    mock_addons(hass, monkeypatch)
+    result = await configure(hass, await login(hass, await start(hass)), SYSTEM_INPUT)
+    assert result["type"] == "abort" and result["reason"] == "lever_set_unsupported"

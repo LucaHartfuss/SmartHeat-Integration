@@ -13,8 +13,18 @@ OPTION_SETUP_ID = "setup_id"
 OPTION_ENTITY_ROOM_TARGET = "entity_room_target"
 OPTION_ABGEMELDET = "abgemeldet"
 OPTION_NOTIFY_HINTS_OFF = "notify_hints_off"
+OPTION_LEVER_SET = "lever_set"
+# Abfrageintervall der Heizungs-Integration fuer die Wartezeit nach eigenem Schreiben (Add-on config.py,
+# POLL_INTERVAL_RANGE); geschrieben nur aus einer poll_interval_option im Bereich (Plan 3c, Praezisierung 13).
+OPTION_POLL_INTERVAL = "poll_interval_seconds"
+POLL_INTERVAL_OPTION_RANGE = (10, 3600)
+# Provisioning (Spec Hersteller-Abstraktion 4.3, Plan 3c): Server broker/wire.py, Contract-Check 43.
+CLIENT_TYPE_HA = "ha"
+PROVISION_CLIENT_KEYS = ("client_type", "client_version")
 # Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
-HINT_CATEGORIES = ("raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme")
+HINT_CATEGORIES = (
+    "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme", "schreibbudget", "schreibzaehler",
+)
 # Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
 # entfallen), er bleibt als Merkmal fuer entry_incomplete().
 DATA_INCOMPLETE = "unvollstaendig"
@@ -54,10 +64,10 @@ REQUEST_TIMEOUT_SECONDS = 30
 # mypyllant-Pollintervall, auf das OWN_WRITE_SETTLE_SECONDS (2100 s) im Add-on abgestimmt ist (client1:
 # 30 min, 5 min Reserve). Laenger -> Warnung im Wizard (TP12c, AU-017); das Add-on bleibt fest.
 POLL_INTERVAL_MAX_SECONDS = 1800
-# Katalog-Version, die diese Integration voraussetzt (TP12c: circuit_in_name, poll_interval_option).
+# Katalog-Version, die diese Integration voraussetzt (Plan 3c: Rollen nach Hebeln, Hebelsaetze).
 # Ein aelterer Server-Katalog bricht den Wizard ab (catalog_outdated), statt still auf die alte
 # Zonensuche zurueckzufallen.
-REQUIRED_CATALOG_VERSION = 2
+REQUIRED_CATALOG_VERSION = 3
 # Laenge des vom Server gemeldeten Ablehnungsgrunds (403), der dem Nutzer angezeigt wird.
 ACCESS_DENIED_REASON_MAX = 200
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
@@ -85,11 +95,10 @@ ROOM_SENSOR_DEVIATION_K = 3.0
 # Status-Kanal (Spec TP7 1.1): HA-Event des Add-ons. Name, schema, Felder und Wertemengen muessen
 # zu heizungsbruecke/status.py passen (tools/contract_check.py, Pruefung 14).
 STATUS_EVENT = "smartheat_status"
-STATUS_EVENT_SCHEMA = 1
+STATUS_EVENT_SCHEMA = 2
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-    "boost", "letzte_serverantwort", "kurve", "parallelverschiebung", "mindestvorlauf", "heizgrenze",
-    "abo", "abo_frist_ende", "hinweise",
+    "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
 )
 STATUS_STARTET = "startet"
 STATUS_REGELT = "regelt"
@@ -184,41 +193,110 @@ def signal_update(entry_id: str) -> str:
     return f"{DOMAIN}_update_{entry_id}"
 
 
-# Einzel-Entity-Rollen, die als entity_<rolle> ins Add-on gehen (ohne KPI-Rollen). Die
-# Raumfuehler gehen als Liste room_sensors (Spec TP6 3.1). Kein geteilter Code zwischen den
-# Repos; Cross-Repo-Gleichheit prueft tools/contract_check.py im Dev-Root.
+# Hebel -> Add-on-Option (Katalog v3 heisst nach Hebeln, Plan 3c Praezisierung 1). Gleich heizungsbruecke
+# ha_binding.LEVER_ROLES mit Praefix entity_ (Contract-Check 42). Alle anderen Katalog-Rollen: entity_<rolle>.
+LEVER_OPTIONS: dict[str, str] = {
+    "curve": "entity_curve_current", "room_setpoint": "entity_shift_current", "level": "entity_level_current",
+    "heat_limit": "entity_heat_limit", "min_flow": "entity_min_flow",
+}
+
+
+def field_for_role(role: str) -> str:
+    return LEVER_OPTIONS.get(role, f"entity_{role}")
+
+
+# Felder des Schritts "Anlagenwerte" (Wizard) je Hebelsatz. Hier statt in config_flow.py, damit der
+# Cross-Repo-Contract-Check (tools/contract_check.py, laedt nur const.py) sie mit den
+# Pflichtoptionen des Add-ons vergleichen kann.
+LEVER_SETS = ("vaillant_vrc720", "weishaupt_wwp", "weishaupt_wwp_basis", "viessmann_vicare")
+# Pflicht-Anlagenwerte je Hebelsatz (ohne entity_room_target); = Add-on config.REQUIRED_ENTITY_OPTIONS ohne
+# entity_room_target (Contract-Check 26).
+LEVER_SET_FIELDS: dict[str, tuple[str, ...]] = {
+    "vaillant_vrc720": (
+        "entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp",
+    ),
+    "weishaupt_wwp": (
+        "entity_curve_current", "entity_shift_current", "entity_heat_limit", "entity_mode_select",
+        "entity_setpoint_comfort", "entity_setpoint_setback", "entity_outdoor_temp",
+    ),
+    "weishaupt_wwp_basis": (
+        "entity_shift_current", "entity_mode_select", "entity_setpoint_comfort", "entity_setpoint_setback",
+        "entity_outdoor_temp",
+    ),
+    "viessmann_vicare": (
+        "entity_curve_current", "entity_level_current", "entity_shift_current", "entity_mode_select",
+        "entity_outdoor_temp",
+    ),
+}
+# Optional: Vorlauf-Soll zeigt dem Server, wann geheizt wird; Weishaupt-Basis liest die Steigung nur (readonly).
+OPTIONAL_LEVER_SET_FIELDS: dict[str, tuple[str, ...]] = {
+    "vaillant_vrc720": ("entity_flow_setpoint",),
+    "weishaupt_wwp": ("entity_flow_setpoint",),
+    "weishaupt_wwp_basis": ("entity_curve_current", "entity_flow_setpoint"),
+    "viessmann_vicare": (),
+}
+_NUMBER = ["number"]
+# Domaenen der Hebelsatz-Felder; Gegenstueck: Add-on config.writable_entity_rules (Contract-Check 25).
+LEVER_SET_DOMAINS: dict[str, dict[str, list[str]]] = {
+    "vaillant_vrc720": {
+        # Parallelverschiebung (TP11): Zonen-Wunschtemperatur ueber die Climate-Entity.
+        "entity_curve_current": _NUMBER, "entity_shift_current": ["climate"], "entity_min_flow": _NUMBER,
+        "entity_heat_limit": _NUMBER,
+    },
+    "weishaupt_wwp": {
+        "entity_curve_current": _NUMBER, "entity_shift_current": _NUMBER, "entity_heat_limit": _NUMBER,
+        "entity_mode_select": ["select"], "entity_setpoint_comfort": _NUMBER, "entity_setpoint_setback": _NUMBER,
+    },
+    "weishaupt_wwp_basis": {
+        "entity_curve_current": _NUMBER, "entity_shift_current": _NUMBER, "entity_mode_select": ["select"],
+        "entity_setpoint_comfort": _NUMBER, "entity_setpoint_setback": _NUMBER,
+    },
+    "viessmann_vicare": {
+        "entity_curve_current": _NUMBER, "entity_level_current": _NUMBER, "entity_shift_current": _NUMBER,
+        "entity_mode_select": ["climate"],
+    },
+}
+# Felder ausserhalb der Hebelsaetze (fuer alle gleich).
 ROLE_DOMAINS: dict[str, list[str]] = {
     "entity_room_target": ["sensor", "climate"],
     "entity_outdoor_temp": ["sensor", "weather"],
-    "entity_curve_current": ["number"],
-    # Parallelverschiebung (TP11): Zonen-Wunschtemperatur ueber die Climate-Entity (Vaillant).
-    # Nur climate (Controller-Ruling #11b) -- ein direkter number-Wert anderer Hersteller ist
-    # kein Anwendungsfall der aktuellen Profile.
-    "entity_shift_current": ["climate"],
-    # Mindestvorlauftemperatur: nur Untergrenze, das Add-on setzt sie auf die Wunschtemperatur.
-    "entity_min_flow": ["number"],
-    # Heizgrenze (TP12h): SmartHeat schreibt sie, daher nur number.
-    "entity_heat_limit": ["number"],
     # Vorlauf-Soll der Therme (optional): zeigt dem Server, wann geheizt wird.
     "entity_flow_setpoint": ["sensor"],
 }
 
-# Felder des Schritts "Anlagenwerte" (Wizard). Hier statt in config_flow.py, damit der
-# Cross-Repo-Contract-Check (tools/contract_check.py, laedt nur const.py) sie mit den
-# Pflichtoptionen des Add-ons vergleichen kann.
-PLANT_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_outdoor_temp")
-# Vorlauf-Soll der Therme: optional, zeigt dem Server nur, wann geheizt wird (Praezisierung 9).
-OPTIONAL_PLANT_FIELDS = ("entity_flow_setpoint",)
+
+def plant_fields(lever_set: str) -> tuple[str, ...]:
+    return LEVER_SET_FIELDS[lever_set] + OPTIONAL_LEVER_SET_FIELDS[lever_set]
+
+
+def write_role_fields(lever_set: str) -> tuple[str, ...]:
+    """Felder, die dem gewaehlten Heizkreis zugeordnet sein muessen (TP12c, AU-019): alle ausser der Aussentemperatur
+    (Wetter-Ersatz)."""
+    return tuple(field for field in plant_fields(lever_set) if field != "entity_outdoor_temp")
+
+
+def field_domains(lever_set: str, field: str) -> list[str]:
+    return LEVER_SET_DOMAINS[lever_set].get(field) or ROLE_DOMAINS[field]
+
+
+def lever_set_levers(lever_set: str) -> tuple[str, ...]:
+    """Hebel (inkl. abgeleiteter) eines Hebelsatzes aus seinen Pflichtfeldern, in LEVER_OPTIONS-Reihenfolge."""
+    return tuple(lever for lever, option in LEVER_OPTIONS.items() if option in LEVER_SET_FIELDS[lever_set])
 
 
 def entry_incomplete(data: Mapping) -> bool:
-    """Eintrag, der fuer den aktuellen Stand nicht reicht (AU-037): markiert oder ohne Profil oder
-    ohne ein Pflichtfeld der Anlagenwerte. Weg: Neu konfigurieren."""
+    """Eintrag, der fuer den aktuellen Stand nicht reicht (AU-037, Plan 3c): markiert, ohne Profil, ohne bekannten
+    Hebelsatz, ohne Verschiebungshebel (`shift_lever`, sonst benennt sensor.lever_entity_key den Hebel falsch) oder
+    ohne ein Pflichtfeld des Hebelsatzes. Weg: Neu konfigurieren."""
     entities = data.get("entities") or {}
-    return bool(data.get(DATA_INCOMPLETE)) or not data.get("profile_id") or any(f not in entities for f in PLANT_FIELDS)
-# Vom Add-on beschriebene bzw. dem Heizkreis zugeordnete Anlagen-Felder: nur aus dem Config-Entry
-# des gewaehlten Kreises waehlbar (TP12c, AU-019). Aussentemperatur bleibt frei (Wetter-Ersatz).
-WRITE_ROLE_FIELDS = ("entity_curve_current", "entity_shift_current", "entity_min_flow", "entity_heat_limit", "entity_flow_setpoint")
+    lever_set = data.get(OPTION_LEVER_SET)
+    shift_lever = data.get("shift_lever")
+    return (
+        bool(data.get(DATA_INCOMPLETE)) or not data.get("profile_id") or lever_set not in LEVER_SET_FIELDS
+        or not isinstance(shift_lever, str) or not shift_lever
+        or any(field not in entities for field in LEVER_SET_FIELDS[lever_set])
+    )
+
 
 # Feste Rollen-Vokabular fuer optionale KPI-Mappings (Design-Spec 2026-09-24). Jedes
 # Profil zeigt im Wizard nur die Teilmenge, die sein telemetry_capabilities-Objekt
@@ -247,7 +325,7 @@ KPI_ROLE_STATE_CLASS_EXPECTATIONS: dict[str, str] = {
 # des heizungsbruecke-Add-ons uebereinstimmen (Duplikation pro Repo ist das Projektmuster).
 KPI_ENERGY_CHANNELS: tuple[str, ...] = (
     "electrical_heating", "electrical_dhw", "primary_heating",
-    "primary_dhw", "thermal_heating", "thermal_dhw",
+    "primary_dhw", "thermal_heating", "thermal_dhw", "electrical_total",
 )
 
 
@@ -259,15 +337,15 @@ def kpi_energy_role(channel: str) -> str:
 # Geraeteklasse je Eintrag und-verknuepft. Bewusst nur `filter`, kein Legacy-`domain` daneben
 # (wie das Frontend beides kombiniert, ist nicht festgelegt) -- die Domain prueft deshalb
 # validation.check_domain im Backend. Sensoren ohne Geraeteklasse erscheinen nicht.
-_TEMPERATURE_SENSOR = {"domain": "sensor", "device_class": "temperature"}
+TEMPERATURE_SENSOR_FILTER = {"domain": "sensor", "device_class": "temperature"}
 ENTITY_FILTERS: dict[str, list[dict[str, str]]] = {
-    OPTION_ROOM_SENSORS: [_TEMPERATURE_SENSOR, {"domain": "climate"}],
-    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen). Die Heizgrenze ist
-    # seit TP12h nur noch number (SmartHeat schreibt sie), hier greift also nur der number-Filter.
-    **{role: [_TEMPERATURE_SENSOR if domain == "sensor" else {"domain": domain} for domain in domains]
+    OPTION_ROOM_SENSORS: [TEMPERATURE_SENSOR_FILTER, {"domain": "climate"}],
+    # Die sensor-Domain der Einzelrollen ist jeweils eine Temperatur (Soll, Aussen). Die Hebelsatz-Felder
+    # bekommen ihren Filter ueber validation.entity_selector(domains=...) nach field_domains().
+    **{role: [TEMPERATURE_SENSOR_FILTER if domain == "sensor" else {"domain": domain} for domain in domains]
        for role, domains in ROLE_DOMAINS.items()},
-    "entity_flow_temperature": [_TEMPERATURE_SENSOR],
-    "entity_return_temperature": [_TEMPERATURE_SENSOR],
+    "entity_flow_temperature": [TEMPERATURE_SENSOR_FILTER],
+    "entity_return_temperature": [TEMPERATURE_SENSOR_FILTER],
     "entity_system_water_pressure": [{"domain": "sensor", "device_class": "pressure"}],
     "entity_operating_mode": [{"domain": "sensor"}],
     "entity_efficiency_ratio": [{"domain": "sensor"}],
@@ -287,7 +365,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.32.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.33.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 

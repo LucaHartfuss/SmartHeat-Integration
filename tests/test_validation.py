@@ -122,5 +122,27 @@ async def test_check_rooms_returns_refs_and_field_errors(hass):
 
 
 def test_entity_selector_adds_the_integration_to_every_filter():
-    config = validation.entity_selector("entity_heat_limit", integration="mypyllant").config
+    config = validation.entity_selector("entity_heat_limit", integration="mypyllant", domains=["number"]).config
     assert [entry["integration"] for entry in config["filter"]] == ["mypyllant"]
+
+
+async def test_plant_field_checks_by_kind(hass):
+    hass.states.async_set("number.kennlinie", "0.75")
+    hass.states.async_set("number.normal", "20.5", {"unit_of_measurement": "°C"})
+    hass.states.async_set("select.betriebsart", "hz_operationmode_normal")
+    hass.states.async_set("select.weg", "unavailable")
+    assert validation.check_plant_field(hass, "entity_curve_current", "number.kennlinie", "weishaupt_wwp") is None
+    assert validation.check_plant_field(hass, "entity_shift_current", "number.normal", "weishaupt_wwp") is None
+    assert validation.check_plant_field(hass, "entity_mode_select", "select.betriebsart", "weishaupt_wwp") is None
+    assert validation.check_plant_field(hass, "entity_mode_select", "select.weg", "weishaupt_wwp") == validation.ERROR_UNAVAILABLE
+    assert validation.check_plant_field(hass, "entity_mode_select", "select.fehlt", "weishaupt_wwp") == validation.ERROR_NOT_FOUND
+    # Domäne je Hebelsatz: eine number als Zone ist bei Vaillant falsch, bei Weishaupt richtig
+    assert validation.check_plant_field(hass, "entity_shift_current", "number.normal", "vaillant_vrc720") == validation.ERROR_DOMAIN
+
+
+def test_entity_selector_uses_lever_set_domains():
+    # HA normalisiert `domain` im Selektor-Schema zur Liste.
+    selector = validation.entity_selector("entity_mode_select", domains=["select"])
+    assert selector.config["filter"] == [{"domain": ["select"]}]
+    selector = validation.entity_selector("entity_shift_current", domains=["number"])
+    assert selector.config["filter"] == [{"domain": ["number"]}]

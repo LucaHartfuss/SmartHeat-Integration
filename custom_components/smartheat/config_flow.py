@@ -2,7 +2,8 @@
 Reauth (Spec TP7 2.3, 2.4).
 
 Einrichten: user (Vorabpruefung der Add-ons, Login) -> tenant (bei einem Tenant uebersprungen) ->
-heating (bei einer Integration uebersprungen) -> system -> rooms -> plant_values ->
+heating (bei einer Integration uebersprungen) -> system -> (lever_set, nur bei mehreren Hebelsaetzen des
+Profils) -> rooms -> plant_values ->
 notifications -> summary -> setup (Fortschritt: Zugang, Add-on-Optionen, Watchdog/Boot,
 Neustart, Warten auf das Status-Event) -> finish.
 Neu konfigurieren: derselbe Weg ab Login mit festem Tenant, vorbelegt aus dem Eintrag; statt
@@ -17,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -28,6 +30,7 @@ from homeassistant.data_entry_flow import AbortFlow, section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
+from homeassistant.loader import async_get_integration
 
 from . import detection, provisioning, validation
 from .addon_control import (
@@ -46,7 +49,13 @@ from .api_client import (
     InvalidResponse,
     ProfileRejected,
 )
-from .catalog import IntegrationDescriptor, parse_integrations, verified_profiles
+from .catalog import (
+    IntegrationDescriptor,
+    parse_integrations,
+    profile_lever_sets,
+    profile_shift_lever,
+    verified_profiles,
+)
 from .const import (
     ADDON_REPOSITORY_URL,
     ADDON_SPECS,
@@ -55,19 +64,22 @@ from .const import (
     KPI_ENERGY_CHANNELS,
     KPI_ROLE_STATE_CLASS_EXPECTATIONS,
     KPI_SCALAR_ROLE_BY_CAPABILITY,
+    LEVER_OPTIONS,
+    LEVER_SET_FIELDS,
     MIN_ADDON_VERSIONS,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
     OPTION_BATTERY_ENTITIES,
     OPTION_ENTITY_ROOM_TARGET,
+    OPTION_LEVER_SET,
     OPTION_NOTIFY_HINTS_OFF,
     OPTION_NOTIFY_SERVICES,
+    OPTION_POLL_INTERVAL,
     OPTION_ROOM_SENSORS,
     OPTION_SETUP_ID,
-    OPTIONAL_PLANT_FIELDS,
-    PLANT_FIELDS,
-    PLAUSIBLE_RANGES,
+    OPTIONAL_LEVER_SET_FIELDS,
     POLL_INTERVAL_MAX_SECONDS,
+    POLL_INTERVAL_OPTION_RANGE,
     REQUIRED_CATALOG_VERSION,
     SETUP_DONE_STATUSES,
     STATUS_KONFIGURATIONSFEHLER,
@@ -75,10 +87,14 @@ from .const import (
     STATUS_WAIT_SECONDS,
     STATUS_ZUGANG_ABGELEHNT,
     UNMANAGED_ADDON_OPTIONS,
-    WRITE_ROLE_FIELDS,
     entry_incomplete,
+    field_domains,
+    field_for_role,
     kpi_energy_role,
+    lever_set_levers,
+    plant_fields,
     setup_notification_id,
+    write_role_fields,
 )
 from .flow_progress import ProgressFlowMixin
 from .options_flow import SmartHeatOptionsFlow
@@ -124,13 +140,16 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._circuits: list[detection.Circuit] = []
         self._circuit: detection.Circuit | None = None
         self._profile: dict | None = None
+        # Hebelsatz des Profils (Plan 3c): ohne Rueckfrage bei einem Kandidaten, sonst Schritt lever_set.
+        self._lever_set: str | None = None
+        self._lever_set_candidates: list[str] = []
         self._rooms_input: dict = {}
         self._room_sensors: list[str] = []
         self._room_target: str | None = None
         self._plant: dict[str, str] = {}
         self._kpi: dict[str, str] = {}
-        # (Integration, Kreis-Schluessel), zu denen _plant/_kpi gehoeren; None = keine Auswahl (AU-003).
-        self._plant_binding: tuple[str | None, str] | None = None
+        # (Integration, Kreis-Schluessel, Hebelsatz), zu denen _plant/_kpi gehoeren; None = keine Auswahl (AU-003).
+        self._plant_binding: tuple[str | None, str, str | None] | None = None
         # None = Schritt notifications noch nicht bestaetigt (dann alle Handys vorbelegen).
         self._notify_services: list[str] | None = None
         self._battery_entities: list[str] = []
@@ -262,27 +281,33 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return await self.async_step_user()
 
     def _prefill_from_entry(self) -> None:
-        """Vorbelegung fuer Neu konfigurieren. Bei `unvollstaendig` nichts: dann gilt die Erkennung
-        wie bei der Ersteinrichtung, auch ohne vorbelegtes Verteilsystem."""
+        """Vorbelegung fuer Neu konfigurieren. Bei `unvollstaendig` (client1 nach dem Update) nur die vom
+        Hebelsatz unabhaengigen Kundenwerte, soweit gespeichert (Raeume, Handys, Batterien, abgeschaltete
+        Hinweise; Schluss-Review Plan 3c); Anlage und Verteilsystem kommen dann aus der Erkennung wie bei
+        der Ersteinrichtung."""
         entry = self._entry
         # _prefill_from_entry() laeuft nur aus async_step_reconfigure(), das self._entry vorher
         # setzt (async_step_reauth() ruft es nicht auf).
         assert entry is not None
-        if entry_incomplete(entry.data):
-            return
         options = entry.options
+        if entry_incomplete(entry.data):
+            self._prefill_stored_options(options)
+            return
         self._rooms_input = {
             OPTION_ROOM_SENSORS: [validation.entity_of(ref) for ref in options.get(OPTION_ROOM_SENSORS, [])],
             OPTION_ENTITY_ROOM_TARGET: validation.entity_of(options.get(OPTION_ENTITY_ROOM_TARGET, "")),
         }
         entities = entry.data.get("entities", {})
-        plant_fields = PLANT_FIELDS + OPTIONAL_PLANT_FIELDS
-        self._plant = {field: entities[field] for field in plant_fields if field in entities}
-        self._kpi = {field: value for field, value in entities.items() if field not in plant_fields}
+        # Vollstaendig heisst: bekannter Hebelsatz (entry_incomplete oben).
+        lever_set = entry.data[OPTION_LEVER_SET]
+        plant_field_names = plant_fields(lever_set)
+        self._plant = {field: entities[field] for field in plant_field_names if field in entities}
+        self._kpi = {field: value for field, value in entities.items() if field not in plant_field_names}
         stored = entry.data.get("circuit") or {}
         self._plant_binding = (
             entry.data.get("integration_domain"),
             f"{stored.get('config_entry_id')}|{stored.get('system_key')}|{stored.get('circuit')}",
+            lever_set,
         )
         self._notify_services = list(options.get(OPTION_NOTIFY_SERVICES, []))
         self._stored_notify_services = list(self._notify_services)
@@ -293,7 +318,24 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             "integration": entry.data.get("integration_domain"),
             "circuit": entry.data.get("circuit"),
             "profile_id": entry.data.get("profile_id"),
+            "lever_set": lever_set,
         }
+
+    def _prefill_stored_options(self, options: Mapping) -> None:
+        """Nur gespeicherte Werte: ein fehlender Schluessel laesst die Erkennung wie bei der Ersteinrichtung
+        greifen (keine Raeume vorbelegt, alle Handys vorgewaehlt, Batterien aus der Erkennung)."""
+        rooms = {}
+        if OPTION_ROOM_SENSORS in options:
+            rooms[OPTION_ROOM_SENSORS] = [validation.entity_of(ref) for ref in options[OPTION_ROOM_SENSORS] or []]
+        if options.get(OPTION_ENTITY_ROOM_TARGET):
+            rooms[OPTION_ENTITY_ROOM_TARGET] = validation.entity_of(options[OPTION_ENTITY_ROOM_TARGET])
+        self._rooms_input = rooms
+        if OPTION_NOTIFY_SERVICES in options:
+            self._notify_services = list(options[OPTION_NOTIFY_SERVICES] or [])
+            self._stored_notify_services = list(self._notify_services)
+        if OPTION_BATTERY_ENTITIES in options:
+            self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES] or [])
+        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF) or [])
 
     # --- Schritt 0/1: Vorabpruefung und Login ---
 
@@ -468,7 +510,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._entries, self._devices = detection.registry_snapshot(self.hass)
             self._circuits = detection.find_circuits(integration, self._entries, self._devices)
             if not self._circuits:
-                return await self._abort("no_heating_circuit", integration=integration.label)
+                return await self._abort(
+                    "no_heating_circuit", integration=integration.label, hinweis=integration.hinweis or "",
+                )
         profiles = [p for p in verified_profiles(catalog) if p["hersteller"] == integration.hersteller]
         if not profiles:
             return await self._abort("no_verified_profiles")
@@ -483,7 +527,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self._profile = profile
                 key = user_input.get("circuit")
                 self._circuit = next((c for c in self._circuits if c.key == key), self._circuits[0])
-                return await self.async_step_rooms()
+                return await self._choose_lever_set()
 
         verteilsystem_default, erzeuger_default = self._profile_defaults(profiles)
         suggestion = erzeuger_default or detection.suggest_erzeuger_typ(
@@ -512,7 +556,45 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             ))
         return self.async_show_form(
             step_id="system", data_schema=vol.Schema(schema), errors=errors,
-            description_placeholders={"integration": integration.label},
+            description_placeholders={"integration": integration.label, "hinweis": integration.hinweis or ""},
+        )
+
+    # --- Schritt 4b: Hebelsatz (Plan 3c, Spec 5.5) ---
+
+    async def _choose_lever_set(self):
+        """Kandidaten: Hebelsaetze des Profils in dessen Reihenfolge, die diese Integration kennt. Ein Kandidat: ohne
+        Rueckfrage; mehrere (Weishaupt voll/Basis): eigener Schritt."""
+        profile = self._profile
+        assert profile is not None  # gesetzt in async_step_system()
+        self._lever_set_candidates = [
+            lever_set["id"] for lever_set in profile_lever_sets(profile) if lever_set["id"] in LEVER_SET_FIELDS
+        ]
+        if not self._lever_set_candidates:
+            return await self._abort("lever_set_unsupported")
+        if len(self._lever_set_candidates) == 1:
+            self._lever_set = self._lever_set_candidates[0]
+            return await self.async_step_rooms()
+        return await self.async_step_lever_set()
+
+    def _detected_lever_set(self) -> str:
+        """Erster Kandidat, dessen Hebel-Entities die Erkennung fuer den Kreis alle findet; sonst der erste."""
+        _, origins = self._suggestions()
+        for lever_set in self._lever_set_candidates:
+            if all(origins.get(LEVER_OPTIONS[lever]) == ORIGIN_INTEGRATION for lever in lever_set_levers(lever_set)):
+                return lever_set
+        return self._lever_set_candidates[0]
+
+    async def async_step_lever_set(self, user_input: dict | None = None):
+        if user_input is not None:
+            self._lever_set = user_input[OPTION_LEVER_SET]
+            return await self.async_step_rooms()
+        stored = self._system_defaults.get("lever_set")
+        default = stored if stored in self._lever_set_candidates else self._detected_lever_set()
+        return self.async_show_form(
+            step_id="lever_set",
+            data_schema=vol.Schema({vol.Required(OPTION_LEVER_SET, default=default): _select(
+                self._lever_set_candidates, "lever_set", selector.SelectSelectorMode.LIST,
+            )}),
         )
 
     # --- Schritt 5: Raeume ---
@@ -537,11 +619,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     # --- Schritt 6: Anlagenwerte ---
 
-    def _binding(self) -> tuple[str, str]:
-        """Integration und Kreis, zu denen eine Auswahl im Schritt Anlagenwerte gehoert (AU-003)."""
+    def _binding(self) -> tuple[str, str, str | None]:
+        """Integration, Kreis und Hebelsatz, zu denen eine Auswahl im Schritt Anlagenwerte gehoert (AU-003)."""
         integration, circuit = self._integration, self._circuit
         assert integration is not None and circuit is not None  # erst nach async_step_system()
-        return integration.domain, circuit.key
+        return integration.domain, circuit.key, self._lever_set
 
     def _suggestions(self) -> tuple[dict[str, str], dict[str, str]]:
         integration = self._integration
@@ -553,7 +635,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             **circuit.roles,
             **detection.system_role_suggestions(integration, circuit, self._entries),
         }
-        suggestions = {f"entity_{role}": entity_id for role, entity_id in found.items()}
+        suggestions = {field_for_role(role): entity_id for role, entity_id in found.items()}
         origins = {field: ORIGIN_INTEGRATION for field in suggestions}
         if "entity_outdoor_temp" not in suggestions:
             weather = detection.weather_fallback(detection.weather_candidates(self.hass))
@@ -563,10 +645,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return suggestions, origins
 
     async def _origins_text(self, suggestions: dict[str, str], origins: dict[str, str]) -> str:
-        integration = self._integration
-        assert integration is not None  # dieser Schritt folgt nur nach async_step_heating()
+        integration, lever_set = self._integration, self._lever_set
+        assert integration is not None and lever_set is not None  # erst nach async_step_system()/Hebelsatz
         lines = []
-        for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS:
+        for field in plant_fields(lever_set):
             role = await self._hint(f"role_{field}")
             origin = origins.get(field)
             if origin == ORIGIN_INTEGRATION:
@@ -581,26 +663,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         return "\n".join(lines)
 
     def _check_plant(self, plant: dict[str, str]) -> dict[str, str]:
-        checks = {
-            "entity_curve_current": validation.check_numeric(self.hass, plant["entity_curve_current"]),
-            # Climate-Zone: Wunschtemperatur-Attribut; bei abgeschalteter Zone 0, deshalb nur numerisch.
-            "entity_shift_current": validation.check_numeric(
-                self.hass, validation.room_target_ref(plant["entity_shift_current"]),
-            ),
-            "entity_min_flow": validation.check_temperature(self.hass, plant["entity_min_flow"]),
-            "entity_heat_limit": validation.check_temperature(
-                self.hass, plant["entity_heat_limit"], PLAUSIBLE_RANGES["heat_limit"],
-            ),
-            "entity_outdoor_temp": validation.check_temperature(
-                self.hass, plant["entity_outdoor_temp"], PLAUSIBLE_RANGES["outdoor"],
-            ),
-        }
-        if "entity_flow_setpoint" in plant:
-            checks["entity_flow_setpoint"] = validation.check_temperature(self.hass, plant["entity_flow_setpoint"])
-        checks = {field: validation.check_domain(plant[field], field) or error for field, error in checks.items()}
+        lever_set = self._lever_set
         integration, circuit = self._integration, self._circuit
-        assert integration is not None and circuit is not None  # erst nach async_step_system()
-        for field in WRITE_ROLE_FIELDS:
+        assert lever_set is not None and integration is not None and circuit is not None
+        checks = {field: validation.check_plant_field(self.hass, field, ref, lever_set) for field, ref in plant.items()}
+        for field in write_role_fields(lever_set):
             if field in plant and not checks.get(field):
                 checks[field] = validation.check_installation(
                     self.hass, plant[field], integration.domain, circuit.config_entry_id,
@@ -610,15 +677,19 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
     async def async_step_plant_values(self, user_input: dict | None = None):
         profile = self._profile
         room_target = self._room_target
-        # Dieser Schritt folgt nur nach async_step_system()/async_step_rooms(), die beide setzen.
+        lever_set = self._lever_set
+        # Dieser Schritt folgt nur nach async_step_system()/Hebelsatz/async_step_rooms(), die alle drei setzen.
         assert profile is not None
         assert room_target is not None
+        assert lever_set is not None
+        required, optional = LEVER_SET_FIELDS[lever_set], OPTIONAL_LEVER_SET_FIELDS[lever_set]
+        fields = plant_fields(lever_set)
         kpi_fields = _kpi_fields(profile.get("telemetry_capabilities"))
         suggestions, origins = self._suggestions()
         errors: dict[str, str] = {}
         if user_input is not None:
-            plant = {field: user_input[field] for field in PLANT_FIELDS}
-            plant.update({field: user_input[field] for field in OPTIONAL_PLANT_FIELDS if user_input.get(field)})
+            plant = {field: user_input[field] for field in required}
+            plant.update({field: user_input[field] for field in optional if user_input.get(field)})
             advanced = user_input.get(ADVANCED_SECTION) or {}
             errors = self._check_plant(plant)
             kpi, kpi_errors = _resolve_kpi_entities(self.hass, advanced, kpi_fields)
@@ -630,7 +701,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                     **{field: [entity_id] for field, entity_id in kpi.items()},
                 })
                 errors = {field: error for field, error in duplicates.items() if field in plant or field in kpi}
-                if validation.zone_is_room_target(plant["entity_shift_current"], room_target):
+                shift = plant.get("entity_shift_current", "")
+                if shift.startswith("climate.") and validation.zone_is_room_target(shift, room_target):
                     errors["entity_shift_current"] = validation.ERROR_ZONE_IS_ROOM_TARGET
             if any(field in kpi_fields for field in errors):
                 errors["base"] = "advanced_invalid"
@@ -639,7 +711,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 self._plant_binding = self._binding()
                 return await self.async_step_notifications()
             suggested = {
-                **{field: user_input.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
+                **{field: user_input.get(field) for field in fields},
                 ADVANCED_SECTION: advanced,
             }
         elif self._plant and self._plant_binding == self._binding():
@@ -649,23 +721,26 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             suggested = {
                 **{
                     field: self._plant.get(field) or suggestions.get(field)
-                    for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS
+                    for field in fields
                 },
                 ADVANCED_SECTION: {field: self._kpi[field] for field in kpi_fields if field in self._kpi},
             }
         else:
             suggested = {
-                **{field: suggestions.get(field) for field in PLANT_FIELDS + OPTIONAL_PLANT_FIELDS},
+                **{field: suggestions.get(field) for field in fields},
                 ADVANCED_SECTION: {field: suggestions[field] for field in kpi_fields if field in suggestions},
             }
         integration = self._integration
         assert integration is not None  # erst nach async_step_system()
 
         def _selector(field: str):
-            return validation.entity_selector(field, integration=integration.domain if field in WRITE_ROLE_FIELDS else None)
+            return validation.entity_selector(
+                field, integration=integration.domain if field in write_role_fields(lever_set) else None,
+                domains=field_domains(lever_set, field),
+            )
 
-        schema: dict[vol.Marker, Any] = {vol.Required(field): _selector(field) for field in PLANT_FIELDS}
-        for field in OPTIONAL_PLANT_FIELDS:
+        schema: dict[vol.Marker, Any] = {vol.Required(field): _selector(field) for field in required}
+        for field in optional:
             schema[vol.Optional(field)] = _selector(field)
         if kpi_fields:
             schema[vol.Required(ADVANCED_SECTION)] = section(
@@ -740,14 +815,16 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
     def _unmatched_write_roles(self) -> list[str]:
         """Gebundene Felder, die nicht der Erkennung fuer den gewaehlten Kreis entsprechen (AU-019);
         das optionale Vorlauf-Soll nur, wenn es eine abweichende Erkennung gibt."""
+        lever_set = self._lever_set
+        assert lever_set is not None  # erst nach dem Schritt Anlagenwerte
         suggestions, origins = self._suggestions()
         result = []
-        for field in WRITE_ROLE_FIELDS:
+        for field in write_role_fields(lever_set):
             chosen = self._plant.get(field)
             detected = suggestions.get(field) if origins.get(field) == ORIGIN_INTEGRATION else None
             if chosen is None or chosen == detected:
                 continue
-            if field in OPTIONAL_PLANT_FIELDS and detected is None:
+            if field in OPTIONAL_LEVER_SET_FIELDS[lever_set] and detected is None:
                 continue
             result.append(chosen)
         return result
@@ -798,15 +875,27 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             return None
         return access
 
+    def _plant_value(self, field: str) -> str:
+        ref = self._plant[field]
+        if field == "entity_mode_select":
+            state = self.hass.states.get(ref)
+            return state.state if state is not None else "–"
+        if field == "entity_shift_current" and ref.startswith("climate."):
+            ref = validation.room_target_ref(ref)
+        value = validation.read_value(self.hass, ref)[0]
+        return "–" if value is None else f"{value:g}"
+
     async def _summary_placeholders(self, warnings: dict[str, list[str]]) -> dict[str, str]:
         room_target = self._room_target
         profile = self._profile
         notify_services = self._notify_services
-        # Die Zusammenfassung folgt nur nach Raeumen/System/Benachrichtigungen, die alle drei
+        lever_set = self._lever_set
+        # Die Zusammenfassung folgt nur nach Raeumen/System/Hebelsatz/Benachrichtigungen, die alle
         # setzen.
         assert room_target is not None
         assert profile is not None
         assert notify_services is not None
+        assert lever_set is not None
 
         def _value(ref: str) -> str:
             value = validation.read_value(self.hass, ref)[0]
@@ -823,13 +912,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             "room_target": _value(room_target),
             "outdoor_temperature": _value(self._plant["entity_outdoor_temp"]),
             "outdoor_source": self._plant["entity_outdoor_temp"],
-            "curve": _value(self._plant["entity_curve_current"]),
-            "shift": _value(validation.room_target_ref(self._plant["entity_shift_current"])),
-            "min_flow": _value(self._plant["entity_min_flow"]),
-            "heat_limit": _value(self._plant["entity_heat_limit"]),
+            "plant_values": "\n".join([
+                f"- {await self._hint(f'role_{field}')}: {self._plant_value(field)}"
+                for field in plant_fields(lever_set) if field in self._plant and field != "entity_outdoor_temp"
+            ]),
             "write_entities": "\n".join([
                 f"- {await self._hint(f'role_{field}')}: {self._entity_label(self._plant[field])}"
-                for field in WRITE_ROLE_FIELDS if field in self._plant
+                for field in write_role_fields(lever_set) if field in self._plant
             ]),
             "profile": ", ".join([
                 profile["hersteller"],
@@ -953,8 +1042,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         assert token is not None  # dieser Schritt folgt nur nach erfolgreichem Login
         assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
         key_pem, csr = await self.hass.async_add_executor_job(provisioning.generate_key_and_csr, tenant_id)
+        version = str((await async_get_integration(self.hass, DOMAIN)).version)
         try:
-            body = await self._client().provision(token, tenant_id, profile_id, csr)
+            body = await self._client().provision(token, tenant_id, profile_id, csr, version)
         except InvalidAuth:
             return self._expire_session()
         except AccessDenied as error:
@@ -1060,6 +1150,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             **self._plant,
             **self._kpi,
         })
+        options[OPTION_LEVER_SET] = self._lever_set
+        seconds = self._poll_interval_seconds()
+        low, high = POLL_INTERVAL_OPTION_RANGE
+        if seconds is not None and low <= seconds <= high:
+            options[OPTION_POLL_INTERVAL] = int(seconds)
         return options
 
     def _secrets(self) -> set[str]:
@@ -1123,6 +1218,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                 "config_entry_id": circuit.config_entry_id, "system_key": circuit.system_key, "circuit": circuit.circuit,
             },
             "entities": {**self._plant, **self._kpi},
+            OPTION_LEVER_SET: self._lever_set,
+            "shift_lever": profile_shift_lever(profile),
         }
 
     def _entry_options(self) -> dict:

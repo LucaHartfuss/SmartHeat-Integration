@@ -1,5 +1,5 @@
 {
-  "catalog_version": 2,
+  "catalog_version": 3,
   "profiles": [
     {
       "profile_id": "weishaupt_waermepumpe_fussbodenheizung",
@@ -7,7 +7,41 @@
       "erzeuger_typ": "Waermepumpe",
       "verteilsystem": "Fussbodenheizung",
       "verified": false,
-      "telemetry_capabilities": null
+      "inactive_reason": "Profil 'weishaupt_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) und Simulations-Gate Fussbodenheizung ausstehend (Spec Hersteller-Abstraktion 6.3/6.4)",
+      "model": {
+        "id": "weishaupt_wwp",
+        "shift_lever": "room_setpoint"
+      },
+      "lever_sets": [
+        {
+          "id": "weishaupt_wwp",
+          "levers": [
+            "curve",
+            "room_setpoint",
+            "heat_limit"
+          ],
+          "client_derived": []
+        },
+        {
+          "id": "weishaupt_wwp_basis",
+          "levers": [
+            "room_setpoint"
+          ],
+          "client_derived": []
+        }
+      ],
+      "telemetry_capabilities": {
+        "has_flow_temperature": true,
+        "has_return_temperature": true,
+        "has_operating_mode": false,
+        "has_water_pressure": false,
+        "has_manufacturer_efficiency_sensor": false,
+        "energy_channels": [
+          "thermal_heating",
+          "thermal_dhw",
+          "electrical_total"
+        ]
+      }
     },
     {
       "profile_id": "vaillant_gastherme_heizkoerper",
@@ -15,6 +49,24 @@
       "erzeuger_typ": "Gastherme",
       "verteilsystem": "Heizkoerper",
       "verified": true,
+      "inactive_reason": null,
+      "model": {
+        "id": "vaillant_vrc720",
+        "shift_lever": "room_setpoint"
+      },
+      "lever_sets": [
+        {
+          "id": "vaillant_vrc720",
+          "levers": [
+            "curve",
+            "room_setpoint",
+            "heat_limit"
+          ],
+          "client_derived": [
+            "min_flow"
+          ]
+        }
+      ],
       "telemetry_capabilities": {
         "has_flow_temperature": true,
         "has_return_temperature": false,
@@ -37,7 +89,41 @@
       "erzeuger_typ": "Waermepumpe",
       "verteilsystem": "Heizkoerper",
       "verified": false,
-      "telemetry_capabilities": null
+      "inactive_reason": "Profil 'weishaupt_waermepumpe_heizkoerper': Inventur an einer echten Anlage ausstehend (Spec Hersteller-Abstraktion, Abschnitt 8)",
+      "model": {
+        "id": "weishaupt_wwp",
+        "shift_lever": "room_setpoint"
+      },
+      "lever_sets": [
+        {
+          "id": "weishaupt_wwp",
+          "levers": [
+            "curve",
+            "room_setpoint",
+            "heat_limit"
+          ],
+          "client_derived": []
+        },
+        {
+          "id": "weishaupt_wwp_basis",
+          "levers": [
+            "room_setpoint"
+          ],
+          "client_derived": []
+        }
+      ],
+      "telemetry_capabilities": {
+        "has_flow_temperature": true,
+        "has_return_temperature": true,
+        "has_operating_mode": false,
+        "has_water_pressure": false,
+        "has_manufacturer_efficiency_sensor": false,
+        "energy_channels": [
+          "thermal_heating",
+          "thermal_dhw",
+          "electrical_total"
+        ]
+      }
     },
     {
       "profile_id": "viessmann_gastherme_heizkoerper",
@@ -45,7 +131,34 @@
       "erzeuger_typ": "Gastherme",
       "verteilsystem": "Heizkoerper",
       "verified": false,
-      "telemetry_capabilities": null
+      "inactive_reason": "Profil 'viessmann_gastherme_heizkoerper': Inventur an einer echten Anlage ausstehend (Spec Hersteller-Abstraktion, Abschnitt 8)",
+      "model": {
+        "id": "viessmann_vicare",
+        "shift_lever": "level"
+      },
+      "lever_sets": [
+        {
+          "id": "viessmann_vicare",
+          "levers": [
+            "curve",
+            "level",
+            "room_setpoint"
+          ],
+          "client_derived": []
+        }
+      ],
+      "telemetry_capabilities": {
+        "has_flow_temperature": true,
+        "has_return_temperature": true,
+        "has_operating_mode": false,
+        "has_water_pressure": false,
+        "has_manufacturer_efficiency_sensor": false,
+        "energy_channels": [
+          "primary_heating",
+          "primary_dhw",
+          "electrical_total"
+        ]
+      }
     },
     {
       "profile_id": "vaillant_waermepumpe_fussbodenheizung",
@@ -53,7 +166,39 @@
       "erzeuger_typ": "Waermepumpe",
       "verteilsystem": "Fussbodenheizung",
       "verified": false,
-      "telemetry_capabilities": null
+      "inactive_reason": "Profil 'vaillant_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) und Simulations-Gate Fussbodenheizung ausstehend (Spec Hersteller-Abstraktion 6.3/6.4)",
+      "model": {
+        "id": "vaillant_vrc720",
+        "shift_lever": "room_setpoint"
+      },
+      "lever_sets": [
+        {
+          "id": "vaillant_vrc720",
+          "levers": [
+            "curve",
+            "room_setpoint",
+            "heat_limit"
+          ],
+          "client_derived": [
+            "min_flow"
+          ]
+        }
+      ],
+      "telemetry_capabilities": {
+        "has_flow_temperature": true,
+        "has_return_temperature": false,
+        "has_operating_mode": true,
+        "has_water_pressure": true,
+        "has_manufacturer_efficiency_sensor": true,
+        "energy_channels": [
+          "electrical_heating",
+          "electrical_dhw",
+          "primary_heating",
+          "primary_dhw",
+          "thermal_heating",
+          "thermal_dhw"
+        ]
+      }
     },
     {
       "profile_id": "viessmann_waermepumpe_fussbodenheizung",
@@ -61,7 +206,32 @@
       "erzeuger_typ": "Waermepumpe",
       "verteilsystem": "Fussbodenheizung",
       "verified": false,
-      "telemetry_capabilities": null
+      "inactive_reason": "Profil 'viessmann_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) und Simulations-Gate Fussbodenheizung ausstehend (Spec Hersteller-Abstraktion 6.3/6.4)",
+      "model": {
+        "id": "viessmann_vicare",
+        "shift_lever": "level"
+      },
+      "lever_sets": [
+        {
+          "id": "viessmann_vicare",
+          "levers": [
+            "curve",
+            "level",
+            "room_setpoint"
+          ],
+          "client_derived": []
+        }
+      ],
+      "telemetry_capabilities": {
+        "has_flow_temperature": true,
+        "has_return_temperature": true,
+        "has_operating_mode": false,
+        "has_water_pressure": false,
+        "has_manufacturer_efficiency_sensor": false,
+        "energy_channels": [
+          "electrical_total"
+        ]
+      }
     }
   ],
   "integrations": [
@@ -69,12 +239,18 @@
       "domain": "mypyllant",
       "label": "myVAILLANT",
       "hersteller": "Vaillant",
+      "hinweis": null,
+      "circuit_defining_roles": [
+        "curve",
+        "min_flow",
+        "heat_limit"
+      ],
       "circuit_scoped_roles": {
-        "curve_current": {
+        "curve": {
           "entity_domain": "number",
           "unique_id_suffix": "_circuit_{circuit}_heating_curve"
         },
-        "shift_current": {
+        "room_setpoint": {
           "entity_domain": "climate",
           "unique_id_suffix": "_zone_{index}_climate",
           "circuit_in_name": "(Circuit {circuit})"
@@ -153,6 +329,137 @@
         "unit": "s",
         "default": 1800
       }
+    },
+    {
+      "domain": "weishaupt_modbus",
+      "label": "Weishaupt WBB (Modbus)",
+      "hersteller": "Weishaupt",
+      "hinweis": "Am Regler der Wärmepumpe „Modbus TCP: Ein“ einstellen und nur die IP-Adresse von Home Assistant freigeben (am besten Direktkabel oder eigenes Netz). In der Integration weishaupt_modbus das Geräte-Postfix leer lassen.",
+      "circuit_defining_roles": [
+        "room_setpoint",
+        "mode_select"
+      ],
+      "circuit_scoped_roles": {
+        "curve": {
+          "entity_domain": "number",
+          "unique_id_suffix": "Heizkennlinie{circuit_opt}"
+        },
+        "room_setpoint": {
+          "entity_domain": "number",
+          "unique_id_suffix": "Raumsolltemperatur Normal{circuit_opt}"
+        },
+        "heat_limit": {
+          "entity_domain": "number",
+          "unique_id_suffix": "Sommer Winter Umschaltung{circuit_opt}"
+        },
+        "mode_select": {
+          "entity_domain": "select",
+          "unique_id_suffix": "Betriebsart{circuit_opt}"
+        },
+        "setpoint_comfort": {
+          "entity_domain": "number",
+          "unique_id_suffix": "Raumsolltemperatur Komfort{circuit_opt}"
+        },
+        "setpoint_setback": {
+          "entity_domain": "number",
+          "unique_id_suffix": "Raumsolltemperatur Absenk{circuit_opt}"
+        },
+        "flow_setpoint": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Vorlaufsolltemperatur{circuit_opt}"
+        }
+      },
+      "system_roles": {
+        "outdoor_temp": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Aussentemperatur"
+        },
+        "flow_temperature": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Vorlauftemperatur"
+        },
+        "return_temperature": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Rücklauftemperatur"
+        },
+        "energy_thermal_heating": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Heizen Energie heute"
+        },
+        "energy_thermal_dhw": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Warmwasser Energie heute"
+        },
+        "energy_electrical_total": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Elektr. Energie heute"
+        }
+      },
+      "erzeuger_typ_hints": []
+    },
+    {
+      "domain": "vicare",
+      "label": "Viessmann ViCare",
+      "hersteller": "Viessmann",
+      "hinweis": "Die ViCare-Integration braucht eine eigene Client-ID aus einem Viessmann-Entwicklerkonto. Die kostenlose ViCare-API erlaubt 1.450 Aufrufe am Tag für alle Abfragen von Home Assistant zusammen; SmartHeat schreibt selten.",
+      "circuit_defining_roles": [
+        "curve",
+        "level"
+      ],
+      "circuit_scoped_roles": {
+        "curve": {
+          "entity_domain": "number",
+          "unique_id_suffix": "-heating curve slope-{circuit}"
+        },
+        "level": {
+          "entity_domain": "number",
+          "unique_id_suffix": "-heating curve shift-{circuit}"
+        },
+        "room_setpoint": {
+          "entity_domain": "number",
+          "unique_id_suffix": "-normal_temperature-{circuit}"
+        },
+        "mode_select": {
+          "entity_domain": "climate",
+          "unique_id_suffix": "-heating-{circuit}"
+        },
+        "flow_temperature": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-supply_temperature-{circuit}"
+        }
+      },
+      "system_roles": {
+        "outdoor_temp": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-outside_temperature"
+        },
+        "return_temperature": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-return_temperature"
+        },
+        "energy_primary_heating": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-gas_consumption_heating_today"
+        },
+        "energy_primary_dhw": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-hotwater_gas_consumption_today"
+        },
+        "energy_electrical_total": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-power consumption today"
+        }
+      },
+      "erzeuger_typ_hints": [
+        {
+          "model_contains": "Vitocal",
+          "erzeuger_typ": "Waermepumpe"
+        },
+        {
+          "model_contains": "Vitodens",
+          "erzeuger_typ": "Gastherme"
+        }
+      ]
     }
   ]
 }
