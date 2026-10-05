@@ -21,7 +21,7 @@ POLL_INTERVAL_OPTION_RANGE = (10, 3600)
 # Provisioning (Spec Hersteller-Abstraktion 4.3, Plan 3c): Server broker/wire.py, Contract-Check 43.
 CLIENT_TYPE_HA = "ha"
 PROVISION_CLIENT_KEYS = ("client_type", "client_version")
-# Abschaltbare Hinweis-Kategorien; gleich in heizungsbruecke/notifier.py und config.yaml (Contract-Check 15).
+# Abschaltbare Hinweis-Kategorien; gleich in smartheat_runtime/notifier.py und config.yaml (Contract-Check 15).
 HINT_CATEGORIES = (
     "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme", "schreibbudget", "schreibzaehler",
 )
@@ -93,7 +93,7 @@ STALE_AFTER_HOURS = 6
 ROOM_SENSOR_DEVIATION_K = 3.0
 
 # Status-Kanal (Spec TP7 1.1): HA-Event des Add-ons. Name, schema, Felder und Wertemengen muessen
-# zu heizungsbruecke/status.py passen (tools/contract_check.py, Pruefung 14).
+# zu smartheat_runtime/status.py passen (tools/contract_check.py, Pruefung 14).
 STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 2
 STATUS_EVENT_FIELDS = (
