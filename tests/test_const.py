@@ -14,7 +14,7 @@ def test_plausible_ranges_are_the_r4_values():
 
 
 def test_status_event_contract_and_watchdog_values():
-    # Gleiche Werte wie heizungsbruecke/status.py (Contract-Check 14).
+    # Gleiche Werte wie smartheat_runtime/status.py (Contract-Check 14).
     assert (const.STATUS_EVENT, const.STATUS_EVENT_SCHEMA) == ("smartheat_status", 2)
     assert const.ADDON_STATUS_VALUES == (
         "startet", "regelt", "konfigurationsfehler", "zugang_abgelehnt", "abo_beendet", "abo_inaktiv",
