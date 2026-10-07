@@ -283,6 +283,7 @@
     "supervisor_unavailable": "Der Supervisor ist nicht erreichbar. Bitte erneut versuchen.",
     "provisioning_failed": "Der SmartHeat-Server konnte keine Zugangsdaten ausstellen. Bitte später erneut versuchen.",
     "invalid_provisioning_response": "Der SmartHeat-Server hat eine unvollständige Antwort geliefert. Bitte später erneut versuchen oder den Support kontaktieren.",
+    "verteilsystem_mismatch": "Der SmartHeat-Server meldet ein anderes Verteilsystem als ausgewählt. Die Einrichtung wurde abgebrochen, damit keine falschen Sicherheitsgrenzen gelten. Bitte den Support kontaktieren.",
     "setup_unexpected": "Unerwarteter Fehler bei der Einrichtung, siehe Home-Assistant-Protokoll.",
     "new_credentials": "Es werden neue Zugangsdaten ausgestellt.",
     "profile_update_failed": "Der SmartHeat-Server konnte das Heizungsprofil nicht ändern. Bitte später erneut versuchen.",

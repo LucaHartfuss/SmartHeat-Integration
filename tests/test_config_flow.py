@@ -927,6 +927,29 @@ async def test_invalid_provisioning_response_is_a_setup_failure(hass, monkeypatc
     assert calls.options == {}
 
 
+async def test_provisioning_with_another_distribution_system_is_a_setup_failure(hass, monkeypatch):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    calls = mock_addons(hass, monkeypatch)
+    mocks.provision.return_value = {**mocks.provision.return_value,
+                                    "profile_params": {**PROFILE_PARAMS, "verteilsystem": "Fussbodenheizung"}}
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "verteilsystem_mismatch")
+    assert calls.options == {}
+
+
+async def test_unknown_profile_params_never_reach_the_addon_options(hass, monkeypatch):
+    result, mocks, calls = await _to_setup(hass, monkeypatch)
+    mocks.provision.return_value = {**mocks.provision.return_value,
+                                    "profile_params": {**PROFILE_PARAMS, "entity_operating_mode": "person.kunde"}}
+
+    await finish_progress(hass, result)
+
+    assert "entity_operating_mode" not in calls.options["heizungsbruecke"]
+
+
 async def test_supervisor_error_is_shown_without_secrets(hass, monkeypatch):
     error = AddonError(f"invalid option mqtt_password={MQTT_PASSWORD} token={CF_SECRET}")
     result, _, _ = await _to_setup(hass, monkeypatch, set_error=error)

@@ -22,6 +22,7 @@ from .const import (
     OPTION_INSTALLATION_TOKEN,
     OPTION_TRANSPORT,
     PASSWORD_CREDENTIAL_OPTIONS,
+    PROFILE_PARAM_KEYS,
     PROVISION_RESPONSE_KEYS,
     TRANSPORT_IOT_CORE,
     TRANSPORT_MOSQUITTO,
@@ -33,6 +34,23 @@ CLOUDFLARED_CLEARED_OPTIONS = {"hostname": "", "service_token_id": "", "service_
 
 class InvalidProvisioning(ValueError):
     """Die Provisioning-Antwort hat nicht das vereinbarte Format (Text ohne Werte, nur Schluessel)."""
+
+
+class VerteilsystemMismatch(InvalidProvisioning):
+    """Der Server meldet ein anderes Verteilsystem als gewaehlt (Audit 4, A4-02; Nutzer-Entscheidung E1)."""
+
+
+def checked_profile_params(raw, verteilsystem: str | None) -> dict:
+    """Nur die bekannten Schluessel (Audit 4, A4-11); mit verteilsystem muss es zur Kundenwahl passen, sonst gaelten im
+    Add-on die lokalen Grenzen eines anderen Verteilsystems. Fehler nennen nur Schluessel, nie Werte."""
+    if not isinstance(raw, dict):
+        raise InvalidProvisioning("profile_params fehlt")
+    missing = [key for key in PROFILE_PARAM_KEYS if not isinstance(raw.get(key), str) or not raw.get(key)]
+    if missing:
+        raise InvalidProvisioning(f"profile_params: Schluessel {missing} fehlen")
+    if verteilsystem is not None and raw["verteilsystem"].lower() != verteilsystem.lower():
+        raise VerteilsystemMismatch("profile_params: verteilsystem passt nicht zur Auswahl")
+    return {key: raw[key] for key in PROFILE_PARAM_KEYS}
 
 
 @dataclass(frozen=True)

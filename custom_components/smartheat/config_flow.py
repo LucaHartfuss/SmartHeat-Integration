@@ -1065,8 +1065,24 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             _LOGGER.error("Provisionierungs-Antwort unbrauchbar: %s", error)
             self._setup_error = await self._hint("invalid_provisioning_response")
             return "setup_failed"
-        self._access, self._profile_params = access, access.profile_params
+        # Ab hier gibt es einen gueltigen neuen Zugang: der Rueckbau kennt ihn auch bei einem Abbruch unten.
+        self._access = access
         self._new_credentials, self._new_token = True, access.installation_token
+        return await self._accept_profile_params(access.profile_params)
+
+    async def _accept_profile_params(self, raw) -> str | None:
+        """Audit 4, A4-02/A4-11: nur bekannte Schluessel, Verteilsystem wie gewaehlt (Reauth: ohne Auswahl)."""
+        chosen = self._profile["verteilsystem"] if self._profile is not None else None
+        try:
+            self._profile_params = provisioning.checked_profile_params(raw, chosen)
+        except provisioning.VerteilsystemMismatch:
+            _LOGGER.error("Server meldet ein anderes Verteilsystem als gewaehlt, Einrichtung abgebrochen")
+            self._setup_error = await self._hint("verteilsystem_mismatch")
+            return "setup_failed"
+        except provisioning.InvalidProvisioning as error:
+            _LOGGER.error("Profil-Parameter unbrauchbar: %s", error)
+            self._setup_error = await self._hint("invalid_provisioning_response")
+            return "setup_failed"
         return None
 
     async def _keep_access(self, access: provisioning.Access) -> str | None:
@@ -1099,8 +1115,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         except ApiError:
             self._setup_error = await self._hint("profile_update_failed")
             return "setup_failed"
-        self._access, self._profile_params = access, profile_params
-        return None
+        self._access = access
+        return await self._accept_profile_params(profile_params)
 
     async def _wait_for_status(self) -> str:
         """Nur ein Event mit der setup_id dieses Laufs zaehlt (Spec TP7 2.5)."""

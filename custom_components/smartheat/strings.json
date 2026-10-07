@@ -283,6 +283,7 @@
     "supervisor_unavailable": "The Supervisor is not reachable. Please try again.",
     "provisioning_failed": "The SmartHeat server could not issue access credentials. Please try again later.",
     "invalid_provisioning_response": "The SmartHeat server returned an incomplete setup response. Please try again later or contact support.",
+    "verteilsystem_mismatch": "The SmartHeat server reported a different heating distribution system than you selected. Setup was cancelled so the wrong safety limits are not applied. Please contact support.",
     "setup_unexpected": "Unexpected error during setup, see the Home Assistant log.",
     "new_credentials": "New access credentials will be issued.",
     "profile_update_failed": "The SmartHeat server could not change the heating profile. Please try again later.",
