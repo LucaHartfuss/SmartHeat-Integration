@@ -7,7 +7,7 @@
       "erzeuger_typ": "Waermepumpe",
       "verteilsystem": "Fussbodenheizung",
       "verified": false,
-      "inactive_reason": "Profil 'weishaupt_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) und Simulations-Gate Fussbodenheizung ausstehend (Spec Hersteller-Abstraktion 6.3/6.4)",
+      "inactive_reason": "Profil 'weishaupt_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) ausstehend (Spec Hersteller-Abstraktion 6.3)",
       "model": {
         "id": "weishaupt_wwp",
         "shift_lever": "room_setpoint"
@@ -166,7 +166,7 @@
       "erzeuger_typ": "Waermepumpe",
       "verteilsystem": "Fussbodenheizung",
       "verified": false,
-      "inactive_reason": "Profil 'vaillant_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) und Simulations-Gate Fussbodenheizung ausstehend (Spec Hersteller-Abstraktion 6.3/6.4)",
+      "inactive_reason": "Profil 'vaillant_waermepumpe_fussbodenheizung': Inventur (Geraetegrenze <= 45 °C, Sicherheitstemperaturbegrenzer) ausstehend (Spec Hersteller-Abstraktion 6.3)",
       "model": {
         "id": "vaillant_vrc720",
         "shift_lever": "room_setpoint"
