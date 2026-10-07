@@ -33,10 +33,10 @@
       },
       "plant_values": {
         "title": "Anlagenwerte",
-        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“). SmartHeat stellt die Heizzone auf „Manuell“ und regelt ihre Wunschtemperatur selbst; die Mindestvorlauftemperatur folgt deiner Wunschtemperatur am Raumthermostat.",
+        "description": "Aus deiner Heizung vorbelegt, bitte prüfen:\n{origins}\nZur Auswahl stehen nur Sensoren mit passender Geräteklasse (z. B. „Temperatur“). {regelhinweis}",
         "data": {
           "entity_curve_current": "Heizkurve",
-          "entity_shift_current": "Raum-Soll bzw. Zone (Parallelverschiebung)",
+          "entity_shift_current": "Raum-Soll bzw. Zone",
           "entity_level_current": "Niveau der Heizkurve",
           "entity_mode_select": "Betriebsart bzw. Heizprogramm",
           "entity_setpoint_comfort": "Raum-Soll Komfort",
@@ -154,7 +154,7 @@
           "room_sensors": "Raumtemperatur-Fühler", "entity_room_target": "Wunschtemperatur",
           "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
           "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
-          "hint_manueller_eingriff": "Bei manueller Änderung von Heizkurve oder Parallelverschiebung benachrichtigen",
+          "hint_manueller_eingriff": "Bei manueller Änderung eines von SmartHeat geregelten Werts benachrichtigen",
           "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen",
           "hint_therme": "Benachrichtigen, wenn die Therme keine Heizwärme liefert",
           "hint_schreibbudget": "Benachrichtigen, wenn das Tageslimit für Schreibvorgänge erreicht ist",
@@ -254,7 +254,7 @@
     "access_denied": "Der SmartHeat-Server verweigert den Zugriff: {grund}",
     "profile_rejected": "Der SmartHeat-Server hat das gewählte Heizungsprofil abgelehnt. Bitte eine andere Kombination wählen oder den Support kontaktieren.",
     "role_entity_curve_current": "Heizkurve",
-    "role_entity_shift_current": "Parallelverschiebung",
+    "role_entity_shift_current": "Raum-Soll bzw. Zone",
     "role_entity_min_flow": "Mindestvorlauf",
     "role_entity_heat_limit": "Heizgrenze",
     "role_entity_outdoor_temp": "Außentemperatur",
@@ -296,11 +296,15 @@
     "rollback_reconfigure_incomplete": "„Neu konfigurieren“ wurde abgebrochen, aber nicht alle Schritte der Wiederherstellung sind gelungen:",
     "open_step_supervisor": "Der Supervisor war nicht erreichbar. Bitte die Add-ons Heizungsbrücke und Cloudflared Access TCP-Bridge unter Einstellungen → Add-ons von Hand stoppen.",
     "open_step_foreign_tenant": "Die Add-ons gehören zu einer anderen SmartHeat-Anlage und wurden deshalb nicht angefasst.",
-    "open_step_no_sign_off": "Die Heizungsbrücke hat die Abmeldung nicht bestätigt und wurde trotzdem gestoppt. Bitte Heizkurve und Zone in der App des Herstellers prüfen: Es können Boost-Werte (Steigung 1,5, Parallelverschiebung 25) stehen geblieben sein.",
+    "open_step_no_sign_off": "Die Heizungsbrücke hat die Abmeldung nicht bestätigt und wurde trotzdem gestoppt. Bitte die Werte des Heizkreises in der App des Herstellers prüfen: Es können Boost-Werte (die lokalen Höchstwerte von SmartHeat) stehen geblieben sein.",
     "open_step_stop": "Ein Add-on ließ sich nicht stoppen. Bitte unter Einstellungen → Add-ons von Hand stoppen.",
     "open_step_revoke": "Die Zugangsdaten konnten auf dem SmartHeat-Server nicht zurückgezogen werden. Sie werden bei der nächsten Einrichtung ersetzt.",
     "open_step_clear": "Die Zugangsdaten ließen sich aus den Add-on-Optionen nicht löschen. Bitte die Add-ons deinstallieren, wenn SmartHeat nicht mehr genutzt wird.",
     "open_step_profile": "Das bisherige Heizungsprofil ließ sich auf dem SmartHeat-Server nicht wiederherstellen. Bitte „Neu konfigurieren“ erneut ausführen.",
-    "open_step_addons": "Die bisherigen Add-on-Einstellungen ließen sich nicht wiederherstellen. Bitte „Neu konfigurieren“ erneut ausführen."
+    "open_step_addons": "Die bisherigen Add-on-Einstellungen ließen sich nicht wiederherstellen. Bitte „Neu konfigurieren“ erneut ausführen.",
+    "regelhinweis_vaillant_vrc720": "SmartHeat stellt die Heizzone auf „Manuell“ und regelt ihre Wunschtemperatur selbst; die Mindestvorlauftemperatur folgt deiner Wunschtemperatur am Raumthermostat.",
+    "regelhinweis_weishaupt_wwp": "SmartHeat stellt die Betriebsart des Heizkreises auf „Normal“ und regelt Heizkennlinie, Raum-Soll Normal und Sommer-Winter-Umschaltung selbst; Komfort- und Absenk-Soll verschiebt es nur, wenn das Raum-Soll Normal sonst nicht dazwischen passt.",
+    "regelhinweis_weishaupt_wwp_basis": "SmartHeat stellt die Betriebsart des Heizkreises auf „Normal“ und regelt das Raum-Soll Normal selbst; die Heizkennlinie bleibt, wie sie ist. Komfort- und Absenk-Soll verschiebt es nur, wenn das Raum-Soll Normal sonst nicht dazwischen passt.",
+    "regelhinweis_viessmann_vicare": "SmartHeat beendet ein aktives Komfort- oder Eco-Programm und regelt Neigung, Niveau und die Normal-Temperatur des Heizkreises selbst."
   }
 }

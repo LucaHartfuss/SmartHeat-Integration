@@ -753,7 +753,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             step_id="plant_values",
             data_schema=self.add_suggested_values_to_schema(vol.Schema(schema), suggested),
             errors=errors,
-            description_placeholders={"origins": await self._origins_text(suggestions, origins)},
+            description_placeholders={
+                "origins": await self._origins_text(suggestions, origins),
+                "regelhinweis": await self._hint(f"regelhinweis_{lever_set}"),
+            },
         )
 
     # --- Schritt 7: Benachrichtigungen ---

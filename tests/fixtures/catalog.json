@@ -334,7 +334,7 @@
       "domain": "weishaupt_modbus",
       "label": "Weishaupt WBB (Modbus)",
       "hersteller": "Weishaupt",
-      "hinweis": "Am Regler der Wärmepumpe „Modbus TCP: Ein“ einstellen und nur die IP-Adresse von Home Assistant freigeben (am besten Direktkabel oder eigenes Netz). In der Integration weishaupt_modbus das Geräte-Postfix leer lassen.",
+      "hinweis": "Am Regler der Wärmepumpe „Modbus TCP: Ein“ einstellen und nur die IP-Adresse von Home Assistant freigeben (am besten Direktkabel oder eigenes Netz). Bei weishaupt_modbus 1.x das Geräte-Postfix leer lassen.",
       "circuit_defining_roles": [
         "room_setpoint",
         "mode_select"
@@ -342,57 +342,135 @@
       "circuit_scoped_roles": {
         "curve": {
           "entity_domain": "number",
-          "unique_id_suffix": "Heizkennlinie{circuit_opt}"
+          "unique_id_suffix": "Heizkennlinie{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "number",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_heating_curve"
+            }
+          ]
         },
         "room_setpoint": {
           "entity_domain": "number",
-          "unique_id_suffix": "Raumsolltemperatur Normal{circuit_opt}"
+          "unique_id_suffix": "Raumsolltemperatur Normal{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "number",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_normal_room_target_temperature"
+            }
+          ]
         },
         "heat_limit": {
           "entity_domain": "number",
-          "unique_id_suffix": "Sommer Winter Umschaltung{circuit_opt}"
+          "unique_id_suffix": "Sommer Winter Umschaltung{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "number",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_summer_winter_switch_temperature"
+            }
+          ]
         },
         "mode_select": {
           "entity_domain": "select",
-          "unique_id_suffix": "Betriebsart{circuit_opt}"
+          "unique_id_suffix": "Betriebsart{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "select",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_operation_mode"
+            }
+          ]
         },
         "setpoint_comfort": {
           "entity_domain": "number",
-          "unique_id_suffix": "Raumsolltemperatur Komfort{circuit_opt}"
+          "unique_id_suffix": "Raumsolltemperatur Komfort{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "number",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_comfort_room_target_temperature"
+            }
+          ]
         },
         "setpoint_setback": {
           "entity_domain": "number",
-          "unique_id_suffix": "Raumsolltemperatur Absenk{circuit_opt}"
+          "unique_id_suffix": "Raumsolltemperatur Absenk{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "number",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_lowering_room_target_temperature"
+            }
+          ]
         },
         "flow_setpoint": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Vorlaufsolltemperatur{circuit_opt}"
+          "unique_id_suffix": "Vorlaufsolltemperatur{circuit_opt}",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "heating_circuit{circuit_opt}_flow_target_temperature"
+            }
+          ]
         }
       },
       "system_roles": {
         "outdoor_temp": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Aussentemperatur"
+          "unique_id_suffix": "Aussentemperatur",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "system_outside_temperature"
+            }
+          ]
         },
         "flow_temperature": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Vorlauftemperatur"
+          "unique_id_suffix": "Vorlauftemperatur",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "heat_pump_flow_temperature"
+            }
+          ]
         },
         "return_temperature": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Rücklauftemperatur"
+          "unique_id_suffix": "Rücklauftemperatur",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "heat_pump_return_temperature"
+            }
+          ]
         },
         "energy_thermal_heating": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Heizen Energie heute"
+          "unique_id_suffix": "Heizen Energie heute",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "statistics_heating_energy_today"
+            }
+          ]
         },
         "energy_thermal_dhw": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Warmwasser Energie heute"
+          "unique_id_suffix": "Warmwasser Energie heute",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "statistics_hot_water_energy_today"
+            }
+          ]
         },
         "energy_electrical_total": {
           "entity_domain": "sensor",
-          "unique_id_suffix": "Elektr. Energie heute"
+          "unique_id_suffix": "Elektr. Energie heute",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "statistics_electric_energy_today"
+            }
+          ]
         }
       },
       "erzeuger_typ_hints": []

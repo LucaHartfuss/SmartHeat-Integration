@@ -16,7 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import provisioning, setup_rollback
 from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
-from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.const import DOMAIN, LEVER_SET_FIELDS
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
@@ -697,7 +697,7 @@ async def test_summary_without_warnings_has_no_checkboxes_and_shows_values(hass,
     assert placeholders["recipients"] == "1"
     assert "sensor.wz_batterie" in placeholders["batteries"]
     assert placeholders["plant_values"].splitlines() == [
-        "- Heating curve: 1.1", "- Parallel shift: 20", "- Minimum flow temperature: 22", "- Heating limit: 16",
+        "- Heating curve: 1.1", "- Room setpoint or zone: 20", "- Minimum flow temperature: 22", "- Heating limit: 16",
         "- Flow setpoint: 38.5",
     ]
 
@@ -1360,6 +1360,44 @@ def test_translations_have_the_same_keys():
     german = json.loads((_COMPONENT / "translations/de.json").read_text())
 
     assert keys(english) == keys(german)
+
+
+@pytest.mark.parametrize("name", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_every_lever_set_has_a_regelhinweis(name):
+    data = json.loads((_COMPONENT / name).read_text(encoding="utf-8"))
+    for lever_set in LEVER_SET_FIELDS:
+        assert data["common"][f"regelhinweis_{lever_set}"].strip(), (name, lever_set)
+    assert "{regelhinweis}" in data["config"]["step"]["plant_values"]["description"]
+
+
+@pytest.mark.parametrize("name", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_wizard_texts_name_no_vaillant_lever(name):
+    data = json.loads((_COMPONENT / name).read_text(encoding="utf-8"))
+    plant_values = data["config"]["step"]["plant_values"]
+    for value in (
+        plant_values["description"],
+        plant_values["data"]["entity_shift_current"],
+        data["common"]["role_entity_shift_current"],
+        data["common"]["open_step_no_sign_off"],
+        data["options"]["step"]["init"]["data"]["hint_manueller_eingriff"],
+    ):
+        assert "Parallelverschiebung" not in value and "parallel shift" not in value, (name, value)
+        assert "1,5" not in value and "1.5" not in value, (name, value)
+
+
+async def test_plant_values_describe_the_lever_set_control(hass, monkeypatch):
+    hass.config.language = "de"
+    enable_supervisor(hass, monkeypatch)
+    mock_server(monkeypatch)
+    setup_mypyllant(hass)
+    setup_rooms(hass)
+
+    result = await login(hass, await start(hass))
+    result = await configure(hass, result, SYSTEM_INPUT)
+    result = await configure(hass, result, ROOMS_INPUT)
+
+    assert result["step_id"] == "plant_values"
+    assert "Mindestvorlauftemperatur" in result["description_placeholders"]["regelhinweis"]
 
 
 async def test_hints_follow_the_ui_language(hass, monkeypatch):

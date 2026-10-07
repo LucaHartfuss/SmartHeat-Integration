@@ -3,6 +3,14 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## Unveröffentlicht
+
+- **Erkennung mit Alternativen je Rolle:** `weishaupt_modbus` 2.0 wird neben 1.x erkannt (Katalog-Feld `alternatives`:
+  je Rolle ein primärer Matcher und optionale Alternativen, der erste Treffer gilt). Ältere Integrationen ignorieren
+  das Feld.
+- **Herstellerneutrale Texte im Assistenten:** Der Regelhinweis wird je Hebelsatz angezeigt statt fest auf die
+  Vaillant-Parallelverschiebung zugeschnitten.
+
 ## 0.12.0
 
 - **Hersteller-Abstraktion (Plan 3c):** Katalog v3. Der Wizard erkennt neben myVAILLANT auch Weishaupt (`weishaupt_modbus`)

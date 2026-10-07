@@ -33,10 +33,10 @@
       },
       "plant_values": {
         "title": "Heating values",
-        "description": "Pre-filled from your heating system, please check:\n{origins}\nOnly sensors with a matching device class (e.g. \"Temperature\") are offered. SmartHeat sets the heating zone to \"Manual\" and controls its target temperature itself; the minimum flow temperature follows your target temperature at the room thermostat.",
+        "description": "Pre-filled from your heating system, please check:\n{origins}\nOnly sensors with a matching device class (e.g. \"Temperature\") are offered. {regelhinweis}",
         "data": {
           "entity_curve_current": "Heating curve",
-          "entity_shift_current": "Room setpoint or zone (parallel shift)",
+          "entity_shift_current": "Room setpoint or zone",
           "entity_level_current": "Heating curve level",
           "entity_mode_select": "Operating mode or heating program",
           "entity_setpoint_comfort": "Room setpoint comfort",
@@ -154,7 +154,7 @@
           "room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature",
           "notify_services": "Phones", "battery_entities": "Monitored batteries",
           "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
-          "hint_manueller_eingriff": "Notify about a manual change of the heating curve or the parallel shift",
+          "hint_manueller_eingriff": "Notify about a manual change of a value controlled by SmartHeat",
           "hint_quellwechsel": "Notify about a changed temperature source",
           "hint_therme": "Notify when the boiler delivers no heat",
           "hint_schreibbudget": "Notify when the daily limit for write operations is reached",
@@ -254,7 +254,7 @@
     "access_denied": "The SmartHeat server denied access: {grund}",
     "profile_rejected": "The SmartHeat server rejected the chosen heating profile. Please choose another combination or contact support.",
     "role_entity_curve_current": "Heating curve",
-    "role_entity_shift_current": "Parallel shift",
+    "role_entity_shift_current": "Room setpoint or zone",
     "role_entity_min_flow": "Minimum flow temperature",
     "role_entity_heat_limit": "Heating limit",
     "role_entity_outdoor_temp": "Outdoor temperature",
@@ -296,11 +296,15 @@
     "rollback_reconfigure_incomplete": "“Reconfigure” was cancelled, but not every step of the restore succeeded:",
     "open_step_supervisor": "The Supervisor was unreachable. Please stop the add-ons Heizungsbrücke and Cloudflared Access TCP-Bridge manually under Settings → Add-ons.",
     "open_step_foreign_tenant": "The add-ons belong to another SmartHeat installation and were left untouched.",
-    "open_step_no_sign_off": "Heizungsbrücke did not confirm the sign-off and was stopped anyway. Please check heating curve and zone in the manufacturer's app: boost values (curve 1.5, shift 25) may have been left in place.",
+    "open_step_no_sign_off": "Heizungsbrücke did not confirm the sign-off and was stopped anyway. Please check the heating circuit's values in the manufacturer's app: boost values (SmartHeat's local maximum values) may have been left in place.",
     "open_step_stop": "An add-on could not be stopped. Please stop it manually under Settings → Add-ons.",
     "open_step_revoke": "The credentials could not be revoked on the SmartHeat server. They will be replaced at the next setup.",
     "open_step_clear": "The credentials could not be removed from the add-on options. Please uninstall the add-ons if SmartHeat is no longer used.",
     "open_step_profile": "The previous heating profile could not be restored on the SmartHeat server. Please run “Reconfigure” again.",
-    "open_step_addons": "The previous add-on settings could not be restored. Please run “Reconfigure” again."
+    "open_step_addons": "The previous add-on settings could not be restored. Please run “Reconfigure” again.",
+    "regelhinweis_vaillant_vrc720": "SmartHeat sets the heating zone to \"Manual\" and controls its target temperature itself; the minimum flow temperature follows your target temperature at the room thermostat.",
+    "regelhinweis_weishaupt_wwp": "SmartHeat sets the heating circuit's operating mode to \"Normal\" and controls the heating curve, the normal room setpoint and the summer/winter switch itself; it only moves the comfort and setback setpoints when the normal setpoint would not fit between them otherwise.",
+    "regelhinweis_weishaupt_wwp_basis": "SmartHeat sets the heating circuit's operating mode to \"Normal\" and controls the normal room setpoint itself; the heating curve stays as it is. It only moves the comfort and setback setpoints when the normal setpoint would not fit between them otherwise.",
+    "regelhinweis_viessmann_vicare": "SmartHeat ends an active comfort or eco program and controls the slope, the level and the normal temperature of the heating circuit itself."
   }
 }
