@@ -3,6 +3,23 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.14.0
+
+- **Server-Antwort wird geprüft:** Aus der Antwort des SmartHeat-Servers übernimmt der Assistent nur noch die
+  bekannten Profilparameter. Meldet der Server ein anderes Verteilsystem, als Sie gewählt haben, bricht die Einrichtung
+  mit einem eigenen Hinweis ab, damit im Add-on keine falschen Sicherheitsgrenzen gelten.
+- **Wunschtemperatur:** Die Wunschtemperatur darf nicht von der Heizungsanlage selbst stammen, auch nicht von einer
+  anderen Entity desselben Geräts (z. B. dem Sollwert-Sensor der Zone). Ein eigenes Raumthermostat bleibt zulässig.
+- **Abbruch von „Neu konfigurieren“:** Hat der abgebrochene Lauf bereits neue Zugangsdaten ausgestellt, bleiben diese
+  erhalten; die Add-ons bekommen den gesicherten Stand plus den neuen Zugang, das Profil geht zurück. Bei der
+  Ersteinrichtung wird ein neu ausgestellter Zugang jetzt auch dann widerrufen, wenn das Schreiben der Add-on-Optionen
+  scheiterte.
+- **Profil abgelehnt:** Lehnt der Server einen Profilwechsel ab (Betreiber-Override passt nicht zum neuen Profil), zeigt
+  der Assistent den Hinweis „Profil abgelehnt, Support kontaktieren“ statt „später erneut versuchen“.
+- **Logs:** Fehler des Supervisors werden nur noch mit ihrem Typnamen geloggt, weil ihr Text Optionswerte zitieren kann.
+- Für `client1` ohne Wirkung auf die Regelung; Server und Integration lassen sich in beliebiger Reihenfolge
+  aktualisieren (Statusereignis und Optionsschema unverändert). Nach dem Update ist kein „Neu konfigurieren“ nötig.
+
 ## 0.13.0
 
 - **Erkennung mit Alternativen je Rolle:** `weishaupt_modbus` 2.0 wird neben 1.x erkannt (Katalog-Feld `alternatives`:
