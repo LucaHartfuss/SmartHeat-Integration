@@ -3,13 +3,20 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
-## Unveröffentlicht
+## 0.13.0
 
 - **Erkennung mit Alternativen je Rolle:** `weishaupt_modbus` 2.0 wird neben 1.x erkannt (Katalog-Feld `alternatives`:
-  je Rolle ein primärer Matcher und optionale Alternativen, der erste Treffer gilt). Ältere Integrationen ignorieren
-  das Feld.
-- **Herstellerneutrale Texte im Assistenten:** Der Regelhinweis wird je Hebelsatz angezeigt statt fest auf die
-  Vaillant-Parallelverschiebung zugeschnitten.
+  je Rolle ein primärer Matcher und optionale Alternativen, der erste Treffer gilt; die Heizkreisnummer darf an
+  beliebiger Stelle der `unique_id` stehen, in 2.0 als `heating_circuit<n>`). Ältere Integrationen ignorieren das Feld.
+  Die Erkennung der Vaillant-Anlagen (`client1`) bleibt unverändert.
+- **Herstellerneutrale Texte im Assistenten:** Der Regelhinweis im Schritt „Anlagenwerte“ wird je Hebelsatz angezeigt
+  (Vaillant, Weishaupt mit und ohne Heizkennlinie, Viessmann) statt fest auf die Vaillant-Parallelverschiebung
+  zugeschnitten. Das Feld heißt „Raum-Soll bzw. Zone“, der Hinweis „manuelle Änderung“ gilt für jeden von SmartHeat
+  geregelten Wert, und die Meldung bei nicht bestätigter Abmeldung nennt keine Vaillant-Werte mehr (Deutsch und
+  Englisch).
+- Für `client1` ohne Wirkung auf die Regelung; Add-on `heizungsbruecke` 0.34.0 und diese Version lassen sich in
+  beliebiger Reihenfolge aktualisieren (Statusereignis und Optionsschema unverändert; der Assistent verlangt weiterhin
+  mindestens Add-on 0.33.0).
 
 ## 0.12.0
 
