@@ -7,6 +7,7 @@ from homeassistant.components.hassio import AddonError
 
 from custom_components.smartheat import provisioning, setup_rollback
 from custom_components.smartheat.api_client import ApiError
+from custom_components.smartheat.const import PROBLEM_ADDONS, PROBLEM_REVOKE
 from custom_components.smartheat.setup_rollback import ReconfigureSnapshot
 from custom_components.smartheat.texts import async_hint
 
@@ -140,6 +141,41 @@ async def test_first_setup_rollback_treats_an_already_revoked_token_as_done(hass
     await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
 
     assert created[0][1] == await async_hint(hass, "rollback_first_setup")
+
+
+async def test_first_setup_rollback_lists_a_revoke_failing_twice_only_once(hass, monkeypatch, created):
+    monkeypatch.setattr(f"{SR}.async_sign_off", AsyncMock(return_value=[PROBLEM_REVOKE]))
+    client = AsyncMock()
+    client.delete_installation.return_value = None
+
+    await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
+
+    assert created[0][1].splitlines() == [
+        await async_hint(hass, "rollback_first_setup_incomplete"), "- " + await async_hint(hass, "open_step_revoke"),
+    ]
+
+
+async def test_first_setup_rollback_drops_the_revoke_problem_when_the_direct_revoke_works(hass, monkeypatch, created):
+    # Das Abmelden konnte die Optionen nicht lesen und hat nicht widerrufen; der direkte Widerruf gelingt.
+    monkeypatch.setattr(f"{SR}.async_sign_off", AsyncMock(return_value=[PROBLEM_REVOKE]))
+    client = AsyncMock()
+    client.delete_installation.return_value = 204
+
+    await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
+
+    assert created[0][1] == await async_hint(hass, "rollback_first_setup")
+
+
+async def test_first_setup_rollback_keeps_other_problems_when_the_direct_revoke_works(hass, monkeypatch, created):
+    monkeypatch.setattr(f"{SR}.async_sign_off", AsyncMock(return_value=[PROBLEM_REVOKE, PROBLEM_ADDONS]))
+    client = AsyncMock()
+    client.delete_installation.return_value = 204
+
+    await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
+
+    assert created[0][1].splitlines() == [
+        await async_hint(hass, "rollback_first_setup_incomplete"), "- " + await async_hint(hass, "open_step_addons"),
+    ]
 
 
 def _iot_transport():

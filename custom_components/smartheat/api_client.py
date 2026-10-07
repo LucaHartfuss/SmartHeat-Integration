@@ -47,7 +47,8 @@ class AccessDenied(ApiError):
 
 
 class ProfileRejected(ApiError):
-    """400 beim Profilwechsel: der Server lehnt das Profil ab."""
+    """400/409 beim Profilwechsel: der Server lehnt das Profil ab (409: ein Betreiber-Override passt nicht zum neuen
+    Profil)."""
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -89,7 +90,7 @@ class HeizungsserverClient:
         body = await self._request(
             "POST", f"/tenants/{tenant_id}/provision", "Provisioning",
             json={"profile_id": profile_id, "csr": csr, "client_type": CLIENT_TYPE_HA, "client_version": client_version},
-            headers=_bearer(token),
+            headers=_bearer(token), on_409=ProfileRejected,
         )
         if not isinstance(body, dict):
             raise InvalidResponse("Provisioning-Antwort ist kein Objekt")
@@ -100,7 +101,8 @@ class HeizungsserverClient:
         profile_params fuer die Add-on-Optionen."""
         body = await self._request(
             "POST", PROFILE_PATH.format(tenant_id=tenant_id), "Profilwechsel",
-            json={"profile_id": profile_id}, headers=_bearer(token), on_400=ProfileRejected,
+            json={"profile_id": profile_id}, headers=_bearer(token),
+            on_400=ProfileRejected, on_409=ProfileRejected,
         )
         if not isinstance(body, dict) or not isinstance(body.get("profile_params"), dict):
             raise InvalidResponse("Profil-Antwort ohne gueltiges 'profile_params'")
@@ -135,6 +137,7 @@ class HeizungsserverClient:
 
     async def _check_status(
         self, response: aiohttp.ClientResponse, what: str, ok: tuple[int, ...], on_400: type[ApiError],
+        on_409: type[ApiError],
     ) -> None:
         if response.status in ok:
             return
@@ -147,17 +150,19 @@ class HeizungsserverClient:
             raise AccessDenied(text)
         if response.status == 400:
             raise on_400(f"{what} abgelehnt (HTTP 400): {text}")
+        if response.status == 409:
+            raise on_409(f"{what} abgelehnt (HTTP 409): {text}")
         raise ApiError(f"{what} fehlgeschlagen (HTTP {response.status})")
 
     async def _request(
         self, method: str, path: str, what: str, *, ok: tuple[int, ...] = (200,),
-        on_400: type[ApiError] = ApiError, expect_json: bool = True, **kwargs: Any,
+        on_400: type[ApiError] = ApiError, on_409: type[ApiError] = ApiError, expect_json: bool = True, **kwargs: Any,
     ) -> Any:
         """Eine Anfrage mit Zeitlimit; liefert den JSON-Body (None bei 204 oder expect_json=False)."""
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
                 async with self._session.request(method, f"{self._base_url}{path}", **kwargs) as response:
-                    await self._check_status(response, what, ok, on_400)
+                    await self._check_status(response, what, ok, on_400, on_409)
                     if response.status == 204 or not expect_json:
                         return None
                     return await self._read_json(response, f"{what}: Antwort ist kein gueltiges JSON")

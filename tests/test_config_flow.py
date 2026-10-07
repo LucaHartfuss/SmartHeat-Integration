@@ -15,7 +15,14 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import provisioning, setup_rollback
-from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
+from custom_components.smartheat.api_client import (
+    AccessDenied,
+    ApiError,
+    CannotConnect,
+    InvalidAuth,
+    InvalidResponse,
+    ProfileRejected,
+)
 from custom_components.smartheat.const import DOMAIN, LEVER_SET_FIELDS
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
@@ -913,6 +920,18 @@ async def test_provision_failure_is_a_setup_failure(hass, monkeypatch):
 
     assert result["step_id"] == "setup_failed"
     assert result["description_placeholders"]["grund"]
+
+
+async def test_provision_conflict_is_a_profile_rejection(hass, monkeypatch):
+    # HTTP 409 vom Server (Betreiber-Override passt nicht zum Profil): Hinweis "Support kontaktieren", nicht "spaeter"
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    mocks.provision.side_effect = ProfileRejected("409")
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "profile_rejected")
 
 
 @pytest.mark.parametrize("profile_params", [None, "Heizkoerper", ["x"]])

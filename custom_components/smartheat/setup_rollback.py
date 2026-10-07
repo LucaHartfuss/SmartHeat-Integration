@@ -1,8 +1,9 @@
 """Rueckbau eines abgebrochenen Wizard-Laufs (Spec TP12c 3.2): Wurde schon in die Add-ons
 geschrieben und der Lauf nicht abgeschlossen, setzt die Ersteinrichtung alles zurueck (wie das
 Entfernen) und Neu konfigurieren stellt den Stand vor dem ersten Schreiben wieder her. Hat der Lauf
-nur den Server geaendert (Zugangsdaten ausgestellt, Profil gewechselt), wird nur dort
-zurueckgenommen; die Add-ons bleiben unberuehrt. Jeder Schritt best effort und einzeln
+nur den Server geaendert (Ersteinrichtung: Zugangsdaten ausgestellt; Neu konfigurieren: Profil gewechselt, ohne
+neue Zugangsdaten), wird nur dort zurueckgenommen; die Add-ons bleiben unberuehrt. Mit neuen Zugangsdaten behaelt
+Neu konfigurieren diese (async_rollback_reconfigure, nichts wird widerrufen). Jeder Schritt best effort und einzeln
 protokolliert; am Ende eine Benachrichtigung mit den offenen Schritten."""
 from __future__ import annotations
 
@@ -57,8 +58,13 @@ async def async_rollback_first_setup(
     Optionen (Audit 4, A4-39). Ein schon widerrufener Zugang antwortet 401, das zaehlt als erledigt."""
     _LOGGER.info("Rueckbau der abgebrochenen Ersteinrichtung gestartet")
     problems = await async_sign_off(hass, tenant_id, notify=False)
-    if client is not None and new_token is not None and not await _async_revoke(client, tenant_id, new_token):
-        problems.append(PROBLEM_REVOKE)
+    if client is not None and new_token is not None:
+        # Das direkte Widerrufen entscheidet: gelang es, ist ein Widerrufsproblem des Abmeldens erledigt (es konnte die
+        # Optionen nicht lesen); scheiterte es, wird der Schritt nur einmal gelistet.
+        if await _async_revoke(client, tenant_id, new_token):
+            problems = [problem for problem in problems if problem != PROBLEM_REVOKE]
+        elif PROBLEM_REVOKE not in problems:
+            problems.append(PROBLEM_REVOKE)
     _LOGGER.info("Rueckbau der Ersteinrichtung beendet, offene Schritte: %s", problems or "keine")
     await async_notify_open_steps(
         hass, setup_notification_id(tenant_id), _headline("rollback_first_setup", problems), problems,
@@ -87,8 +93,10 @@ async def async_rollback_server_only(
     new_token: str | None, previous_profile_id: str | None, profile_id: str | None,
 ) -> None:
     """Abbruch, bevor in die Add-ons geschrieben wurde: nur die Aenderungen auf dem Server
-    zuruecknehmen (neu ausgestellte Zugangsdaten widerrufen, beim Neu konfigurieren das Profil
-    zuruecksetzen). Kein Abmelden, kein Neustart. Dieselbe Benachrichtigung wie der volle Rueckbau."""
+    zuruecknehmen (Ersteinrichtung: neu ausgestellte Zugangsdaten widerrufen; Neu konfigurieren ohne neue
+    Zugangsdaten: das Profil zuruecksetzen). Mit neuen Zugangsdaten beim Neu konfigurieren ruft der Aufrufer stattdessen
+    async_rollback_reconfigure (keep_access) auf. Kein Abmelden, kein Neustart. Dieselbe Benachrichtigung wie der volle
+    Rueckbau."""
     _LOGGER.info("Rueckbau ohne geschriebene Add-ons gestartet (nur Server)")
     problems = await _async_undo_server_changes(client, token, tenant_id, new_token, previous_profile_id, profile_id)
     _LOGGER.info("Rueckbau ohne geschriebene Add-ons beendet, offene Schritte: %s", problems or "keine")

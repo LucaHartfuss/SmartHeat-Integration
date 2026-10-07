@@ -1055,6 +1055,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         except AccessDenied as error:
             self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
             return "setup_failed"
+        except ProfileRejected:
+            self._setup_error = await self._hint("profile_rejected")
+            return "setup_failed"
         except ApiError:
             self._setup_error = await self._hint("provisioning_failed")
             return "setup_failed"
