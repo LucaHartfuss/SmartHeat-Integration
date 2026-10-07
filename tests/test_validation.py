@@ -2,7 +2,10 @@
 from datetime import timedelta
 
 import pytest
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import validation
 from custom_components.smartheat.validation import (
@@ -146,3 +149,22 @@ def test_entity_selector_uses_lever_set_domains():
     assert selector.config["filter"] == [{"domain": ["select"]}]
     selector = validation.entity_selector("entity_shift_current", domains=["number"])
     assert selector.config["filter"] == [{"domain": ["number"]}]
+
+
+async def test_room_target_from_the_device_of_a_write_target_is_a_mirror(hass):
+    # Audit 4, A4-12 (IT-1): Zonen-Sollwert-Sensor und beschriebene Zone gehoeren zum selben Geraet
+    entry = MockConfigEntry(domain="mypyllant")
+    entry.add_to_hass(hass)
+    zone = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, identifiers={("mypyllant", "z1")})
+    room = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, identifiers={("mypyllant", "r1")})
+    registry = er.async_get(hass)
+    registry.async_get_or_create("climate", "mypyllant", "zone1", device_id=zone.id, suggested_object_id="zone")
+    registry.async_get_or_create("sensor", "mypyllant", "zone1_desired", device_id=zone.id,
+                                 suggested_object_id="zone_desired")
+    registry.async_get_or_create("climate", "mypyllant", "room1", device_id=room.id, suggested_object_id="raum")
+
+    assert validation.room_target_mirrors_plant(hass, "sensor.zone_desired", ["climate.zone"]) is True
+    assert validation.room_target_mirrors_plant(hass, "climate.zone::temperature", ["climate.zone"]) is True
+    # Review Focus 4: eigenes Raumthermostat (anderes Geraet, gleiche Integration) bleibt zulaessig
+    assert validation.room_target_mirrors_plant(hass, "climate.raum::temperature", ["climate.zone"]) is False
+    assert validation.room_target_mirrors_plant(hass, "sensor.ohne_registry", ["climate.zone"]) is False

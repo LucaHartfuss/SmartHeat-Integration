@@ -111,7 +111,7 @@
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
       "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
       "wrong_domain": "Diese Entity passt nicht zu diesem Feld",
-      "zone_is_room_target": "Die Heizzone kann nicht gleichzeitig Raum-Soll (Wunschtemperatur) sein: SmartHeat schreibt die Parallelverschiebung in die Zone. Bitte für die Wunschtemperatur ein Raumthermostat oder einen Fühler wählen",
+      "zone_is_room_target": "Die Wunschtemperatur darf nicht von der Heizungsanlage selbst stammen (gleiches Gerät wie ein Wert, den SmartHeat schreibt, z. B. die Zone oder ihr Sollwert-Sensor). Bitte ein Raumthermostat oder einen Fühler wählen",
       "room_sensors_required": "Mindestens einen Raumtemperaturfühler wählen",
       "advanced_invalid": "Bitte die Felder unter „Erweitert“ prüfen",
       "warnings_not_confirmed": "Bitte alle Hinweise bestätigen",
@@ -185,7 +185,7 @@
       "out_of_range": "Der Wert liegt außerhalb des physikalisch plausiblen Bereichs",
       "duplicate_entity": "Dieselbe Entity ist zwei Rollen zugeordnet",
       "wrong_domain": "Diese Entity passt nicht zu diesem Feld",
-      "zone_is_room_target": "Die Heizzone kann nicht gleichzeitig Raum-Soll (Wunschtemperatur) sein: SmartHeat schreibt die Parallelverschiebung in die Zone. Bitte für die Wunschtemperatur ein Raumthermostat oder einen Fühler wählen",
+      "zone_is_room_target": "Die Wunschtemperatur darf nicht von der Heizungsanlage selbst stammen (gleiches Gerät wie ein Wert, den SmartHeat schreibt, z. B. die Zone oder ihr Sollwert-Sensor). Bitte ein Raumthermostat oder einen Fühler wählen",
       "warnings_not_confirmed": "Bitte alle Hinweise bestätigen"
     },
     "abort": {"setup_incomplete": "Bitte zuerst die Einrichtung abschließen: SmartHeat-Eintrag öffnen und ⋮ → „Neu konfigurieren“ wählen."}

@@ -31,6 +31,7 @@ from .const import (
     STATUS_WAIT_SECONDS,
     STATUS_ZUGANG_ABGELEHNT,
     entry_incomplete,
+    write_role_fields,
 )
 from .flow_progress import ProgressFlowMixin
 from .supervisor_client import (
@@ -139,7 +140,12 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
                 **{field: [entity] for field, entity in plant.items()},
             })
             errors = {field: error for field, error in duplicates.items() if field in ROOM_FIELDS}
-            if validation.zone_is_room_target(plant.get("entity_shift_current", ""), target):
+            lever_set = self.config_entry.data.get("lever_set", "")
+            writes = (
+                [plant[field] for field in write_role_fields(lever_set) if plant.get(field)]
+                if lever_set else list(plant.values())
+            )
+            if validation.room_target_mirrors_plant(self.hass, target, writes):
                 errors[OPTION_ENTITY_ROOM_TARGET] = validation.ERROR_ZONE_IS_ROOM_TARGET
         chosen = user_input.get(OPTION_NOTIFY_SERVICES) or []
         new = {

@@ -111,7 +111,7 @@
       "out_of_range": "The value is outside the physically plausible range",
       "duplicate_entity": "The same entity is used for two roles",
       "wrong_domain": "This entity does not fit this field",
-      "zone_is_room_target": "The heating zone cannot also provide the desired room temperature: SmartHeat writes the parallel shift into the zone. Choose a room thermostat or sensor for the desired temperature",
+      "zone_is_room_target": "The desired room temperature cannot come from the heating system itself (the same device as a value SmartHeat writes, e.g. the zone or its setpoint sensor). Choose a room thermostat or sensor",
       "room_sensors_required": "Choose at least one room temperature sensor",
       "advanced_invalid": "Please check the fields under 'Advanced'",
       "warnings_not_confirmed": "Please confirm all notes",
@@ -185,7 +185,7 @@
       "out_of_range": "The value is outside the physically plausible range",
       "duplicate_entity": "The same entity is used for two roles",
       "wrong_domain": "This entity does not fit this field",
-      "zone_is_room_target": "The heating zone cannot also provide the desired room temperature: SmartHeat writes the parallel shift into the zone. Choose a room thermostat or sensor for the desired temperature",
+      "zone_is_room_target": "The desired room temperature cannot come from the heating system itself (the same device as a value SmartHeat writes, e.g. the zone or its setpoint sensor). Choose a room thermostat or sensor",
       "warnings_not_confirmed": "Please confirm all notes"
     },
     "abort": {"setup_incomplete": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure."}

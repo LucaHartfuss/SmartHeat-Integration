@@ -48,11 +48,23 @@ def entity_of(ref: str) -> str:
     return ref.partition("::")[0]
 
 
-def zone_is_room_target(shift_ref: str, room_target_ref: str) -> bool:
-    """Zone (Parallelverschiebung, geschrieben vom Add-on) und Raum-Soll (gelesen als Kundenwunsch) auf
-    derselben Entity waeren eine Rueckkopplung. `duplicate_fields` sieht das nicht, weil das Raum-Soll
-    als `climate.z::temperature`, die Zone als `climate.z` gespeichert ist."""
-    return bool(shift_ref) and entity_of(shift_ref) == entity_of(room_target_ref)
+def room_target_mirrors_plant(hass: HomeAssistant, room_target_ref: str, write_refs: list[str]) -> bool:
+    """Die Wunschtemperatur (gelesen als Kundenwunsch) spiegelt ein Schreibziel des Add-ons, wenn sie dieselbe Entity
+    ist oder zum selben Geraet gehoert (z. B. mypyllant-Sensor der Zonen-Wunschtemperatur neben der beschriebenen Zone):
+    jede Erhoehung der Verschiebung saehe wie eine Soll-Erhoehung aus (Audit 4, A4-12). Ein eigenes Raumthermostat
+    derselben Integration ist ein anderes Geraet und bleibt zulaessig. `duplicate_fields` sieht das nicht, weil das
+    Raum-Soll als `climate.z::temperature`, die Zone als `climate.z` gespeichert ist."""
+    target = entity_of(room_target_ref)
+    writes = {entity_of(ref) for ref in write_refs if ref}
+    if target in writes:
+        return True
+    registry = er.async_get(hass)
+    entry = registry.async_get(target)
+    if entry is None or entry.device_id is None:
+        return False
+    return any(
+        (other := registry.async_get(write)) is not None and other.device_id == entry.device_id for write in writes
+    )
 
 
 def _domain(entity_id: str) -> str:

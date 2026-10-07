@@ -701,8 +701,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                     **{field: [entity_id] for field, entity_id in kpi.items()},
                 })
                 errors = {field: error for field, error in duplicates.items() if field in plant or field in kpi}
-                shift = plant.get("entity_shift_current", "")
-                if shift.startswith("climate.") and validation.zone_is_room_target(shift, room_target):
+                writes = [plant[field] for field in write_role_fields(lever_set) if plant.get(field)]
+                if validation.room_target_mirrors_plant(self.hass, room_target, writes):
                     errors["entity_shift_current"] = validation.ERROR_ZONE_IS_ROOM_TARGET
             if any(field in kpi_fields for field in errors):
                 errors["base"] = "advanced_invalid"
