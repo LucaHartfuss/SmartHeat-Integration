@@ -3,13 +3,14 @@ docs/superpowers/specs/2026-09-26-profilkatalog-design.md, 3.1). Der Server lief
 keine Regex: Suffixe sind Literale mit hoechstens einem Platzhalter {circuit} oder (Katalog v2) {index} samt circuit_in_name.
 Katalog v3 (Plan 3c): Hebel-Matcher, kreisbildende Rollen je Deskriptor, {circuit_opt}, Hebelsaetze je Profil. Eine ungueltige
 Integrations-Beschreibung wird verworfen und geloggt, nicht der ganze Katalog. Unbekannte Felder
-werden ignoriert."""
+werden ignoriert. Je Rolle optionale Alternativen (weitere unique_id-Schemata derselben Integration, Plan
+Client2-Bereitschaft); {circuit_opt} an beliebiger Stelle."""
 from __future__ import annotations
 
 import logging
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,7 +18,8 @@ CIRCUIT_PLACEHOLDER = "{circuit}"
 # Beliebige Nummer in der unique_id, nicht die Kreisnummer (Katalog v2, TP12c); der Kreis steht dann
 # im Namen (circuit_in_name).
 INDEX_PLACEHOLDER = "{index}"
-# Optionale Kreisnummer am Ende der unique_id (Katalog v3, Plan 3c): weishaupt_modbus nennt Heizkreis 1 ohne Nummer.
+# Optionale Kreisnummer in der unique_id (Katalog v3, Plan 3c; seit 2026-10-07 an beliebiger Stelle): weishaupt_modbus
+# nennt Heizkreis 1 ohne Nummer (1.x am Ende, 2.0 in heating_circuit<n>).
 CIRCUIT_OPT_PLACEHOLDER = "{circuit_opt}"
 CIRCUIT_OPT_DEFAULT = "1"
 _PLACEHOLDERS = (CIRCUIT_PLACEHOLDER, INDEX_PLACEHOLDER, CIRCUIT_OPT_PLACEHOLDER)
@@ -30,6 +32,12 @@ class RoleMatcher:
     unique_id_suffix: str | None = None
     original_name_suffix: str | None = None
     circuit_in_name: str | None = None
+    # Weitere Namensschemata derselben Integration (z.B. weishaupt_modbus 2.0 neben 1.x); nur unique_id_suffix.
+    alternatives: tuple[RoleMatcher, ...] = ()
+
+    def candidates(self) -> tuple[RoleMatcher, ...]:
+        """Der Matcher selbst, danach seine Alternativen."""
+        return (self, *self.alternatives)
 
     def uid_pattern(self) -> re.Pattern | None:
         if self.unique_id_suffix is None:
@@ -96,6 +104,25 @@ def _text(raw: dict, key: str) -> str:
     return value
 
 
+def _with_alternatives(matcher: RoleMatcher, role: str, raw: dict, *, circuit_scoped: bool, defining: tuple[str, ...]) -> RoleMatcher:
+    """Alternativen (Plan Client2-Bereitschaft): Liste von Matchern mit derselben entity_domain, nur unique_id_suffix,
+    ohne circuit_in_name und ohne eigene Alternativen; Platzhalter-Regeln wie beim Matcher selbst."""
+    raw_alternatives = raw.get("alternatives")
+    if raw_alternatives is None:
+        return matcher
+    if not isinstance(raw_alternatives, list):
+        raise _Invalid(f"{role}: alternatives ist keine Liste")
+    alternatives = []
+    for item in raw_alternatives:
+        if not isinstance(item, dict) or "alternatives" in item or "circuit_in_name" in item or "unique_id_suffix" not in item:
+            raise _Invalid(f"{role}: Alternative nur mit unique_id_suffix, ohne circuit_in_name und eigene Alternativen")
+        alternative = _matcher(role, item, circuit_scoped=circuit_scoped, defining=defining)
+        if alternative.entity_domain != matcher.entity_domain:
+            raise _Invalid(f"{role}: Alternative mit anderer entity_domain {alternative.entity_domain!r}")
+        alternatives.append(alternative)
+    return replace(matcher, alternatives=tuple(alternatives))
+
+
 def _matcher(role: str, raw, *, circuit_scoped: bool, defining: tuple[str, ...]) -> RoleMatcher:
     if not isinstance(raw, dict):
         raise _Invalid(f"{role}: kein Objekt")
@@ -104,6 +131,8 @@ def _matcher(role: str, raw, *, circuit_scoped: bool, defining: tuple[str, ...])
     if (uid is None) == (name is None):
         raise _Invalid(f"{role}: genau eine Suchart erwartet")
     if uid is None:
+        if raw.get("alternatives") is not None:
+            raise _Invalid(f"{role}: alternatives nur mit unique_id_suffix")
         if circuit_scoped:
             raise _Invalid(f"{role}: kreisbezogene Rolle braucht unique_id_suffix")
         if in_name is not None:
@@ -120,14 +149,14 @@ def _matcher(role: str, raw, *, circuit_scoped: bool, defining: tuple[str, ...])
     if "{" in rest or "}" in rest:
         raise _Invalid(f"{role}: unbekannter Platzhalter in {uid!r}")
     used = sum(counts.values())
-    if counts[CIRCUIT_OPT_PLACEHOLDER] and not uid.endswith(CIRCUIT_OPT_PLACEHOLDER):
-        raise _Invalid(f"{role}: {CIRCUIT_OPT_PLACEHOLDER} nur am Ende von {uid!r}")
     if in_name is None:
         # Kreisbezogene Rollen brauchen genau einen {circuit} oder {circuit_opt} (daraus kommt die
         # Kreisnummer), anlagenweite keinen; {index} nur zusammen mit circuit_in_name.
         if counts[INDEX_PLACEHOLDER] or used != (1 if circuit_scoped else 0):
             raise _Invalid(f"{role}: falsche Platzhalter in {uid!r}")
-        return RoleMatcher(entity_domain, unique_id_suffix=uid)
+        return _with_alternatives(
+            RoleMatcher(entity_domain, unique_id_suffix=uid), role, raw, circuit_scoped=circuit_scoped, defining=defining,
+        )
     if not circuit_scoped or role in defining:
         raise _Invalid(f"{role}: circuit_in_name hier nicht erlaubt")
     if counts[INDEX_PLACEHOLDER] != 1 or used != 1:
@@ -137,7 +166,10 @@ def _matcher(role: str, raw, *, circuit_scoped: bool, defining: tuple[str, ...])
         or "{" in in_name.replace(CIRCUIT_PLACEHOLDER, "") or "}" in in_name.replace(CIRCUIT_PLACEHOLDER, "")
     ):
         raise _Invalid(f"{role}: circuit_in_name ungueltig")
-    return RoleMatcher(entity_domain, unique_id_suffix=uid, circuit_in_name=in_name)
+    return _with_alternatives(
+        RoleMatcher(entity_domain, unique_id_suffix=uid, circuit_in_name=in_name), role, raw,
+        circuit_scoped=circuit_scoped, defining=defining,
+    )
 
 
 def _poll_interval(raw) -> PollIntervalOption | None:

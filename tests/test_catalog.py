@@ -182,8 +182,9 @@ def test_circuit_opt_matches_with_and_without_number():
     ({"circuit_defining_roles": []}, "kreisbildend"),
     ({"circuit_defining_roles": ["level"]}, "kreisbildend"),
     ({"hinweis": ""}, "hinweis"),
-    ({"circuit_scoped_roles": {"room_setpoint": {"entity_domain": "number", "unique_id_suffix": "X{circuit_opt}Y"},
-                               "mode_select": {"entity_domain": "select", "unique_id_suffix": "B{circuit_opt}"}}}, "Ende"),
+    ({"circuit_scoped_roles": {"room_setpoint": {"entity_domain": "number", "unique_id_suffix": "X{circuit_opt}Y{circuit_opt}"},
+                               "mode_select": {"entity_domain": "select", "unique_id_suffix": "B{circuit_opt}"}}},
+     "Platzhalter"),
 ])
 def test_invalid_v3_descriptor_is_dropped(caplog, change, reason):
     raw = {**next(d for d in CATALOG["integrations"] if d["domain"] == "weishaupt_modbus"), **change}
@@ -206,3 +207,51 @@ def test_verified_profiles_need_model_and_lever_sets():
     assert verified_profiles({"profiles": [vaillant]}) == [vaillant]
     assert verified_profiles({"profiles": [{**vaillant, "model": None}]}) == []
     assert verified_profiles({"profiles": [{**vaillant, "lever_sets": []}]}) == []
+
+
+def _weishaupt_raw():
+    return copy.deepcopy(next(d for d in CATALOG["integrations"] if d["domain"] == "weishaupt_modbus"))
+
+
+def test_alternatives_are_parsed_per_role():
+    [descriptor] = parse_integrations({"integrations": [_weishaupt_raw()]})
+    curve = descriptor.circuit_roles["curve"]
+    assert [m.unique_id_suffix for m in curve.candidates()] == [
+        "Heizkennlinie{circuit_opt}", "heating_circuit{circuit_opt}_heating_curve",
+    ]
+    assert descriptor.circuit_roles["mode_select"].candidates()[0].alternatives != ()
+    assert RoleMatcher("sensor", unique_id_suffix="x").candidates() == (RoleMatcher("sensor", unique_id_suffix="x"),)
+
+
+@pytest.mark.parametrize("alternative", [
+    {"entity_domain": "sensor", "unique_id_suffix": "heating_circuit{circuit_opt}_heating_curve"},
+    {"entity_domain": "number", "original_name_suffix": "Heizkurve"},
+    {"entity_domain": "number", "unique_id_suffix": "heating_curve"},
+    {"entity_domain": "number", "unique_id_suffix": "x{circuit_opt}", "alternatives": []},
+    "kein Objekt",
+])
+def test_an_invalid_alternative_drops_the_descriptor(alternative):
+    raw = _weishaupt_raw()
+    raw["circuit_scoped_roles"]["curve"]["alternatives"] = [alternative]
+    assert parse_integrations({"integrations": [raw]}) == []
+
+
+def test_alternatives_must_be_a_list_and_need_a_uid_matcher():
+    raw = _weishaupt_raw()
+    raw["circuit_scoped_roles"]["curve"]["alternatives"] = {"entity_domain": "number"}
+    assert parse_integrations({"integrations": [raw]}) == []
+    raw = _weishaupt_raw()
+    raw["system_roles"]["energy_thermal_heating"] = {
+        "entity_domain": "sensor", "original_name_suffix": "Heat", "alternatives": [
+            {"entity_domain": "sensor", "unique_id_suffix": "statistics_heating_energy_today"}],
+    }
+    assert parse_integrations({"integrations": [raw]}) == []
+
+
+def test_circuit_opt_may_stand_inside_the_suffix():
+    raw = _weishaupt_raw()
+    raw["circuit_scoped_roles"]["curve"] = {"entity_domain": "number", "unique_id_suffix": "heating_circuit{circuit_opt}_heating_curve"}
+    [descriptor] = parse_integrations({"integrations": [raw]})
+    pattern = descriptor.circuit_roles["curve"].uid_pattern()
+    assert pattern.search("02:00:00:00:00:01_heating_circuit2_heating_curve").group(1) == "2"
+    assert pattern.search("02:00:00:00:00:01_heating_circuit_heating_curve").group(1) == ""

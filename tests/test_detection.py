@@ -343,3 +343,28 @@ def test_mypyllant_system_roles_unchanged_by_exact_matching():
     found = system_role_suggestions(_MYPYLLANT, circuit, entries)
     assert found["outdoor_temp"] == EXPECTED["outdoor_temp"]
     assert found["energy_primary_heating"] == EXPECTED["energy_primary_heating"]
+
+
+def test_weishaupt_2_circuits_and_system_roles():
+    entries = _derived_entries("weishaupt_modbus_2_registry_from_code.json")
+    circuits = find_circuits(WEISHAUPT, entries, [])
+    assert [(c.system_key, c.circuit) for c in circuits] == [("02:00:00:00:00:01_", "1"), ("02:00:00:00:00:01_", "2")]
+    assert circuits[0].roles["room_setpoint"] == "number.wwp_raumsoll_normal"
+    assert circuits[1].roles["mode_select"] == "select.wwp_betriebsart_2"
+    found = system_role_suggestions(WEISHAUPT, circuits[0], entries)
+    assert found["outdoor_temp"] == "sensor.wwp_aussentemperatur"
+    assert found["flow_temperature"] == "sensor.wwp_vorlauf"
+    assert found["energy_electrical_total"] == "sensor.wwp_strom_heute"
+
+
+def test_leftovers_of_both_schemes_never_mix_in_one_circuit():
+    entries = (_derived_entries("weishaupt_modbus_registry_from_code.json")
+               + _derived_entries("weishaupt_modbus_2_registry_from_code.json"))
+    circuits = find_circuits(WEISHAUPT, entries, [])
+    assert sorted((c.system_key, c.circuit) for c in circuits) == [
+        ("02:00:00:00:00:01_", "1"), ("02:00:00:00:00:01_", "2"), ("weishaupt_wbb", "1"), ("weishaupt_wbb", "2"),
+    ]
+    for circuit in circuits:
+        prefix = "number.wwp_" if circuit.system_key.startswith("02:") else "number.weishaupt_wbb_"
+        assert circuit.roles["curve"].startswith(prefix)
+        assert circuit.roles["room_setpoint"].startswith(prefix)

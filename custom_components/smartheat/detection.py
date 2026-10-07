@@ -86,16 +86,19 @@ def find_circuits(descriptor: IntegrationDescriptor, entries: list[RegistryEntry
         for role, matcher in descriptor.circuit_roles.items():
             if _domain_of(entry.entity_id) != matcher.entity_domain:
                 continue
-            pattern = matcher.uid_pattern()
-            # circuit_roles enthaelt laut _matcher()-Vertrag (catalog.py) nur RoleMatcher mit
-            # gesetztem unique_id_suffix -- uid_pattern() ist hier also nie None.
-            assert pattern is not None
-            match = pattern.search(entry.unique_id)
-            if match is None:
+            for candidate in matcher.candidates():
+                pattern = candidate.uid_pattern()
+                # circuit_roles enthaelt laut _matcher()-Vertrag (catalog.py) nur RoleMatcher mit gesetztem
+                # unique_id_suffix -- uid_pattern() ist hier also nie None, auch fuer Alternativen.
+                assert pattern is not None
+                match = pattern.search(entry.unique_id)
+                if match is not None:
+                    break
+            else:
                 continue
-            if matcher.circuit_in_name is not None:
+            if candidate.circuit_in_name is not None:
                 # Katalog v2 (TP12c, AU-004): der Index in der unique_id ist nicht die Kreisnummer.
-                circuit = matcher.name_circuit(entry.original_name)
+                circuit = candidate.name_circuit(entry.original_name)
                 if circuit is None:
                     continue
             else:
@@ -138,7 +141,10 @@ def system_role_suggestions(descriptor: IntegrationDescriptor, circuit: Circuit,
                 continue
             normalized = _normalize(entry.unique_id or "", descriptor.domain)
             if matcher.unique_id_suffix is not None:
-                if normalized != circuit.system_key + matcher.unique_id_suffix:
+                if not normalized.startswith(circuit.system_key):
+                    continue
+                rest = normalized[len(circuit.system_key):]
+                if not any(rest == candidate.unique_id_suffix for candidate in matcher.candidates()):
                     continue
             else:
                 # _matcher() garantiert pro Rolle genau eine Suchart: ist unique_id_suffix None,
