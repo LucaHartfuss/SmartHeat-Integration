@@ -295,6 +295,8 @@
     "rollback_reconfigure": "„Neu konfigurieren“ wurde abgebrochen. Die bisherigen Add-on-Einstellungen und das bisherige Heizungsprofil sind wiederhergestellt.",
     "rollback_first_setup_incomplete": "Die Einrichtung von SmartHeat wurde abgebrochen, aber nicht alle Schritte des Rückbaus sind gelungen:",
     "rollback_reconfigure_incomplete": "„Neu konfigurieren“ wurde abgebrochen, aber nicht alle Schritte der Wiederherstellung sind gelungen:",
+    "rollback_reconfigure_new_access": "„Neu konfigurieren“ wurde abgebrochen. Die vorherigen Add-on-Einstellungen und das Heizungsprofil sind wiederhergestellt; die Anlage behält den beim Versuch ausgestellten neuen Zugang.",
+    "rollback_reconfigure_new_access_incomplete": "„Neu konfigurieren“ wurde abgebrochen und der neue Zugang behalten, aber nicht jeder Schritt der Wiederherstellung ist gelungen:",
     "open_step_supervisor": "Der Supervisor war nicht erreichbar. Bitte die Add-ons Heizungsbrücke und Cloudflared Access TCP-Bridge unter Einstellungen → Add-ons von Hand stoppen.",
     "open_step_foreign_tenant": "Die Add-ons gehören zu einer anderen SmartHeat-Anlage und wurden deshalb nicht angefasst.",
     "open_step_no_sign_off": "Die Heizungsbrücke hat die Abmeldung nicht bestätigt und wurde trotzdem gestoppt. Bitte die Werte des Heizkreises in der App des Herstellers prüfen: Es können Boost-Werte (die lokalen Höchstwerte von SmartHeat) stehen geblieben sein.",

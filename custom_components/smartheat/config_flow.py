@@ -217,8 +217,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         new_token = self._new_token if self._new_credentials else None
         if self._entry is None:
             if self._written:
-                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke.
-                await async_rollback_first_setup(self.hass, tenant_id)
+                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke und, falls das Schreiben
+                # scheiterte, direkt ueber das Token dieses Laufs (Audit 4, A4-39).
+                await async_rollback_first_setup(self.hass, tenant_id, client=self._client(), new_token=new_token)
             else:
                 await async_rollback_server_only(
                     self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=True,
@@ -228,16 +229,17 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         snapshot, profile = self._snapshot, self._profile
         # _run_setup setzt den Snapshot vor _obtain_access, also vor jeder Aenderung.
         assert snapshot is not None and profile is not None
-        if self._written:
+        if self._written or self._new_credentials:
+            # Neue Zugangsdaten ersetzen die alten schon auf dem Server: sie gehen auch ohne Schreiben in die Add-ons
+            # (Audit 4, A4-13; E7).
             await async_rollback_reconfigure(
                 self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
-                profile_id=profile["profile_id"], new_token=new_token,
+                profile_id=profile["profile_id"], keep_access=self._access if self._new_credentials else None,
             )
         else:
             await async_rollback_server_only(
                 self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=False,
-                new_token=new_token, previous_profile_id=snapshot.profile_id,
-                profile_id=profile["profile_id"],
+                new_token=None, previous_profile_id=snapshot.profile_id, profile_id=profile["profile_id"],
             )
 
     async def _abort(self, reason: str, **placeholders: str):

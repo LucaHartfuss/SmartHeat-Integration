@@ -593,7 +593,7 @@ async def test_reconfigure_cancel_restores_through_the_rollback(hass, monkeypatc
     assert kwargs["snapshot"].bridge_options == BRIDGE_OPTIONS
     assert kwargs["snapshot"].cloudflared_options == CF_OPTIONS
     assert kwargs["snapshot"].profile_id == "vaillant_gastherme_heizkoerper"
-    assert (kwargs["token"], kwargs["new_token"]) == ("tok123", None)
+    assert (kwargs["token"], kwargs["keep_access"]) == ("tok123", None)
     rollback.reconfigure.assert_awaited_once()
     mocks.logout.assert_awaited_once()
 
@@ -633,7 +633,32 @@ async def test_reconfigure_with_new_credentials_hands_them_to_the_rollback(hass,
     await configure(hass, result, {"next_step_id": "cancel"})
     await hass.async_block_till_done()
 
-    assert rollback.reconfigure.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
+    assert rollback.reconfigure.await_args.kwargs["keep_access"].installation_token == INSTALLATION_TOKEN
+
+
+async def test_reconfigure_aborted_before_writing_keeps_the_new_credentials(hass, monkeypatch, rollback):
+    """A4-13 (E7): provision() lief, vor dem Schreiben abgebrochen -> voller Rueckbau mit dem neuen Zugang
+    (nicht server_only, das ihn widerrufen wuerde)."""
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, existing_options={"tenant_id": TENANT},
+                                       cloudflared_options={})
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    fail_addon_reads_after(monkeypatch, mocks.provision)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+    mocks.provision.assert_awaited_once()
+    assert calls.options == {}  # nichts geschrieben
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.reconfigure.assert_awaited_once()
+    kwargs = rollback.reconfigure.await_args.kwargs
+    assert kwargs["keep_access"].installation_token == INSTALLATION_TOKEN
+    assert kwargs["snapshot"].profile_id == "vaillant_gastherme_heizkoerper"
+    rollback.server_only.assert_not_awaited()
+    mocks.delete_installation.assert_not_awaited()
+    mocks.logout.assert_awaited_once()
 
 
 async def test_closing_the_dialog_after_a_failed_reconfigure_rolls_back_once(hass, monkeypatch, rollback):

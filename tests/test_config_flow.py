@@ -1104,7 +1104,8 @@ async def test_cancel_after_a_failure_rolls_back_and_logs_out(hass, monkeypatch,
     await hass.async_block_till_done()
 
     assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
     mocks.logout.assert_awaited_once_with("tok123")
 
 
@@ -1126,7 +1127,8 @@ async def test_closing_the_dialog_after_a_timeout_rolls_back(hass, monkeypatch, 
     hass.config_entries.flow.async_abort(result["flow_id"])
     await hass.async_block_till_done()
 
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
     mocks.logout.assert_awaited_once()
 
 
@@ -1142,7 +1144,8 @@ async def test_closing_the_dialog_during_setup_rolls_back_once(hass, monkeypatch
     hass.config_entries.flow.async_abort(result["flow_id"])
     await hass.async_block_till_done()
 
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
 
 
 async def test_failed_write_is_rolled_back_on_cancel(hass, monkeypatch, rollback):
@@ -1155,7 +1158,8 @@ async def test_failed_write_is_rolled_back_on_cancel(hass, monkeypatch, rollback
     await configure(hass, result, {"next_step_id": "cancel"})
     await hass.async_block_till_done()
 
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
 
 
 async def test_unexpected_rollback_error_still_cancels_and_logs_out(hass, monkeypatch, rollback, caplog):

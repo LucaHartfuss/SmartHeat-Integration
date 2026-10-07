@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from homeassistant.components.hassio import AddonError
 
-from custom_components.smartheat import setup_rollback
+from custom_components.smartheat import provisioning, setup_rollback
 from custom_components.smartheat.api_client import ApiError
 from custom_components.smartheat.setup_rollback import ReconfigureSnapshot
 from custom_components.smartheat.texts import async_hint
@@ -52,7 +52,7 @@ async def test_reconfigure_rollback_restores_options_and_profile(hass, monkeypat
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neues_profil",
-        new_token=None,
+        keep_access=None,
     )
 
     client.update_profile.assert_awaited_once_with("tok", "wohnung1", "altes_profil")
@@ -60,6 +60,86 @@ async def test_reconfigure_rollback_restores_options_and_profile(hass, monkeypat
     assert bridge.options == SNAPSHOT.bridge_options and cloudflared.options == SNAPSHOT.cloudflared_options
     assert [entry[:2] for entry in log][-2:] == [("restart", "cloudflared_access_mqtt"), ("restart", "heizungsbruecke")]
     assert len(created[0][1].splitlines()) == 1  # nur die Kopfzeile, keine offenen Schritte
+
+
+NEW_ACCESS = provisioning.Access(
+    transport={"kind": "iot_core", "host": "iot.example.test", "port": 443, "alpn": "x-amzn-mqtt-ca", "ca_pem": "CA",
+               "client_id": "wohnung1"},
+    cloudflared=None, credential={"tls_certificate": "C-NEU", "tls_private_key": "K-NEU"},
+    installation_token="inst-neu",
+)
+
+
+async def test_reconfigure_rollback_keeps_new_credentials_and_restores_the_rest(hass, monkeypatch, created):
+    # Audit 4, A4-13 (IT-2), Nutzer-Entscheidung E7
+    log = []
+    bridge, cloudflared = _addons(monkeypatch, log)
+    client = AsyncMock()
+
+    await setup_rollback.async_rollback_reconfigure(
+        hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neues_profil",
+        keep_access=NEW_ACCESS,
+    )
+
+    client.delete_installation.assert_not_awaited()
+    client.update_profile.assert_awaited_once_with("tok", "wohnung1", "altes_profil")
+    assert bridge.options == {**SNAPSHOT.bridge_options, **provisioning.bridge_access_options(NEW_ACCESS)}
+    assert cloudflared.options == {**SNAPSHOT.cloudflared_options, **provisioning.CLOUDFLARED_CLEARED_OPTIONS}
+    assert ("stop", "cloudflared_access_mqtt") in log  # iot_core: cloudflared gestoppt
+    assert created[0][1].splitlines()[0] == await async_hint(hass, "rollback_reconfigure_new_access")
+
+
+async def test_kept_mosquitto_access_restarts_cloudflared_with_its_new_options(hass, monkeypatch, created):
+    log = []
+    bridge, cloudflared = _addons(monkeypatch, log)
+    access = provisioning.Access(
+        transport={"kind": "mosquitto_cloudflared", "host": "127.0.0.1", "port": 18830},
+        cloudflared={"hostname": "neu.example.test", "service_token_id": "i-neu", "service_token_secret": "s-neu"},
+        credential={"mqtt_username": "u-neu", "mqtt_password": "p-neu"}, installation_token="inst-neu",
+    )
+
+    await setup_rollback.async_rollback_reconfigure(
+        hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
+        keep_access=access,
+    )
+
+    assert bridge.options["mqtt_username"] == "u-neu" and bridge.options["installation_token"] == "inst-neu"
+    assert cloudflared.options == {**SNAPSHOT.cloudflared_options, **access.cloudflared}
+    assert ("restart", "cloudflared_access_mqtt") in log and ("stop", "cloudflared_access_mqtt") not in log
+
+
+async def test_first_setup_rollback_also_revokes_the_new_token(hass, monkeypatch, created):
+    # Audit 4, A4-39 (IT-4): Schreiben gescheitert -> in den Optionen steht kein Token
+    monkeypatch.setattr(f"{SR}.async_sign_off", AsyncMock(return_value=[]))
+    client = AsyncMock()
+    client.delete_installation.return_value = 204
+
+    await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
+
+    client.delete_installation.assert_awaited_once_with("wohnung1", "inst-neu")
+    assert created[0][1] == await async_hint(hass, "rollback_first_setup")
+
+
+async def test_first_setup_rollback_lists_a_failed_revoke(hass, monkeypatch, created):
+    monkeypatch.setattr(f"{SR}.async_sign_off", AsyncMock(return_value=[]))
+    client = AsyncMock()
+    client.delete_installation.return_value = None
+
+    await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
+
+    assert created[0][1].splitlines() == [
+        await async_hint(hass, "rollback_first_setup_incomplete"), "- " + await async_hint(hass, "open_step_revoke"),
+    ]
+
+
+async def test_first_setup_rollback_treats_an_already_revoked_token_as_done(hass, monkeypatch, created):
+    monkeypatch.setattr(f"{SR}.async_sign_off", AsyncMock(return_value=[]))
+    client = AsyncMock()
+    client.delete_installation.return_value = 401  # schon vom Abmelden widerrufen
+
+    await setup_rollback.async_rollback_first_setup(hass, "wohnung1", client=client, new_token="inst-neu")
+
+    assert created[0][1] == await async_hint(hass, "rollback_first_setup")
 
 
 def _iot_transport():
@@ -84,7 +164,7 @@ async def test_restoring_an_iot_snapshot_does_not_restart_cloudflared(hass, monk
     bridge, cloudflared = _addons(monkeypatch, log)
 
     await setup_rollback.async_rollback_reconfigure(
-        hass, client=AsyncMock(), token="s", tenant_id="wohnung1", snapshot=snapshot, profile_id="p", new_token=None,
+        hass, client=AsyncMock(), token="s", tenant_id="wohnung1", snapshot=snapshot, profile_id="p", keep_access=None,
     )
 
     assert ("restart", "cloudflared_access_mqtt") not in log
@@ -111,7 +191,7 @@ async def test_restoring_a_mosquitto_snapshot_switches_cloudflared_supervision_b
     _addons(monkeypatch, log)
 
     await setup_rollback.async_rollback_reconfigure(
-        hass, client=AsyncMock(), token="s", tenant_id="wohnung1", snapshot=snapshot, profile_id="p", new_token="neu",
+        hass, client=AsyncMock(), token="s", tenant_id="wohnung1", snapshot=snapshot, profile_id="p", keep_access=None,
     )
 
     on = {"boot": "auto", "watchdog": True}
@@ -130,7 +210,7 @@ async def test_a_failed_supervision_restore_is_listed(hass, monkeypatch, created
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_token=None,
+        keep_access=None,
     )
 
     assert created[0][1].splitlines()[1:] == ["- " + await async_hint(hass, "open_step_addons")]
@@ -143,40 +223,49 @@ async def test_unchanged_profile_is_not_reset(hass, monkeypatch, created):
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_token=None,
+        keep_access=None,
     )
 
     client.update_profile.assert_not_awaited()
-
-
-async def test_new_credentials_are_revoked(hass, monkeypatch, created):
-    _addons(monkeypatch, [])
-    client = AsyncMock()
-    client.delete_installation.return_value = 204
-
-    await setup_rollback.async_rollback_reconfigure(
-        hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_token="inst-neu",
-    )
-
-    client.delete_installation.assert_awaited_once_with("wohnung1", "inst-neu")
 
 
 async def test_failed_steps_are_listed(hass, monkeypatch, created, caplog):
     _addons(monkeypatch, [], error=AddonError("kaputt geheim-pw-4711"))
     client = AsyncMock()
     client.update_profile.side_effect = ApiError("weg")
-    client.delete_installation.return_value = None
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neu",
-        new_token=PASSWORD,
+        keep_access=None,
     )
 
     message = created[0][1]
     lines = message.splitlines()
-    assert len(lines) == 4  # Kopfzeile + revoke, profile, addons
+    assert len(lines) == 3  # Kopfzeile + profile, addons
     assert lines[0] == await async_hint(hass, "rollback_reconfigure_incomplete")
+    assert PASSWORD not in message
+    assert PASSWORD not in caplog.text
+
+
+async def test_failed_steps_with_kept_credentials_use_the_new_access_headline(hass, monkeypatch, created, caplog):
+    _addons(monkeypatch, [], error=AddonError("kaputt geheim-pw-4711"))
+    client = AsyncMock()
+    client.update_profile.side_effect = ApiError("weg")
+    access = provisioning.Access(
+        transport=NEW_ACCESS.transport, cloudflared=None, credential=NEW_ACCESS.credential,
+        installation_token=PASSWORD,
+    )
+
+    await setup_rollback.async_rollback_reconfigure(
+        hass, client=client, token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neu",
+        keep_access=access,
+    )
+
+    message = created[0][1]
+    lines = message.splitlines()
+    assert lines[0] == await async_hint(hass, "rollback_reconfigure_new_access_incomplete")
+    assert lines[1:] == ["- " + await async_hint(hass, "open_step_profile"), "- " + await async_hint(hass, "open_step_addons")]
+    client.delete_installation.assert_not_awaited()
     assert PASSWORD not in message
     assert PASSWORD not in caplog.text
 
@@ -188,7 +277,7 @@ async def test_one_failing_addon_step_does_not_skip_the_others(hass, monkeypatch
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_token=None,
+        keep_access=None,
     )
 
     assert bridge.options == SNAPSHOT.bridge_options and cloudflared.options == SNAPSHOT.cloudflared_options
@@ -202,7 +291,7 @@ async def test_missing_addons_skip_the_restore(hass, monkeypatch, created):
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token="tok", tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="altes_profil",
-        new_token=None,
+        keep_access=None,
     )
 
     assert created[0][1].splitlines()[1:] == ["- " + await async_hint(hass, "open_step_addons")]
@@ -214,7 +303,7 @@ async def test_snapshot_without_profile_keeps_the_server_profile(hass, monkeypat
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=client, token="tok", tenant_id="wohnung1",
-        snapshot=ReconfigureSnapshot({}, {}, None), profile_id="neu", new_token=None,
+        snapshot=ReconfigureSnapshot({}, {}, None), profile_id="neu", keep_access=None,
     )
 
     client.update_profile.assert_not_awaited()
@@ -234,7 +323,7 @@ async def test_rollback_without_token_reports_the_profile(hass, monkeypatch, cre
 
     await setup_rollback.async_rollback_reconfigure(
         hass, client=AsyncMock(), token=None, tenant_id="wohnung1", snapshot=SNAPSHOT, profile_id="neu",
-        new_token=None,
+        keep_access=None,
     )
 
     assert len(created[0][1].splitlines()) == 2
