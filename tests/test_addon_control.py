@@ -421,7 +421,8 @@ async def test_unconfirmed_sign_off_warns_about_boost_values(hass, monkeypatch, 
 
     assert await addon_control.async_sign_off(hass, TENANT) == ["no_sign_off"]
     text = created[0][1]
-    assert ("1,5" in text or "1.5" in text) and "25" in text
+    assert "boost values" in text and "local maximum values" in text
+    assert "1.5" not in text and "1,5" not in text
 
 
 async def test_unreadable_bridge_options_report_the_revoke(hass, monkeypatch, dismissed, created):
