@@ -217,8 +217,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         new_token = self._new_token if self._new_credentials else None
         if self._entry is None:
             if self._written:
-                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke.
-                await async_rollback_first_setup(self.hass, tenant_id)
+                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke und, falls das Schreiben
+                # scheiterte, direkt ueber das Token dieses Laufs (Audit 4, A4-39).
+                await async_rollback_first_setup(self.hass, tenant_id, client=self._client(), new_token=new_token)
             else:
                 await async_rollback_server_only(
                     self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=True,
@@ -228,16 +229,17 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         snapshot, profile = self._snapshot, self._profile
         # _run_setup setzt den Snapshot vor _obtain_access, also vor jeder Aenderung.
         assert snapshot is not None and profile is not None
-        if self._written:
+        if self._written or self._new_credentials:
+            # Neue Zugangsdaten ersetzen die alten schon auf dem Server: sie gehen auch ohne Schreiben in die Add-ons
+            # (Audit 4, A4-13; E7).
             await async_rollback_reconfigure(
                 self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
-                profile_id=profile["profile_id"], new_token=new_token,
+                profile_id=profile["profile_id"], keep_access=self._access if self._new_credentials else None,
             )
         else:
             await async_rollback_server_only(
                 self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=False,
-                new_token=new_token, previous_profile_id=snapshot.profile_id,
-                profile_id=profile["profile_id"],
+                new_token=None, previous_profile_id=snapshot.profile_id, profile_id=profile["profile_id"],
             )
 
     async def _abort(self, reason: str, **placeholders: str):
@@ -701,8 +703,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
                     **{field: [entity_id] for field, entity_id in kpi.items()},
                 })
                 errors = {field: error for field, error in duplicates.items() if field in plant or field in kpi}
-                shift = plant.get("entity_shift_current", "")
-                if shift.startswith("climate.") and validation.zone_is_room_target(shift, room_target):
+                writes = [plant[field] for field in write_role_fields(lever_set) if plant.get(field)]
+                if validation.room_target_mirrors_plant(self.hass, room_target, writes):
                     errors["entity_shift_current"] = validation.ERROR_ZONE_IS_ROOM_TARGET
             if any(field in kpi_fields for field in errors):
                 errors["base"] = "advanced_invalid"
@@ -1053,6 +1055,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         except AccessDenied as error:
             self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
             return "setup_failed"
+        except ProfileRejected:
+            self._setup_error = await self._hint("profile_rejected")
+            return "setup_failed"
         except ApiError:
             self._setup_error = await self._hint("provisioning_failed")
             return "setup_failed"
@@ -1065,8 +1070,24 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             _LOGGER.error("Provisionierungs-Antwort unbrauchbar: %s", error)
             self._setup_error = await self._hint("invalid_provisioning_response")
             return "setup_failed"
-        self._access, self._profile_params = access, access.profile_params
+        # Ab hier gibt es einen gueltigen neuen Zugang: der Rueckbau kennt ihn auch bei einem Abbruch unten.
+        self._access = access
         self._new_credentials, self._new_token = True, access.installation_token
+        return await self._accept_profile_params(access.profile_params)
+
+    async def _accept_profile_params(self, raw) -> str | None:
+        """Audit 4, A4-02/A4-11: nur bekannte Schluessel, Verteilsystem wie gewaehlt (Reauth: ohne Auswahl)."""
+        chosen = self._profile["verteilsystem"] if self._profile is not None else None
+        try:
+            self._profile_params = provisioning.checked_profile_params(raw, chosen)
+        except provisioning.VerteilsystemMismatch:
+            _LOGGER.error("Server meldet ein anderes Verteilsystem als gewaehlt, Einrichtung abgebrochen")
+            self._setup_error = await self._hint("verteilsystem_mismatch")
+            return "setup_failed"
+        except provisioning.InvalidProvisioning as error:
+            _LOGGER.error("Profil-Parameter unbrauchbar: %s", error)
+            self._setup_error = await self._hint("invalid_provisioning_response")
+            return "setup_failed"
         return None
 
     async def _keep_access(self, access: provisioning.Access) -> str | None:
@@ -1099,8 +1120,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         except ApiError:
             self._setup_error = await self._hint("profile_update_failed")
             return "setup_failed"
-        self._access, self._profile_params = access, profile_params
-        return None
+        self._access = access
+        return await self._accept_profile_params(profile_params)
 
     async def _wait_for_status(self) -> str:
         """Nur ein Event mit der setup_id dieses Laufs zaehlt (Spec TP7 2.5)."""

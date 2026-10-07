@@ -52,6 +52,8 @@ CREDENTIAL_KEYS = {
     CREDENTIAL_CERTIFICATE: frozenset({"kind", "certificate_pem"}),
 }
 PROVISION_RESPONSE_KEYS = frozenset({"transport", "credential", "installation_token", "profile_params"})
+# Schluessel der Server-profile_params, die in die Add-on-Optionen gehen (Contract-Check 3)
+PROFILE_PARAM_KEYS = ("verteilsystem", "daily_trigger_time")
 # Profilwechsel ohne neue Zugangsdaten; Route im Server: accounts_api.py (Contract-Check 17).
 PROFILE_PATH = "/tenants/{tenant_id}/profile"
 INSTALLATION_PATH = "/tenants/{tenant_id}/installation"

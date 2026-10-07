@@ -15,7 +15,14 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import provisioning, setup_rollback
-from custom_components.smartheat.api_client import AccessDenied, ApiError, CannotConnect, InvalidAuth, InvalidResponse
+from custom_components.smartheat.api_client import (
+    AccessDenied,
+    ApiError,
+    CannotConnect,
+    InvalidAuth,
+    InvalidResponse,
+    ProfileRejected,
+)
 from custom_components.smartheat.const import DOMAIN, LEVER_SET_FIELDS
 from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
@@ -915,6 +922,18 @@ async def test_provision_failure_is_a_setup_failure(hass, monkeypatch):
     assert result["description_placeholders"]["grund"]
 
 
+async def test_provision_conflict_is_a_profile_rejection(hass, monkeypatch):
+    # HTTP 409 vom Server (Betreiber-Override passt nicht zum Profil): Hinweis "Support kontaktieren", nicht "spaeter"
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    mock_addons(hass, monkeypatch)
+    mocks.provision.side_effect = ProfileRejected("409")
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "profile_rejected")
+
+
 @pytest.mark.parametrize("profile_params", [None, "Heizkoerper", ["x"]])
 async def test_invalid_provisioning_response_is_a_setup_failure(hass, monkeypatch, profile_params):
     result, mocks = await _reach(hass, monkeypatch, "summary")
@@ -925,6 +944,29 @@ async def test_invalid_provisioning_response_is_a_setup_failure(hass, monkeypatc
 
     assert result["step_id"] == "setup_failed"
     assert calls.options == {}
+
+
+async def test_provisioning_with_another_distribution_system_is_a_setup_failure(hass, monkeypatch):
+    result, mocks = await _reach(hass, monkeypatch, "summary")
+    calls = mock_addons(hass, monkeypatch)
+    mocks.provision.return_value = {**mocks.provision.return_value,
+                                    "profile_params": {**PROFILE_PARAMS, "verteilsystem": "Fussbodenheizung"}}
+
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "verteilsystem_mismatch")
+    assert calls.options == {}
+
+
+async def test_unknown_profile_params_never_reach_the_addon_options(hass, monkeypatch):
+    result, mocks, calls = await _to_setup(hass, monkeypatch)
+    mocks.provision.return_value = {**mocks.provision.return_value,
+                                    "profile_params": {**PROFILE_PARAMS, "entity_operating_mode": "person.kunde"}}
+
+    await finish_progress(hass, result)
+
+    assert "entity_operating_mode" not in calls.options["heizungsbruecke"]
 
 
 async def test_supervisor_error_is_shown_without_secrets(hass, monkeypatch):
@@ -1081,7 +1123,8 @@ async def test_cancel_after_a_failure_rolls_back_and_logs_out(hass, monkeypatch,
     await hass.async_block_till_done()
 
     assert (result["type"], result["reason"]) == ("abort", "setup_cancelled")
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
     mocks.logout.assert_awaited_once_with("tok123")
 
 
@@ -1103,7 +1146,8 @@ async def test_closing_the_dialog_after_a_timeout_rolls_back(hass, monkeypatch, 
     hass.config_entries.flow.async_abort(result["flow_id"])
     await hass.async_block_till_done()
 
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
     mocks.logout.assert_awaited_once()
 
 
@@ -1119,7 +1163,8 @@ async def test_closing_the_dialog_during_setup_rolls_back_once(hass, monkeypatch
     hass.config_entries.flow.async_abort(result["flow_id"])
     await hass.async_block_till_done()
 
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
 
 
 async def test_failed_write_is_rolled_back_on_cancel(hass, monkeypatch, rollback):
@@ -1132,7 +1177,8 @@ async def test_failed_write_is_rolled_back_on_cancel(hass, monkeypatch, rollback
     await configure(hass, result, {"next_step_id": "cancel"})
     await hass.async_block_till_done()
 
-    rollback.first.assert_awaited_once_with(hass, TENANT)
+    rollback.first.assert_awaited_once()
+    assert rollback.first.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
 
 
 async def test_unexpected_rollback_error_still_cancels_and_logs_out(hass, monkeypatch, rollback, caplog):

@@ -28,6 +28,7 @@ from .flow_helpers import (
     MOSQUITTO_TRANSPORT,
     MQTT_PASSWORD,
     PLANT_INPUT,
+    PROFILE_PARAMS,
     PROVISIONING,
     ROOMS_INPUT,
     SYSTEM_INPUT,
@@ -593,7 +594,7 @@ async def test_reconfigure_cancel_restores_through_the_rollback(hass, monkeypatc
     assert kwargs["snapshot"].bridge_options == BRIDGE_OPTIONS
     assert kwargs["snapshot"].cloudflared_options == CF_OPTIONS
     assert kwargs["snapshot"].profile_id == "vaillant_gastherme_heizkoerper"
-    assert (kwargs["token"], kwargs["new_token"]) == ("tok123", None)
+    assert (kwargs["token"], kwargs["keep_access"]) == ("tok123", None)
     rollback.reconfigure.assert_awaited_once()
     mocks.logout.assert_awaited_once()
 
@@ -633,7 +634,32 @@ async def test_reconfigure_with_new_credentials_hands_them_to_the_rollback(hass,
     await configure(hass, result, {"next_step_id": "cancel"})
     await hass.async_block_till_done()
 
-    assert rollback.reconfigure.await_args.kwargs["new_token"] == INSTALLATION_TOKEN
+    assert rollback.reconfigure.await_args.kwargs["keep_access"].installation_token == INSTALLATION_TOKEN
+
+
+async def test_reconfigure_aborted_before_writing_keeps_the_new_credentials(hass, monkeypatch, rollback):
+    """A4-13 (E7): provision() lief, vor dem Schreiben abgebrochen -> voller Rueckbau mit dem neuen Zugang
+    (nicht server_only, das ihn widerrufen wuerde)."""
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, existing_options={"tenant_id": TENANT},
+                                       cloudflared_options={})
+    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    fail_addon_reads_after(monkeypatch, mocks.provision)
+    result = await finish_progress(hass, await configure(hass, result, {}))
+    assert result["step_id"] == "setup_failed"
+    mocks.provision.assert_awaited_once()
+    assert calls.options == {}  # nichts geschrieben
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    await hass.async_block_till_done()
+
+    rollback.reconfigure.assert_awaited_once()
+    kwargs = rollback.reconfigure.await_args.kwargs
+    assert kwargs["keep_access"].installation_token == INSTALLATION_TOKEN
+    assert kwargs["snapshot"].profile_id == "vaillant_gastherme_heizkoerper"
+    rollback.server_only.assert_not_awaited()
+    mocks.delete_installation.assert_not_awaited()
+    mocks.logout.assert_awaited_once()
 
 
 async def test_closing_the_dialog_after_a_failed_reconfigure_rolls_back_once(hass, monkeypatch, rollback):
@@ -684,6 +710,33 @@ async def test_reconfigure_cancel_after_the_profile_change_resets_only_the_serve
     fail_addon_reads_after(monkeypatch, mocks.update_profile)
     result = await finish_progress(hass, await configure(hass, result, {}))
     assert result["step_id"] == "setup_failed"
+
+    await configure(hass, result, {"next_step_id": "cancel"})
+    await hass.async_block_till_done()
+
+    assert mocks.update_profile.await_args_list == [
+        call("tok123", TENANT, "vaillant_gastherme_heizkoerper"), call("tok123", TENANT, "altes_profil"),
+    ]
+    mocks.delete_installation.assert_not_awaited()
+    assert (calls.options, calls.restarts, calls.supervision) == ({}, [], [])
+    mocks.logout.assert_awaited_once()
+
+
+async def test_reconfigure_with_another_distribution_system_resets_only_the_server(hass, monkeypatch):
+    """Der Server antwortet beim Profilwechsel (Zugang bleibt) mit einem anderen Verteilsystem als gewaehlt: Abbruch mit
+    verteilsystem_mismatch; das Profil ist am Server schon gewechselt und wird zurueckgesetzt, die Add-ons bleiben
+    unberuehrt."""
+    monkeypatch.setattr(f"{FLOW}.async_rollback_reconfigure", setup_rollback.async_rollback_reconfigure)
+    monkeypatch.setattr(f"{FLOW}.async_rollback_server_only", setup_rollback.async_rollback_server_only)
+    mypyllant, mocks, calls = _prepare(hass, monkeypatch, existing_options=BRIDGE_OPTIONS, cloudflared_options=CF_OPTIONS)
+    entry = _entry_with_old_profile(hass, mypyllant)
+    mocks.update_profile.return_value = {**PROFILE_PARAMS, "verteilsystem": "Fussbodenheizung"}
+    result = await _through_the_wizard(hass, await login(hass, await entry.start_reconfigure_flow(hass)))
+    result = await finish_progress(hass, await configure(hass, result, {}))
+
+    assert result["step_id"] == "setup_failed"
+    assert result["description_placeholders"]["grund"] == await async_hint(hass, "verteilsystem_mismatch")
+    assert (calls.options, calls.restarts, calls.supervision) == ({}, [], [])
 
     await configure(hass, result, {"next_step_id": "cancel"})
     await hass.async_block_till_done()

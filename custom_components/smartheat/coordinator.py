@@ -219,7 +219,8 @@ class SmartHeatCoordinator:
             try:
                 managers = await async_find_addon_managers(self.hass, ADDON_SPECS)
             except AddonError as error:
-                _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", error)
+                # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
+                _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)
                 return
             running: dict[str, bool] = {}
             bridge_options: dict = {}
@@ -249,7 +250,7 @@ class SmartHeatCoordinator:
         try:
             return await manager.async_get_addon_info()
         except AddonError as error:
-            _LOGGER.warning("Waechter: Zustand von %s nicht abfragbar: %s", manager.addon_slug, error)
+            _LOGGER.warning("Waechter: Zustand von %s nicht abfragbar: %s", manager.addon_slug, type(error).__name__)
             return False
 
     async def _async_revive(self, manager, running: bool) -> None:
@@ -262,7 +263,7 @@ class SmartHeatCoordinator:
             else:
                 await manager.async_start_addon()
         except AddonError as error:
-            _LOGGER.warning("Waechter: Add-on %s konnte nicht gestartet werden: %s", manager.addon_slug, error)
+            _LOGGER.warning("Waechter: Add-on %s konnte nicht gestartet werden: %s", manager.addon_slug, type(error).__name__)
 
     @callback
     def _set_watchdog_status(self, status: str | None) -> None:

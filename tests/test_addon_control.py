@@ -339,6 +339,29 @@ async def test_remove_succeeds_when_the_bridge_fails_everywhere(hass, monkeypatc
     assert dismissed == ["smartheat_wohnung1_addon"]
 
 
+async def test_sign_off_never_logs_the_supervisor_text(hass, monkeypatch, dismissed, created, caplog):
+    # Audit 4, A4-40 (IT-5): der Supervisor kann Optionswerte zitieren
+    secret = "geheim-pw-4711"
+    _addons(hass, monkeypatch, [], bridge_error=AddonError(f"invalid option mqtt_password={secret}"))
+
+    await addon_control.async_sign_off(hass, TENANT)
+
+    assert secret not in caplog.text
+    assert "AddonError" in caplog.text
+
+
+async def test_supervision_failure_never_logs_the_supervisor_text(hass, monkeypatch, caplog):
+    # Audit 4, A4-40: auch der Watchdog/Boot-Aufruf loggt nur den Typnamen des Supervisor-Fehlers
+    secret = "geheim-pw-4711"
+    error = SupervisorError(f"invalid option mqtt_password={secret}")
+    monkeypatch.setattr(f"{AC}.get_supervisor_client", lambda hass: FakeSupervisor([], error=error))
+
+    await addon_control.async_set_supervision(hass, ["a_heizungsbruecke"], True)
+
+    assert secret not in caplog.text
+    assert "SupervisorError" in caplog.text
+
+
 async def test_remove_succeeds_without_supervisor(hass, monkeypatch, dismissed):
     monkeypatch.setattr(f"{AC}.async_find_addon_managers", AsyncMock(side_effect=AddonError("weg")))
 

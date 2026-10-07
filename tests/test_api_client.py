@@ -369,6 +369,32 @@ async def test_400_on_profile_change_is_profile_rejected(aiohttp_client):
         await client.update_profile("tok", "t1", "p")
 
 
+async def test_409_on_profile_change_is_profile_rejected(aiohttp_client):
+    # Betreiber-Override passt nicht zum neuen Profil (Server: ProfileChangeRejected)
+    async def handler(request):
+        return web.json_response({"error": "Bitte den Betreiber kontaktieren."}, status=409)
+
+    client = await _server(aiohttp_client, "POST", "/tenants/t1/profile", handler)
+    with pytest.raises(ProfileRejected):
+        await client.update_profile("tok", "t1", "p")
+
+
+async def test_409_on_provision_is_profile_rejected_but_400_stays_a_plain_api_error(aiohttp_client):
+    async def conflict(request):
+        return web.json_response({"error": "Override"}, status=409)
+
+    async def bad_request(request):
+        return web.json_response({"error": "Ungueltiger CSR"}, status=400)
+
+    with pytest.raises(ProfileRejected):
+        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", conflict)).provision(
+            "tok", "t1", "p", "CSR", "0.12.0")
+    with pytest.raises(ApiError) as caught:
+        await (await _server(aiohttp_client, "POST", "/tenants/t1/provision", bad_request)).provision(
+            "tok", "t1", "p", "CSR", "0.12.0")
+    assert not isinstance(caught.value, ProfileRejected)
+
+
 async def test_rejections_are_logged_without_secrets(aiohttp_client, caplog):
     async def handler(request):
         return web.json_response({"error": "kaputt"}, status=500)

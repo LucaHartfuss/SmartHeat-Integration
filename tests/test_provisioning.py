@@ -117,3 +117,24 @@ def test_an_unhashable_or_non_string_transport_kind_is_not_a_crash(kind):
     assert provisioning.transport_kind(options) is None
     assert provisioning.access_from_options(options, {}) is None
     assert provisioning.watched_addon_slugs(options) == {HEIZUNGSBRUECKE_ADDON_SLUG, CLOUDFLARED_ADDON_SLUG}
+
+
+def test_checked_profile_params_keeps_only_known_keys():
+    # Audit 4, A4-11 (GK-5): kein Server-Wert kann eine Entity-Zuordnung in die Add-on-Optionen schreiben
+    raw = {"verteilsystem": "Heizkoerper", "daily_trigger_time": "12:07", "entity_operating_mode": "person.kunde"}
+    assert provisioning.checked_profile_params(raw, "heizkoerper") == {
+        "verteilsystem": "Heizkoerper", "daily_trigger_time": "12:07"}
+
+
+def test_checked_profile_params_rejects_another_distribution_system():
+    # Audit 4, A4-02 (IT-3/GK-2/GW-3), Nutzer-Entscheidung E1
+    with pytest.raises(provisioning.VerteilsystemMismatch):
+        provisioning.checked_profile_params(
+            {"verteilsystem": "Heizkoerper", "daily_trigger_time": "12:00"}, "fussbodenheizung")
+
+
+@pytest.mark.parametrize(
+    "raw", [None, {}, {"verteilsystem": "Heizkoerper"}, {"verteilsystem": "", "daily_trigger_time": "12:00"}])
+def test_checked_profile_params_rejects_incomplete_answers(raw):
+    with pytest.raises(provisioning.InvalidProvisioning):
+        provisioning.checked_profile_params(raw, None)
