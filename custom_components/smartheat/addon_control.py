@@ -131,7 +131,8 @@ async def async_set_supervision(hass: HomeAssistant, slugs: list[str], enabled: 
         try:
             await client.addons.set_addon_options(slug, options)
         except SupervisorError as error:
-            _LOGGER.warning("Watchdog/Boot fuer Add-on %s nicht gesetzt: %s", slug, error)
+            # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
+            _LOGGER.warning("Watchdog/Boot fuer Add-on %s nicht gesetzt: %s", slug, type(error).__name__)
             failed.append(slug)
     return failed
 
@@ -150,7 +151,7 @@ async def _async_read_bridge_options(bridge: AddonManager | None) -> dict | None
     try:
         return dict((await bridge.async_get_addon_info()).options)
     except AddonError as error:
-        _LOGGER.warning("Entfernen: Optionen der Heizungsbruecke nicht lesbar, kein Widerruf auf dem Server: %s", error)
+        _LOGGER.warning("Entfernen: Optionen der Heizungsbruecke nicht lesbar, kein Widerruf auf dem Server: %s", type(error).__name__)
         return None
 
 
@@ -212,7 +213,7 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str, *, notify: bool = 
     try:
         managers = await async_find_addon_managers(hass, ADDON_SPECS)
     except AddonError as error:
-        _LOGGER.warning("Entfernen: Supervisor nicht erreichbar, Add-ons nicht abgemeldet: %s", error)
+        _LOGGER.warning("Entfernen: Supervisor nicht erreichbar, Add-ons nicht abgemeldet: %s", type(error).__name__)
         managers = {}
         problems.append(PROBLEM_SUPERVISOR)
     bridge = managers.get(HEIZUNGSBRUECKE_ADDON_SLUG)
@@ -245,7 +246,7 @@ async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentia
         try:
             await manager.async_stop_addon()
         except AddonError as error:
-            _LOGGER.warning("Entfernen: Add-on %s nicht gestoppt: %s", manager.addon_slug, error)
+            _LOGGER.warning("Entfernen: Add-on %s nicht gestoppt: %s", manager.addon_slug, type(error).__name__)
             if PROBLEM_STOP not in problems:
                 problems.append(PROBLEM_STOP)
     if present:
@@ -261,7 +262,7 @@ async def _async_sign_off_addons(hass, tenant_id, bridge, cloudflared, credentia
         try:
             await async_update_addon_options(manager, {key: "" for key in keys})
         except AddonError as error:
-            _LOGGER.warning("Entfernen: Zugangsdaten von %s nicht geleert: %s", manager.addon_slug, error)
+            _LOGGER.warning("Entfernen: Zugangsdaten von %s nicht geleert: %s", manager.addon_slug, type(error).__name__)
             if PROBLEM_CLEAR not in problems:
                 problems.append(PROBLEM_CLEAR)
     return problems
@@ -287,7 +288,7 @@ async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tena
         )
         latest = listener.latest
     except AddonError as error:
-        _LOGGER.warning("Entfernen: Heizungsbruecke nicht abgemeldet: %s", error)
+        _LOGGER.warning("Entfernen: Heizungsbruecke nicht abgemeldet: %s", type(error).__name__)
         return False, False
     finally:
         listener.close()
