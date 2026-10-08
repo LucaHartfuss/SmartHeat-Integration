@@ -16,6 +16,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   Integration. Wer die Integration zuerst aktualisiert, bekommt beim nächsten Öffnen des Assistenten oder des
   Optionsdialogs den Hinweis, dass das Add-on veraltet ist; die Regelung selbst läuft unverändert weiter, weil die
   laufende Integration die Version nur in diesen Dialogen prüft.
+- **Einrichtungshinweis im Raum-Schritt** (Assistent und Optionsdialog, Deutsch und Englisch): Die Thermostatköpfe an
+  den Heizkörpern des Referenzraums ganz aufdrehen oder mindestens 1 °C über die Wunschtemperatur stellen, sonst
+  drosseln sie die Heizung und SmartHeat stellt die Heizkurve zu hoch ein; die Wunschtemperatur sollte kein eigenes
+  Zeitprogramm haben, weil häufige Wechsel das Lernen pausieren. Nur Text, keine Änderung an Optionen oder Ablauf.
 - Für `client1` ohne Wirkung auf die Regelung; nach dem Update ist kein „Neu konfigurieren“ nötig (Optionsschema und
   Statusereignis unverändert).
 
