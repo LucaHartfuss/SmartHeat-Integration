@@ -24,6 +24,7 @@
     {"entity_id": "sensor.wwp_heizen_heute", "unique_id": "02:00:00:00:00:01_statistics_heating_energy_today", "platform": "weishaupt_modbus", "original_name": null},
     {"entity_id": "sensor.wwp_heizen_gestern", "unique_id": "02:00:00:00:00:01_statistics_heating_energy_yesterday", "platform": "weishaupt_modbus", "original_name": null},
     {"entity_id": "sensor.wwp_warmwasser_heute", "unique_id": "02:00:00:00:00:01_statistics_hot_water_energy_today", "platform": "weishaupt_modbus", "original_name": null},
-    {"entity_id": "sensor.wwp_strom_heute", "unique_id": "02:00:00:00:00:01_statistics_electric_energy_today", "platform": "weishaupt_modbus", "original_name": null}
+    {"entity_id": "sensor.wwp_strom_heute", "unique_id": "02:00:00:00:00:01_statistics_electric_energy_today", "platform": "weishaupt_modbus", "original_name": null},
+    {"entity_id": "sensor.wwp_betrieb", "unique_id": "02:00:00:00:00:01_heat_pump_operation", "platform": "weishaupt_modbus", "original_name": null}
   ]
 }

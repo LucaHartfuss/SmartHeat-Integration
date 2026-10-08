@@ -19,6 +19,8 @@
     {"entity_id": "sensor.vicare_gas_consumption_heating_today", "unique_id": "GW_DEV-gas_consumption_heating_today", "platform": "vicare", "original_name": null},
     {"entity_id": "sensor.vicare_gas_consumption_heating_this_week", "unique_id": "GW_DEV-gas_consumption_heating_this_week", "platform": "vicare", "original_name": null},
     {"entity_id": "sensor.vicare_hotwater_gas_consumption_today", "unique_id": "GW_DEV-hotwater_gas_consumption_today", "platform": "vicare", "original_name": null},
-    {"entity_id": "sensor.vicare_power_consumption_today", "unique_id": "GW_DEV-power consumption today", "platform": "vicare", "original_name": null}
+    {"entity_id": "sensor.vicare_power_consumption_today", "unique_id": "GW_DEV-power consumption today", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_burner_hours", "unique_id": "GW_DEV-burner_hours-0", "platform": "vicare", "original_name": null},
+    {"entity_id": "sensor.vicare_burner_starts", "unique_id": "GW_DEV-burner_starts-0", "platform": "vicare", "original_name": null}
   ]
 }
