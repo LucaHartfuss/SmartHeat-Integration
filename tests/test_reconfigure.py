@@ -879,43 +879,6 @@ async def test_reconfigure_of_an_entry_without_lever_set_keeps_the_customer_opti
     assert {key: options[key] for key in stored} == stored
 
 
-async def test_reconfigure_drops_a_removed_hint_category_from_the_stored_hints(hass, monkeypatch):
-    """Ein frueher gespeichertes "therme" (Hinweis entfaellt, Add-on 0.36.0) wird nicht mehr ans Add-on gereicht."""
-    addon_before_update = {key: value for key, value in BRIDGE_OPTIONS.items() if key != "lever_set"}
-    mypyllant, _, calls = _prepare(hass, monkeypatch, existing_options=addon_before_update, cloudflared_options=CF_OPTIONS)
-    register_phones(hass, "mobile_app_tablet")
-    stored = {
-        "room_sensors": ["sensor.kz_temperatur"], "entity_room_target": "climate.wz::temperature",
-        "notify_services": ["notify.mobile_app_tablet"], "battery_entities": ["sensor.kz_batterie"],
-        "notify_hints_off": ["therme", "batterie", "schreibzaehler"],
-    }
-    entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id, options=stored, data_without=("lever_set", "shift_lever"))
-    assert entry_incomplete(entry.data)
-
-    result = await login(hass, await entry.start_reconfigure_flow(hass))
-    assert has_default(result, "verteilsystem") is False       # Anlage weiter aus der Erkennung
-    result = await configure(hass, result, SYSTEM_INPUT)
-    assert result["step_id"] == "rooms"
-    assert (suggested(result, "room_sensors"), suggested(result, "entity_room_target")) == (
-        ["sensor.kz_temperatur"], "climate.wz",
-    )
-    result = await configure(hass, result, {
-        "room_sensors": suggested(result, "room_sensors"), "entity_room_target": suggested(result, "entity_room_target"),
-    })
-    result = await configure(hass, result, PLANT_INPUT)
-    assert suggested(result, "notify_services") == ["notify.mobile_app_tablet"]
-    result = await configure(hass, result, {"notify_services": suggested(result, "notify_services")})
-    assert result["description_placeholders"]["batteries"] == "sensor.kz_batterie"
-    result = await finish_progress(hass, await configure(hass, result, {}))
-    await hass.async_block_till_done()
-
-    assert result["reason"] == "reconfigure_successful"
-    cleaned = {**stored, "notify_hints_off": ["batterie", "schreibzaehler"]}
-    assert dict(entry.options) == cleaned
-    options = calls.options["heizungsbruecke"]
-    assert {key: options[key] for key in stored} == cleaned
-
-
 WEISHAUPT_FULL = {
     "entity_curve_current": "number.weishaupt_wbb_heizkennlinie",
     "entity_shift_current": "number.weishaupt_wbb_raumsolltemperatur_normal",

@@ -61,7 +61,6 @@ from .const import (
     ADDON_SPECS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
-    HINT_CATEGORIES,
     KPI_ENERGY_CHANNELS,
     KPI_ROLE_STATE_CLASS_EXPECTATIONS,
     KPI_ROLES_WITHOUT_STATE_CLASS,
@@ -317,7 +316,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
             self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES])
-        self._hints_off = _known_hint_categories(options.get(OPTION_NOTIFY_HINTS_OFF))
+        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF, []))
         self._system_defaults = {
             "integration": entry.data.get("integration_domain"),
             "circuit": entry.data.get("circuit"),
@@ -339,7 +338,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
             self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES] or [])
-        self._hints_off = _known_hint_categories(options.get(OPTION_NOTIFY_HINTS_OFF))
+        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF) or [])
 
     # --- Schritt 0/1: Vorabpruefung und Login ---
 
@@ -1332,12 +1331,6 @@ def _select(values: list[str], translation_key: str | None = None,
 
 
 _WARNED_UNKNOWN_CHANNELS: set[str] = set()
-
-
-def _known_hint_categories(stored) -> list[str]:
-    """Abgeschaltete Hinweis-Kategorien eines gespeicherten Eintrags ohne gestrichene (z. B. "therme"):
-    das Add-on lehnt unbekannte Kategorien in notify_hints_off ab."""
-    return [category for category in stored or [] if category in HINT_CATEGORIES]
 
 
 def _kpi_fields(telemetry_capabilities: dict | None) -> list[str]:
