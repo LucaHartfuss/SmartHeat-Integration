@@ -28,7 +28,7 @@
       },
       "rooms": {
         "title": "Rooms",
-        "description": "Choose the room temperature sensors (several are averaged) and the entity holding your desired temperature. A thermostat can be both. Thermostats and sensors with the device class \"Temperature\" are offered.",
+        "description": "Choose the room temperature sensors (several are averaged) and the entity holding your desired temperature. A thermostat can be both. Thermostats and sensors with the device class \"Temperature\" are offered.\n\nImportant for good learning: turn the thermostatic valve heads on the radiators in this room fully open or set them at least 1 °C above the desired temperature; otherwise they throttle the heating and SmartHeat sets the heating curve too high. The desired temperature should not follow its own schedule (e.g. no night setback on the thermostat): frequent changes pause the learning.",
         "data": {"room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature"}
       },
       "plant_values": {
@@ -149,7 +149,7 @@
     "step": {
       "init": {
         "title": "SmartHeat options",
-        "description": "Changes here need no sign-in. SmartHeat restarts the Heizungsbruecke add-on afterwards. Thermostats and sensors with the device class \"Temperature\" are offered.",
+        "description": "Changes here need no sign-in. SmartHeat restarts the Heizungsbruecke add-on afterwards. Thermostats and sensors with the device class \"Temperature\" are offered.\n\nImportant for good learning: turn the thermostatic valve heads on the radiators in this room fully open or set them at least 1 °C above the desired temperature; otherwise they throttle the heating and SmartHeat sets the heating curve too high. The desired temperature should not follow its own schedule (e.g. no night setback on the thermostat): frequent changes pause the learning.",
         "data": {
           "room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature",
           "notify_services": "Phones", "battery_entities": "Monitored batteries",

@@ -28,7 +28,7 @@
       },
       "rooms": {
         "title": "Räume",
-        "description": "Wähle die Raumtemperaturfühler (mehrere werden gemittelt) und die Entity mit deiner Wunschtemperatur. Ein Thermostat kann beides sein. Zur Auswahl stehen Thermostate und Sensoren mit der Geräteklasse „Temperatur“.",
+        "description": "Wähle die Raumtemperaturfühler (mehrere werden gemittelt) und die Entity mit deiner Wunschtemperatur. Ein Thermostat kann beides sein. Zur Auswahl stehen Thermostate und Sensoren mit der Geräteklasse „Temperatur“.\n\nWichtig für gutes Lernen: Die Thermostatköpfe an den Heizkörpern dieses Raums ganz aufdrehen oder mindestens 1 °C über die Wunschtemperatur stellen, sonst drosseln sie die Heizung und SmartHeat stellt die Heizkurve zu hoch ein. Die Wunschtemperatur sollte kein eigenes Zeitprogramm haben (z. B. keine Nachtabsenkung am Thermostat): häufige Wechsel pausieren das Lernen.",
         "data": {"room_sensors": "Raumtemperaturfühler", "entity_room_target": "Wunschtemperatur"}
       },
       "plant_values": {
@@ -149,7 +149,7 @@
     "step": {
       "init": {
         "title": "SmartHeat-Optionen",
-        "description": "Änderungen hier brauchen keine Anmeldung. SmartHeat startet danach das Add-on Heizungsbrücke neu. Zur Auswahl stehen Thermostate und Sensoren mit der Geräteklasse „Temperatur“.",
+        "description": "Änderungen hier brauchen keine Anmeldung. SmartHeat startet danach das Add-on Heizungsbrücke neu. Zur Auswahl stehen Thermostate und Sensoren mit der Geräteklasse „Temperatur“.\n\nWichtig für gutes Lernen: Die Thermostatköpfe an den Heizkörpern dieses Raums ganz aufdrehen oder mindestens 1 °C über die Wunschtemperatur stellen, sonst drosseln sie die Heizung und SmartHeat stellt die Heizkurve zu hoch ein. Die Wunschtemperatur sollte kein eigenes Zeitprogramm haben (z. B. keine Nachtabsenkung am Thermostat): häufige Wechsel pausieren das Lernen.",
         "data": {
           "room_sensors": "Raumtemperatur-Fühler", "entity_room_target": "Wunschtemperatur",
           "notify_services": "Handys", "battery_entities": "Überwachte Batterien",
