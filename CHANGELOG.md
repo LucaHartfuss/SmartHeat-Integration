@@ -3,6 +3,26 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.15.0
+
+- **Mindestversion des Add-ons:** Die Integration verlangt jetzt das Add-on `heizungsbruecke` ab Version 0.35.0
+  (bisher 0.33.0). Der Einrichtungsassistent (auch „Neu konfigurieren“), der Optionsdialog und der Rückbau arbeiten nur
+  noch mit diesem oder einem neueren Add-on; bei einem älteren zeigt der Assistent „Das Add-on … ist veraltet“ und
+  startet nicht. Die Mindestversion von `cloudflared_access_mqtt` bleibt 1.0.0.
+- **Hintergrund:** Ab Add-on 0.34.0 erkennt `heizungsbruecke` bei `weishaupt_modbus` 2.0 die dort geänderte Betriebsart
+  „Normal“ und stellt sie richtig um; ältere Add-on-Versionen kennen nur das Schema von 1.x. Ab 0.35.0 endet der
+  Comfort-Boost von selbst und der gemerkte Zustand gehört zu Einrichtung und Anlage (Details im Changelog des Add-ons).
+- **Reihenfolge bei Bestandsnutzern:** Zuerst das Add-on `heizungsbruecke` auf 0.35.0 aktualisieren, dann die
+  Integration. Wer die Integration zuerst aktualisiert, bekommt beim nächsten Öffnen des Assistenten oder des
+  Optionsdialogs den Hinweis, dass das Add-on veraltet ist; die Regelung selbst läuft unverändert weiter, weil die
+  laufende Integration die Version nur in diesen Dialogen prüft.
+- **Einrichtungshinweis im Raum-Schritt** (Assistent und Optionsdialog, Deutsch und Englisch): Die Thermostatköpfe an
+  den Heizkörpern des Referenzraums ganz aufdrehen oder mindestens 1 °C über die Wunschtemperatur stellen, sonst
+  drosseln sie die Heizung und SmartHeat stellt die Heizkurve zu hoch ein; die Wunschtemperatur sollte kein eigenes
+  Zeitprogramm haben, weil häufige Wechsel das Lernen pausieren. Nur Text, keine Änderung an Optionen oder Ablauf.
+- Für `client1` ohne Wirkung auf die Regelung; nach dem Update ist kein „Neu konfigurieren“ nötig (Optionsschema und
+  Statusereignis unverändert).
+
 ## 0.14.0
 
 - **Server-Antwort wird geprüft:** Aus der Antwort des SmartHeat-Servers übernimmt der Assistent nur noch die

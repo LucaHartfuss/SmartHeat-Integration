@@ -52,7 +52,7 @@ def test_heat_limit_is_a_writable_number_tp12h():
 
 
 def test_min_addon_version():
-    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.33.0"
+    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.35.0"
 
 
 def test_wait_seconds_are_the_plan_values():
@@ -130,7 +130,7 @@ def test_entry_incomplete_per_lever_set():
 def test_versions_and_contracts():
     assert const.REQUIRED_CATALOG_VERSION == 3
     assert const.STATUS_EVENT_SCHEMA == 2
-    assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.33.0"
+    assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.35.0"
     assert const.HINT_CATEGORIES[-2:] == ("schreibbudget", "schreibzaehler")
     assert const.KPI_ENERGY_CHANNELS[-1] == "electrical_total"
     assert (const.OPTION_LEVER_SET, const.OPTION_POLL_INTERVAL) == ("lever_set", "poll_interval_seconds")
