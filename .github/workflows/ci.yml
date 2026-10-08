@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
-      - run: pip install -r requirements_test.txt
+      - run: pip install -r requirements_test.txt  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - run: PYTHON=python bash scripts/check.sh --only lint
   test:
     runs-on: ubuntu-24.04
@@ -38,14 +38,14 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
-      - run: pip install -r requirements_test.txt
+      - run: pip install -r requirements_test.txt  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - name: Taeglich gegen die neueste HA-Testumgebung (Spec 2.2)
         if: github.event_name == 'schedule'
-        run: pip install -U pytest-homeassistant-custom-component
+        run: pip install -U pytest-homeassistant-custom-component  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - run: PYTHON=python bash scripts/check.sh --only test
   test-client1-ha:
     # Dieselben Tests gegen die HA-Version von client1. Die phcc-Version muss HomeAssistantPapa/.HA_VERSION
-    # folgen (phcc 0.13.325 pinnt homeassistant==2026.4.4) und wird mit dem HA-Pin in
+    # folgen (phcc 0.13.367 pinnt homeassistant==2026.9.4) und wird mit dem HA-Pin in
     # SmartHeat-for-HomeAssistant/.github/workflows/ci.yml zusammen angehoben (docs/ci-cd-runbook.md).
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -56,11 +56,11 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
-      - name: Test-Abhaengigkeiten mit der HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.4.4)
-        run: pip install pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.325
+      - name: Test-Abhaengigkeiten mit der HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.9.4)
+        run: pip install pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.367  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - name: Kein Paket der neuen HA-Version im Environment
         run: |
-          pip show homeassistant | grep -q '^Version: 2026\.4\.4$'
+          pip show homeassistant | grep -q '^Version: 2026\.9\.4$'
       - run: PYTHON=python bash scripts/check.sh --only test
   hassfest:
     runs-on: ubuntu-24.04
@@ -96,5 +96,5 @@ jobs:
           bash scripts/ci/siblings.sh "$RUNNER_TEMP/dev" SmartHeat-Integration "$GITHUB_WORKSPACE"
           "$SIBLINGS_REF"
           HeizungssteuerungServer SmartHeat-for-HomeAssistant
-      - run: pip install -r "$DEV_ROOT/tools/requirements-dev.txt"
+      - run: pip install -r "$DEV_ROOT/tools/requirements-dev.txt"  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - run: PYTHON=python bash scripts/check.sh --only contract
