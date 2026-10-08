@@ -63,6 +63,7 @@ from .const import (
     DOMAIN,
     KPI_ENERGY_CHANNELS,
     KPI_ROLE_STATE_CLASS_EXPECTATIONS,
+    KPI_ROLES_WITHOUT_STATE_CLASS,
     KPI_SCALAR_ROLE_BY_CAPABILITY,
     LEVER_OPTIONS,
     LEVER_SET_FIELDS,
@@ -1348,8 +1349,8 @@ def _kpi_fields(telemetry_capabilities: dict | None) -> list[str]:
 
 
 def _resolve_kpi_entities(hass, user_input: dict, fields: list[str]) -> tuple[dict[str, str], dict[str, str]]:
-    """state_class-Pruefung der KPI-Rollen: Energie nur total_increasing (KPI-Entscheidung a),
-    operating_mode ohne state_class."""
+    """state_class-Pruefung der KPI-Rollen: Energie nur total_increasing (KPI-Entscheidung a);
+    Text-Zustaende und Liefer-Zaehler ohne state_class-Pruefung."""
     resolved: dict[str, str] = {}
     errors: dict[str, str] = {}
     for field in fields:
@@ -1363,7 +1364,7 @@ def _resolve_kpi_entities(hass, user_input: dict, fields: list[str]) -> tuple[di
         if error := validation.check_domain(entity_id, field):
             errors[field] = error
             continue
-        if field != "entity_operating_mode":
+        if field not in KPI_ROLES_WITHOUT_STATE_CLASS:
             expected = KPI_ROLE_STATE_CLASS_EXPECTATIONS.get(field, "total_increasing")
             if state.attributes.get("state_class") != expected:
                 errors[field] = f"state_class_expected_{expected}"

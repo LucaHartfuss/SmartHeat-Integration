@@ -179,15 +179,14 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
         abo="inaktiv",
         abo_frist_ende="2026-10-31",
         hinweise={"raumfuehler_ausgefallen": ["sensor.a"], "batterie_niedrig": [],
-                  "manueller_eingriff": {"hebel": {"curve": 1.4}, "erkannt": "2026-10-01T04:00:00+02:00"},
-                  "waerme_fehlt": "2026-10-01T05:11:00+02:00"},
+                  "manueller_eingriff": {"hebel": {"curve": 1.4}, "erkannt": "2026-10-01T04:00:00+02:00"}},
     ))
     await hass.async_block_till_done()
 
     status = hass.states.get(STATUS)
     assert status.state == "notbetrieb"
     assert status.attributes["raumfuehler_ausgefallen"] == ["sensor.a"]
-    assert status.attributes["waerme_fehlt"] == "2026-10-01T05:11:00+02:00"
+    assert "waerme_fehlt" not in status.attributes
     # Schema 2: manueller_eingriff ist ein Objekt (hebel/erkannt); die Integration reicht es unveraendert durch.
     assert status.attributes["manueller_eingriff"] == {"hebel": {"curve": 1.4}, "erkannt": "2026-10-01T04:00:00+02:00"}
     assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"

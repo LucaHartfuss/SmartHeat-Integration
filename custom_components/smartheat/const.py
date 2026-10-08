@@ -23,7 +23,7 @@ CLIENT_TYPE_HA = "ha"
 PROVISION_CLIENT_KEYS = ("client_type", "client_version")
 # Abschaltbare Hinweis-Kategorien; gleich in smartheat_runtime/notifier.py und config.yaml (Contract-Check 15).
 HINT_CATEGORIES = (
-    "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme", "schreibbudget", "schreibzaehler",
+    "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "schreibbudget", "schreibzaehler",
 )
 # Markiert einen unvollstaendigen Eintrag; heute setzt ihn kein Code mehr (die v1-Migration ist
 # entfallen), er bleibt als Merkmal fuer entry_incomplete().
@@ -69,7 +69,7 @@ POLL_INTERVAL_MAX_SECONDS = 1800
 # Katalog-Version, die diese Integration voraussetzt (Plan 3c: Rollen nach Hebeln, Hebelsaetze).
 # Ein aelterer Server-Katalog bricht den Wizard ab (catalog_outdated), statt still auf die alte
 # Zonensuche zurueckzufallen.
-REQUIRED_CATALOG_VERSION = 3
+REQUIRED_CATALOG_VERSION = 4
 # Laenge des vom Server gemeldeten Ablehnungsgrunds (403), der dem Nutzer angezeigt wird.
 ACCESS_DENIED_REASON_MAX = 200
 LIST_OPTIONS = (OPTION_ROOM_SENSORS, OPTION_NOTIFY_SERVICES, OPTION_BATTERY_ENTITIES)
@@ -127,7 +127,7 @@ BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
 DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
-HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff", "waerme_fehlt")
+HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
 
 STATUS_WAIT_SECONDS = 180
 SIGN_OFF_WAIT_SECONDS = 60
@@ -310,7 +310,16 @@ KPI_SCALAR_ROLE_BY_CAPABILITY: dict[str, str] = {
     "has_operating_mode": "entity_operating_mode",
     "has_water_pressure": "entity_system_water_pressure",
     "has_manufacturer_efficiency_sensor": "entity_efficiency_ratio",
+    # Audit 4 P-B: Liefer-Signale des Waermeerzeugers (der Server weist damit die Waermelieferung nach).
+    "has_generator_hours": "entity_generator_hours",
+    "has_generator_starts": "entity_generator_starts",
+    "has_generator_state": "entity_generator_state",
 }
+# Ohne state_class-Pruefung: Text-Zustaende und Zaehler, deren state_class je Hersteller verschieden ist
+# (mypyllant measurement, ViCare total_increasing).
+KPI_ROLES_WITHOUT_STATE_CLASS = (
+    "entity_operating_mode", "entity_generator_hours", "entity_generator_starts", "entity_generator_state",
+)
 
 # state_class, das HA fuer den jeweiligen Feldtyp erwartet -- operating_mode hat
 # bewusst keinen Eintrag (Text-Sensor ohne state_class). Energie-Rollen
@@ -351,6 +360,9 @@ ENTITY_FILTERS: dict[str, list[dict[str, str]]] = {
     "entity_system_water_pressure": [{"domain": "sensor", "device_class": "pressure"}],
     "entity_operating_mode": [{"domain": "sensor"}],
     "entity_efficiency_ratio": [{"domain": "sensor"}],
+    "entity_generator_hours": [{"domain": "sensor"}],
+    "entity_generator_starts": [{"domain": "sensor"}],
+    "entity_generator_state": [{"domain": "sensor"}],
     **{kpi_energy_role(channel): [{"domain": "sensor", "device_class": "energy"}] for channel in KPI_ENERGY_CHANNELS},
 }
 
@@ -367,7 +379,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.35.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.36.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 

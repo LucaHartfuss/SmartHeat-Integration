@@ -54,6 +54,9 @@
               "entity_flow_temperature": "Vorlauftemperatur",
               "entity_return_temperature": "Rücklauftemperatur",
               "entity_operating_mode": "Betriebsart",
+              "entity_generator_hours": "Betriebsstunden des Wärmeerzeugers",
+              "entity_generator_starts": "Starts des Wärmeerzeugers",
+              "entity_generator_state": "Status des Wärmeerzeugers",
               "entity_system_water_pressure": "Anlagendruck",
               "entity_efficiency_ratio": "Hersteller-Effizienzwert",
               "entity_energy_electrical_heating": "Energie: Strom Heizen",
@@ -63,6 +66,11 @@
               "entity_energy_thermal_heating": "Energie: Wärme Heizen",
               "entity_energy_thermal_dhw": "Energie: Wärme Warmwasser",
               "entity_energy_electrical_total": "Energie: Strom gesamt"
+            },
+            "data_description": {
+              "entity_generator_hours": "Optional. Damit erkennt SmartHeat, ob die Heizung wirklich Wärme liefert.",
+              "entity_generator_starts": "Optional. Damit erkennt SmartHeat, ob die Heizung wirklich Wärme liefert.",
+              "entity_generator_state": "Optional. Damit erkennt SmartHeat, ob die Heizung wirklich Wärme liefert."
             }
           }
         }
@@ -156,7 +164,6 @@
           "hint_raumfuehler": "Bei ausgefallenem Raumfühler benachrichtigen", "hint_batterie": "Bei schwacher Batterie benachrichtigen",
           "hint_manueller_eingriff": "Bei manueller Änderung eines von SmartHeat geregelten Werts benachrichtigen",
           "hint_quellwechsel": "Bei geänderter Temperaturquelle benachrichtigen",
-          "hint_therme": "Benachrichtigen, wenn die Therme keine Heizwärme liefert",
           "hint_schreibbudget": "Benachrichtigen, wenn das Tageslimit für Schreibvorgänge erreicht ist",
           "hint_schreibzaehler": "Benachrichtigen, wenn viele Schreibvorgänge auf Lebensdauer erreicht sind"
         }

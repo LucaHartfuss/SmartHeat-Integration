@@ -54,6 +54,9 @@
               "entity_flow_temperature": "Flow temperature",
               "entity_return_temperature": "Return temperature",
               "entity_operating_mode": "Operating mode",
+              "entity_generator_hours": "Heat generator operating hours",
+              "entity_generator_starts": "Heat generator starts",
+              "entity_generator_state": "Heat generator status",
               "entity_system_water_pressure": "System water pressure",
               "entity_efficiency_ratio": "Manufacturer efficiency ratio",
               "entity_energy_electrical_heating": "Energy: electrical heating",
@@ -63,6 +66,11 @@
               "entity_energy_thermal_heating": "Energy: thermal heating",
               "entity_energy_thermal_dhw": "Energy: thermal (hot water)",
               "entity_energy_electrical_total": "Energy: electrical total"
+            },
+            "data_description": {
+              "entity_generator_hours": "Optional. Lets SmartHeat verify that the heating actually delivers heat.",
+              "entity_generator_starts": "Optional. Lets SmartHeat verify that the heating actually delivers heat.",
+              "entity_generator_state": "Optional. Lets SmartHeat verify that the heating actually delivers heat."
             }
           }
         }
@@ -156,7 +164,6 @@
           "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
           "hint_manueller_eingriff": "Notify about a manual change of a value controlled by SmartHeat",
           "hint_quellwechsel": "Notify about a changed temperature source",
-          "hint_therme": "Notify when the boiler delivers no heat",
           "hint_schreibbudget": "Notify when the daily limit for write operations is reached",
           "hint_schreibzaehler": "Notify when many write operations over the device lifetime are reached"
         }

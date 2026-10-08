@@ -23,6 +23,7 @@
     {"entity_id": "sensor.weishaupt_wbb_heizen_energie_heute", "unique_id": "weishaupt_wbbHeizen Energie heute", "platform": "weishaupt_modbus", "original_name": null},
     {"entity_id": "sensor.weishaupt_wbb_heizen_energie_gestern", "unique_id": "weishaupt_wbbHeizen Energie gestern", "platform": "weishaupt_modbus", "original_name": null},
     {"entity_id": "sensor.weishaupt_wbb_warmwasser_energie_heute", "unique_id": "weishaupt_wbbWarmwasser Energie heute", "platform": "weishaupt_modbus", "original_name": null},
-    {"entity_id": "sensor.weishaupt_wbb_elektr_energie_heute", "unique_id": "weishaupt_wbbElektr. Energie heute", "platform": "weishaupt_modbus", "original_name": null}
+    {"entity_id": "sensor.weishaupt_wbb_elektr_energie_heute", "unique_id": "weishaupt_wbbElektr. Energie heute", "platform": "weishaupt_modbus", "original_name": null},
+    {"entity_id": "sensor.weishaupt_wbb_betrieb", "unique_id": "weishaupt_wbbBetrieb", "platform": "weishaupt_modbus", "original_name": null}
   ]
 }

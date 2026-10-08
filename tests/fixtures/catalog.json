@@ -1,5 +1,5 @@
 {
-  "catalog_version": 3,
+  "catalog_version": 4,
   "profiles": [
     {
       "profile_id": "weishaupt_waermepumpe_fussbodenheizung",
@@ -36,6 +36,9 @@
         "has_operating_mode": false,
         "has_water_pressure": false,
         "has_manufacturer_efficiency_sensor": false,
+        "has_generator_hours": false,
+        "has_generator_starts": false,
+        "has_generator_state": true,
         "energy_channels": [
           "thermal_heating",
           "thermal_dhw",
@@ -73,6 +76,9 @@
         "has_operating_mode": true,
         "has_water_pressure": true,
         "has_manufacturer_efficiency_sensor": true,
+        "has_generator_hours": true,
+        "has_generator_starts": true,
+        "has_generator_state": false,
         "energy_channels": [
           "electrical_heating",
           "electrical_dhw",
@@ -118,6 +124,9 @@
         "has_operating_mode": false,
         "has_water_pressure": false,
         "has_manufacturer_efficiency_sensor": false,
+        "has_generator_hours": false,
+        "has_generator_starts": false,
+        "has_generator_state": true,
         "energy_channels": [
           "thermal_heating",
           "thermal_dhw",
@@ -153,6 +162,9 @@
         "has_operating_mode": false,
         "has_water_pressure": false,
         "has_manufacturer_efficiency_sensor": false,
+        "has_generator_hours": true,
+        "has_generator_starts": true,
+        "has_generator_state": false,
         "energy_channels": [
           "primary_heating",
           "primary_dhw",
@@ -190,6 +202,9 @@
         "has_operating_mode": true,
         "has_water_pressure": true,
         "has_manufacturer_efficiency_sensor": true,
+        "has_generator_hours": true,
+        "has_generator_starts": true,
+        "has_generator_state": false,
         "energy_channels": [
           "electrical_heating",
           "electrical_dhw",
@@ -228,6 +243,9 @@
         "has_operating_mode": false,
         "has_water_pressure": false,
         "has_manufacturer_efficiency_sensor": false,
+        "has_generator_hours": true,
+        "has_generator_starts": true,
+        "has_generator_state": false,
         "energy_channels": [
           "electrical_total"
         ]
@@ -304,6 +322,14 @@
         "energy_thermal_dhw": {
           "entity_domain": "sensor",
           "original_name_suffix": "Heat Generated Domestic Hot Water"
+        },
+        "generator_hours": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "Operation Time"
+        },
+        "generator_starts": {
+          "entity_domain": "sensor",
+          "original_name_suffix": "On/Off Cycles"
         }
       },
       "erzeuger_typ_hints": [
@@ -471,6 +497,16 @@
               "unique_id_suffix": "statistics_electric_energy_today"
             }
           ]
+        },
+        "generator_state": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "Betrieb",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "heat_pump_operation"
+            }
+          ]
         }
       },
       "erzeuger_typ_hints": []
@@ -526,6 +562,26 @@
         "energy_electrical_total": {
           "entity_domain": "sensor",
           "unique_id_suffix": "-power consumption today"
+        },
+        "generator_hours": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-burner_hours-0",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "-compressor_hours-0"
+            }
+          ]
+        },
+        "generator_starts": {
+          "entity_domain": "sensor",
+          "unique_id_suffix": "-burner_starts-0",
+          "alternatives": [
+            {
+              "entity_domain": "sensor",
+              "unique_id_suffix": "-compressor_starts-0"
+            }
+          ]
         }
       },
       "erzeuger_typ_hints": [
