@@ -61,8 +61,10 @@ from .const import (
     ADDON_SPECS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
+    HINT_CATEGORIES,
     KPI_ENERGY_CHANNELS,
     KPI_ROLE_STATE_CLASS_EXPECTATIONS,
+    KPI_ROLES_WITHOUT_STATE_CLASS,
     KPI_SCALAR_ROLE_BY_CAPABILITY,
     LEVER_OPTIONS,
     LEVER_SET_FIELDS,
@@ -315,7 +317,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
             self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES])
-        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF, []))
+        self._hints_off = _known_hint_categories(options.get(OPTION_NOTIFY_HINTS_OFF))
         self._system_defaults = {
             "integration": entry.data.get("integration_domain"),
             "circuit": entry.data.get("circuit"),
@@ -337,7 +339,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
             self._stored_notify_services = list(self._notify_services)
         if OPTION_BATTERY_ENTITIES in options:
             self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES] or [])
-        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF) or [])
+        self._hints_off = _known_hint_categories(options.get(OPTION_NOTIFY_HINTS_OFF))
 
     # --- Schritt 0/1: Vorabpruefung und Login ---
 
@@ -1332,6 +1334,12 @@ def _select(values: list[str], translation_key: str | None = None,
 _WARNED_UNKNOWN_CHANNELS: set[str] = set()
 
 
+def _known_hint_categories(stored) -> list[str]:
+    """Abgeschaltete Hinweis-Kategorien eines gespeicherten Eintrags ohne gestrichene (z. B. "therme"):
+    das Add-on lehnt unbekannte Kategorien in notify_hints_off ab."""
+    return [category for category in stored or [] if category in HINT_CATEGORIES]
+
+
 def _kpi_fields(telemetry_capabilities: dict | None) -> list[str]:
     """KPI-Rollen, die das Profil ausweist (Sektion advanced)."""
     if not telemetry_capabilities:
@@ -1348,8 +1356,8 @@ def _kpi_fields(telemetry_capabilities: dict | None) -> list[str]:
 
 
 def _resolve_kpi_entities(hass, user_input: dict, fields: list[str]) -> tuple[dict[str, str], dict[str, str]]:
-    """state_class-Pruefung der KPI-Rollen: Energie nur total_increasing (KPI-Entscheidung a),
-    operating_mode ohne state_class."""
+    """state_class-Pruefung der KPI-Rollen: Energie nur total_increasing (KPI-Entscheidung a);
+    Text-Zustaende und Liefer-Zaehler ohne state_class-Pruefung."""
     resolved: dict[str, str] = {}
     errors: dict[str, str] = {}
     for field in fields:
@@ -1363,7 +1371,7 @@ def _resolve_kpi_entities(hass, user_input: dict, fields: list[str]) -> tuple[di
         if error := validation.check_domain(entity_id, field):
             errors[field] = error
             continue
-        if field != "entity_operating_mode":
+        if field not in KPI_ROLES_WITHOUT_STATE_CLASS:
             expected = KPI_ROLE_STATE_CLASS_EXPECTATIONS.get(field, "total_increasing")
             if state.attributes.get("state_class") != expected:
                 errors[field] = f"state_class_expected_{expected}"

@@ -23,6 +23,9 @@
     "entity_energy_thermal_heating": "str?",
     "entity_flow_setpoint": "str?",
     "entity_flow_temperature": "str?",
+    "entity_generator_hours": "str?",
+    "entity_generator_starts": "str?",
+    "entity_generator_state": "str?",
     "entity_heat_limit": "str?",
     "entity_level_current": "str?",
     "entity_min_flow": "str?",
@@ -41,7 +44,7 @@
     "mqtt_password": "password?",
     "mqtt_username": "str?",
     "notify_hints_off": [
-      "list(raumfuehler|batterie|manueller_eingriff|quellwechsel|therme|schreibbudget|schreibzaehler)?"
+      "list(raumfuehler|batterie|manueller_eingriff|quellwechsel|schreibbudget|schreibzaehler)?"
     ],
     "notify_services": [
       "str?"

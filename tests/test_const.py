@@ -22,9 +22,9 @@ def test_status_event_contract_and_watchdog_values():
     )
     assert const.STATUS_SENSOR_VALUES == const.ADDON_STATUS_VALUES + ("addon_gestoppt", "reagiert_nicht")
     assert const.HINT_CATEGORIES == (
-        "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "therme", "schreibbudget", "schreibzaehler",
+        "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "schreibbudget", "schreibzaehler",
     )
-    assert const.HINT_FIELDS == ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff", "waerme_fehlt")
+    assert const.HINT_FIELDS == ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
     assert (const.WATCHDOG_INTERVAL_SECONDS, const.STOPPED_AFTER_CHECKS, const.SILENCE_SECONDS) == (300, 2, 900)
     assert (const.MAX_RESTARTS_PER_WINDOW, const.RESTART_WINDOW_SECONDS) == (3, 3600)
 
@@ -52,7 +52,7 @@ def test_heat_limit_is_a_writable_number_tp12h():
 
 
 def test_min_addon_version():
-    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.35.0"
+    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.36.0"
 
 
 def test_wait_seconds_are_the_plan_values():
@@ -128,12 +128,27 @@ def test_entry_incomplete_per_lever_set():
 
 
 def test_versions_and_contracts():
-    assert const.REQUIRED_CATALOG_VERSION == 3
+    assert const.REQUIRED_CATALOG_VERSION == 4
     assert const.STATUS_EVENT_SCHEMA == 2
-    assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.35.0"
+    assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.36.0"
     assert const.HINT_CATEGORIES[-2:] == ("schreibbudget", "schreibzaehler")
     assert const.KPI_ENERGY_CHANNELS[-1] == "electrical_total"
     assert (const.OPTION_LEVER_SET, const.OPTION_POLL_INTERVAL) == ("lever_set", "poll_interval_seconds")
     assert const.POLL_INTERVAL_OPTION_RANGE == (10, 3600)
     assert const.CLIENT_TYPE_HA == "ha"
     assert const.PROVISION_CLIENT_KEYS == ("client_type", "client_version")
+
+
+def test_the_warmth_hint_and_its_category_are_gone():
+    assert "waerme_fehlt" not in const.HINT_FIELDS
+    assert "therme" not in const.HINT_CATEGORIES
+
+
+def test_delivery_roles_are_kpi_roles_without_state_class_check():
+    assert const.KPI_SCALAR_ROLE_BY_CAPABILITY["has_generator_hours"] == "entity_generator_hours"
+    assert const.KPI_SCALAR_ROLE_BY_CAPABILITY["has_generator_starts"] == "entity_generator_starts"
+    assert const.KPI_SCALAR_ROLE_BY_CAPABILITY["has_generator_state"] == "entity_generator_state"
+    assert {"entity_generator_hours", "entity_generator_starts", "entity_generator_state"} <= set(
+        const.KPI_ROLES_WITHOUT_STATE_CLASS)
+    for role in ("entity_generator_hours", "entity_generator_starts", "entity_generator_state"):
+        assert const.ENTITY_FILTERS[role] == [{"domain": "sensor"}]

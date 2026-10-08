@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,7 +15,7 @@ from homeassistant.components.hassio import AddonError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat import provisioning, setup_rollback
+from custom_components.smartheat import config_flow, provisioning, setup_rollback
 from custom_components.smartheat.api_client import (
     AccessDenied,
     ApiError,
@@ -1786,3 +1787,19 @@ async def test_unknown_lever_set_aborts(hass, monkeypatch):
     mock_addons(hass, monkeypatch)
     result = await configure(hass, await login(hass, await start(hass)), SYSTEM_INPUT)
     assert result["type"] == "abort" and result["reason"] == "lever_set_unsupported"
+
+
+def test_delivery_roles_are_offered_in_the_advanced_section():
+    fields = config_flow._kpi_fields(
+        {"has_generator_hours": True, "has_generator_starts": True, "has_generator_state": True})
+    assert {"entity_generator_hours", "entity_generator_starts", "entity_generator_state"} <= set(fields)
+
+
+def test_delivery_roles_need_no_state_class():
+    # mypyllant-Zaehler haben state_class measurement, ViCare total_increasing, der Weishaupt-Status keine.
+    states = {"sensor.x_operation_time": SimpleNamespace(attributes={"state_class": "measurement"}),
+              "sensor.wwp_betrieb": SimpleNamespace(attributes={})}
+    hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
+    user_input = {"entity_generator_hours": "sensor.x_operation_time", "entity_generator_state": "sensor.wwp_betrieb"}
+    resolved, errors = config_flow._resolve_kpi_entities(hass, user_input, list(user_input))
+    assert errors == {} and resolved == user_input

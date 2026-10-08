@@ -97,8 +97,7 @@ def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
         "letzte_serverantwort": None, "hebelsatz": "vaillant_vrc720", "hebel": None, "gelernt": None,
         "abo": "aktiv", "abo_frist_ende": None,
-        "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None,
-                     "waerme_fehlt": None},
+        "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None},
     }
     event.update(overrides)
     return event
