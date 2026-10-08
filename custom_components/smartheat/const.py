@@ -367,7 +367,7 @@ CLOUDFLARED_ADDON_SLUG = "cloudflared_access_mqtt"
 
 # Mindestversionen der Add-ons fuer diesen Wizard (Spec TP6 1, Schritt 0; I4).
 MIN_ADDON_VERSIONS: dict[str, str] = {
-    HEIZUNGSBRUECKE_ADDON_SLUG: "0.33.0",
+    HEIZUNGSBRUECKE_ADDON_SLUG: "0.35.0",
     CLOUDFLARED_ADDON_SLUG: "1.0.0",
 }
 
