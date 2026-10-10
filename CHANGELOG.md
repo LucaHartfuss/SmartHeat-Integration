@@ -3,6 +3,19 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.16.0
+
+- **Mindestversion des Add-ons:** Die Integration verlangt jetzt das Add-on `heizungsbruecke` ab Version 0.36.0
+  (bisher 0.35.0). Zuerst das Add-on aktualisieren, dann die Integration (wie bei 0.15.0).
+- **Nachweis der Wärmelieferung:** Im Schritt „Anlagenwerte“ (Abschnitt „Erweitert: Messwerte für Auswertungen“)
+  lassen sich optional Betriebsstunden, Starts und Status des Wärmeerzeugers zuordnen. Der SmartHeat-Server erkennt damit, ob die Heizung wirklich Wärme liefert, und lernt nur
+  dann. Ohne diese Zuordnung schließt der Server aus der Vorlauftemperatur.
+- **Entfernt:** die Meldekategorie „Therme liefert keine Heizwärme“. Den Hinweis gibt jetzt der SmartHeat-Server,
+  nicht mehr das Add-on.
+- Katalog 4 des Servers (Liefer-Rollen je Hersteller) wird unterstützt.
+- Für `client1` ohne Wirkung auf die Regelung; nach dem Update ist kein „Neu konfigurieren“ nötig (`mypyllant` bietet
+  keine Betriebsstunden- oder Startzähler).
+
 ## 0.15.0
 
 - **Mindestversion des Add-ons:** Die Integration verlangt jetzt das Add-on `heizungsbruecke` ab Version 0.35.0
