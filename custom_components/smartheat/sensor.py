@@ -54,6 +54,7 @@ class EventField:
     options: list[str] | None = field(default=None)
     unit: str | None = None
     category: EntityCategory | None = None
+    precision: int | None = None
 
 
 STATUS_KEY = "status"
@@ -99,11 +100,12 @@ def _lever_field(lever: str, shift_lever: str | None) -> EventField:
     )
 
 
+# Lernwerte kommen ungerundet vom Server; angezeigt mit zwei Nachkommastellen.
 LEARNED_FIELDS = (
-    EventField(key="gelernte_steigung", value=lambda d: d["gelernt"]["curve"], restore=_number),
+    EventField(key="gelernte_steigung", value=lambda d: d["gelernt"]["curve"], restore=_number, precision=2),
     EventField(
         key="gelernte_heizgrenze", value=lambda d: d["gelernt"]["heat_limit"], restore=_number,
-        device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS, precision=2,
     ),
 )
 
@@ -170,6 +172,7 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         self._attr_options = event_field.options
         self._attr_native_unit_of_measurement = event_field.unit
         self._attr_entity_category = event_field.category
+        self._attr_suggested_display_precision = event_field.precision
 
     def _apply(self) -> None:
         data = self.coordinator.data
