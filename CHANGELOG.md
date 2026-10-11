@@ -3,6 +3,13 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## 0.16.1
+
+- **Anzeige:** Gelernte Steigung und gelernte Heizgrenze erscheinen mit zwei Nachkommastellen (bisher ungerundet,
+  wie vom Server geliefert). Der gespeicherte Wert bleibt unverändert; eine selbst eingestellte Anzeigegenauigkeit
+  hat Vorrang.
+- Keine Wirkung auf die Regelung, kein „Neu konfigurieren“ nötig.
+
 ## 0.16.0
 
 - **Mindestversion des Add-ons:** Die Integration verlangt jetzt das Add-on `heizungsbruecke` ab Version 0.36.0
