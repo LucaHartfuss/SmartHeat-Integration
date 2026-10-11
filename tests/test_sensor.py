@@ -52,3 +52,20 @@ EVENT = {
 def test_values_come_from_hebel_and_gelernt(key, value):
     fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
     assert fields[key].value(EVENT) == value
+
+
+class _Coordinator:
+    tenant_id = "client1"
+
+
+@pytest.mark.parametrize("key", ["gelernte_steigung", "gelernte_heizgrenze"])
+def test_learned_values_are_shown_with_two_decimals(key):
+    """Server-Lernwerte kommen ungerundet; HA zeigt sie mit zwei Nachkommastellen (Dashboard „Zuhause“)."""
+    fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
+    entity = sensor.EventSensor(_Coordinator(), fields[key])
+    assert entity.suggested_display_precision == 2
+
+
+def test_lever_values_keep_their_display_precision():
+    fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
+    assert sensor.EventSensor(_Coordinator(), fields["heizkurve"]).suggested_display_precision is None
