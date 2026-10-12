@@ -22,8 +22,9 @@ GERAET_ZUSTAENDE = (
     "startet", "nicht_uebernommen", "keine_verbindung", "wartet_auf_einrichtung", "regelt", "stoerung", "gesperrt",
     "update_noetig",
 )
-HINWEIS_KEYS = ("update_noetig", "geraet_doppelt", "wunsch_begrenzt", "soll_quelle_aus", "konfiguration_abgelehnt",
-                "gesperrt")
+HINWEIS_SOLL_QUELLE_AUS = "soll_quelle_aus"
+HINWEIS_KEYS = ("update_noetig", "geraet_doppelt", "wunsch_begrenzt", HINWEIS_SOLL_QUELLE_AUS,
+                "konfiguration_abgelehnt", "gesperrt")
 STATUS_STARTET = "startet"
 STATUS_REGELT = "regelt"
 STATUS_KONFIGURATIONSFEHLER = "konfigurationsfehler"

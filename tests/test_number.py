@@ -118,3 +118,29 @@ async def test_restores_the_last_value_after_a_restart(hass):
     mock_restore_cache(hass, [State(WUNSCH, "20.5")])
     await _setup(hass)
     assert float(hass.states.get(WUNSCH).state) == 20.5
+
+
+async def test_a_wish_is_refused_while_the_thermostat_is_off(hass):
+    """5c F/Q3: das Add-on verwirft den Wunsch; die Entity sagt es sofort, statt einen Wert zu zeigen, der nie gilt."""
+    await _setup(hass)
+    aus = {"key": "soll_quelle_aus", "stufe": "warnung", "text": "Thermostat aus, SmartHeat haelt 21,5 °C"}
+    hass.bus.async_fire(STATUS_EVENT, _event(geraet_hinweise=[aus]))
+    await hass.async_block_till_done()
+    events = _listen(hass)
+    with pytest.raises(ServiceValidationError) as error:
+        await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
+    assert error.value.translation_key == "thermostat_aus"
+    await hass.async_block_till_done()
+    assert events == [] and float(hass.states.get(WUNSCH).state) == 21.5
+
+
+async def test_a_wish_is_accepted_again_once_the_thermostat_is_on(hass):
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event(geraet_hinweise=[{"key": "soll_quelle_aus", "stufe": "warnung",
+                                                               "text": "aus"}]))
+    hass.bus.async_fire(STATUS_EVENT, _event())  # Hinweis wieder weg
+    await hass.async_block_till_done()
+    events = _listen(hass)
+    await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
+    await hass.async_block_till_done()
+    assert [e.data["raum_soll"] for e in events] == [23.0]

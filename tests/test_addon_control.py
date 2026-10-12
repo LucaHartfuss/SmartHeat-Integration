@@ -84,9 +84,9 @@ async def test_bootstrap_url_falls_back_to_production_only_when_missing(hass, mo
     assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
 
 
-async def test_bootstrap_url_uses_valid_http_and_https_values(hass, monkeypatch):
+async def test_bootstrap_url_uses_only_https_values(hass, monkeypatch):
     for value, expected in (("https://labor.example.test/", "https://labor.example.test"),
-                            ("http://192.168.1.5:8080", "http://192.168.1.5:8080")):
+                            ("http://192.168.1.20:5001", None)):
         _patch(monkeypatch, _supervisor(options={"bootstrap_url": value}))
         assert await addon_control.async_bootstrap_url(hass) == expected
 

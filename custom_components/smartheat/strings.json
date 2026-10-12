@@ -212,7 +212,8 @@
   },
   "exceptions": {
     "alter_eintrag": {"message": "This SmartHeat entry comes from a version before 1.0.0 and has to be set up again (move to the add-on as a device)."},
-    "wunsch_ungueltig": {"message": "The desired temperature must be a number."}
+    "wunsch_ungueltig": {"message": "The desired temperature must be a number."},
+    "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."}
   },
   "issues": {
     "alter_eintrag": {"title": "SmartHeat: set up the entry again", "description": "This SmartHeat entry comes from a version before 1.0.0 and no longer works with this version. Please remove the entry and set up SmartHeat again (move to the add-on as a device). Until then the add-on keeps controlling with its last configuration."},
