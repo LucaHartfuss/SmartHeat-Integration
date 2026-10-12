@@ -6,16 +6,16 @@ homeassistant.components.hassio.AddonManager -- denselben Baustein, den z.B. die
 und Matter-Integrationen fuer ihre gebuendelten Add-ons verwenden (I4 aus der finalen Review).
 
 Der Unterschied zu jenen Integrationen: deren Add-ons kommen aus dem offiziellen "core"-
-Repository und haben stabile, unpraefigierte Slugs (z.B. "core_zwave_js"). Die beiden
-SmartHeat-Add-ons kommen aus einem eigenen Custom-Repository -- ein Supervisor praefigiert
-einen von dort installierten Add-on-Slug mit einem Repository-Hash (verifiziert gegen einen
-echten Supervisor: "heizungsbruecke" wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst
-loest das nicht auf -- sein addon_slug muss bereits der echte, installationsspezifische Slug
-sein. async_resolve_addons() schliesst genau diese Luecke: sie fragt den Supervisor nach
-allen installierten Add-ons und findet den passenden Eintrag anhand von Repository-URL +
-Slug-Suffix (beide SmartHeat-Add-ons teilen dieselbe Repository-URL, daher reicht die URL
-allein nicht zur Unterscheidung), und prueft zusaetzlich die Mindestversion (TP6 I4) --
-ein zu altes Add-on wird nicht als Treffer akzeptiert.
+Repository und haben stabile, unpraefigierte Slugs (z.B. "core_zwave_js"). Das SmartHeat-Add-on
+kommt aus einem eigenen Custom-Repository -- ein Supervisor praefigiert einen von dort installierten
+Add-on-Slug mit einem Repository-Hash (verifiziert gegen einen echten Supervisor: "heizungsbruecke"
+wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst loest das nicht auf -- sein addon_slug
+muss bereits der echte, installationsspezifische Slug sein. async_resolve_addons() schliesst genau
+diese Luecke und folgt dabei dieser Regel (Sicherheitsfix 0f34d56): Das Store-Repository wird allein
+an seiner Eintragsadresse (`source`) erkannt und liefert den Repository-Slug; ein installiertes Add-on
+zaehlt nur, wenn es zu diesem Repository gehoert und genau den Slug "<Repository-Slug>_<config_slug>"
+hat. Weder die `url` aus der config.yaml des Add-ons noch ein blosses Slug-Suffix zaehlen. Geprueft
+wird zusaetzlich die Mindestversion (TP6 I4): ein zu altes Add-on ist kein Treffer.
 """
 from __future__ import annotations
 
@@ -130,12 +130,12 @@ async def async_resolve_addons(
 async def async_find_addon_managers(
     hass: HomeAssistant, addon_specs: list[tuple[str, str]],
 ) -> dict[str, AddonManager | None]:
-    """Fuer Waechter und Entfernen: jeder config-Slug einzeln aus EINEM addons.list(), ohne
-    Mindestversion. Nicht oder mehrfach installiert -> None (mit einer Warnung, die die beiden
-    Faelle unterscheidet). Ist Hass.io gar nicht geladen (Core/Container-Installation, aus einem
-    Backup wiederhergestellt) wuerde get_supervisor_client() mit einem rohen KeyError abbrechen --
-    das wird hier zu einer regulaeren AddonError, damit der Aufrufer sauber degradiert statt
-    mittendrin abzubrechen. Eine SupervisorError beim eigentlichen Abruf wird ebenfalls AddonError."""
+    """Fuer den Waechter: jeder config-Slug einzeln aus EINEM addons.list() (Zuordnung wie in der Modul-Doku:
+    Repository per `source`, genauer Slug), ohne Mindestversion. Nicht oder mehrfach installiert -> None (mit
+    einer Warnung, die die beiden Faelle unterscheidet). Ist Hass.io gar nicht geladen (Core/Container-
+    Installation, aus einem Backup wiederhergestellt) wuerde get_supervisor_client() mit einem rohen
+    KeyError abbrechen -- das wird hier zu einer regulaeren AddonError, damit der Aufrufer sauber degradiert
+    statt mittendrin abzubrechen. Eine SupervisorError beim eigentlichen Abruf wird ebenfalls AddonError."""
     if not is_hassio(hass):
         raise AddonError("Hass.io ist auf dieser Installation nicht geladen")
     repository_slug = await async_repository_slug(hass)

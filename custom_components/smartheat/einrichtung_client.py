@@ -163,7 +163,7 @@ class EinrichtungClient:
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
                 async with self._session.request(method, f"{self._base_url}{EINRICHTUNG_PREFIX}{path}", json=json,
-                                                 headers=headers) as response:
+                                                 headers=headers, allow_redirects=False) as response:
                     if response.status not in ok:
                         await self._fehler(route, response, auth)
                     if response.status == 204 or not expect_json:
@@ -181,7 +181,12 @@ class EinrichtungClient:
 
     @staticmethod
     async def _fehler(route: str, response: aiohttp.ClientResponse, auth: bool) -> None:
-        """Wirft je Status den passenden Fehler; der Body kann Nicht-JSON sein (Routing-404/405 als HTML)."""
+        """Wirft je Status den passenden Fehler; der Body kann Nicht-JSON sein (Routing-404/405 als HTML). Eine
+        Weiterleitung (3xx) wird nie verfolgt (der Body mit dem Passwort ginge sonst an das Ziel) und ist ein
+        Fehler ohne Text."""
+        if 300 <= response.status < 400:
+            _LOGGER.warning("Einrichtung: %s abgelehnt (HTTP %s, Weiterleitung)", route, response.status)
+            raise ApiError("", response.status)
         try:
             parsed = await response.json(content_type=None)
         except (aiohttp.ClientError, ValueError, RecursionError):

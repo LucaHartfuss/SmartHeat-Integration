@@ -40,7 +40,7 @@ neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbo
 - **Keine Optionen, kein Token im Betrieb:** Die Integration schreibt keine Add-on-Optionen (nur Watchdog/Autostart über
   den Supervisor), hat keinen Optionsdialog und speichert das Einrichtungs-Token nie (nur im Speicher des Flows, nie
   im Log; wird bei jedem Ende beim Server beendet).
-- **Wunschtemperatur:** Ereignis `smartheat_wunsch` mit `{"raum_soll": Zahl}`, Grenzen 15–25 K in 0,5-Schritten.
+- **Wunschtemperatur:** Ereignis `smartheat_wunsch` mit `{"raum_soll": Zahl}`, Grenzen 15–25 °C in 0,5-Schritten.
 - **`entry.data`** (`VERSION` 3) = `geraet_id`, `tenant_id`, `profile_id`, `lever_set`, `hebel`, `shift_lever`. Einträge
   aus 0.16 (VERSION 2, ohne `geraet_id`) lehnt das Setup mit Text und Reparatur-Hinweis ab (`alter_eintrag`); den Umzug
   macht Plan 5d. Die Entity-IDs und `unique_id`s von `client1` (13 aus 0.16.1) bleiben (`tests/test_init.py`).

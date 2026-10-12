@@ -15,7 +15,7 @@ from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from custom_components.smartheat import config_flow
 from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DOMAIN
-from custom_components.smartheat.einrichtung_client import InvalidResponse, TooMany
+from custom_components.smartheat.einrichtung_client import ApiError, InvalidResponse, NotFound, TooMany
 from custom_components.smartheat.supervisor_client import AddonOutdatedError
 
 from .einrichtung_fakes import (
@@ -212,6 +212,9 @@ async def test_wrong_password_stays_on_the_form(hass, server):
     ("anmelden", CannotConnect(), "cannot_connect", "-"),
     ("anmelden", TooMany("Zu viele Versuche", 429), "too_many", "-"),
     ("anmelden", InvalidResponse("anmelden: kein JSON"), "unknown", "-"),
+    ("anmelden", NotFound("", 404), "server_veraltet", "-"),
+    ("anmelden", ApiError("", 405), "server_veraltet", "-"),
+    ("anmelden", ApiError("", 307), "unknown", "-"),
     ("uebernehmen", Rejected("Code oder Gerät unbekannt."), "uebernahme_fehlgeschlagen", "Code oder Gerät unbekannt."),
     ("uebernehmen", Conflict("Diese Anmeldung gehört schon zu einem anderen Gerät.", 409), "anmeldung_gebunden",
      "Diese Anmeldung gehört schon zu einem anderen Gerät."),
@@ -669,6 +672,36 @@ async def test_reconfigure_changes_the_mapping(hass, server):
     assert server.calls[-1] == ("abmelden",)
 
 
+async def test_reconfigure_keeps_phones_hints_and_batteries(hass, server):
+    entry = await _eingerichtet(hass, server)
+    server.geraet_sicht["konfiguration"] = {**KONFIGURATION, "bindung": {
+        "benachrichtigung": ["notify.mobile_app_handy", "notify.mobile_app_weg"], "hinweise_aus": ["batterie", "alt"],
+        "batterien": ["sensor.wohnzimmer_batterie", "sensor.weg_batterie"]}}
+    result = await _reconfigure(hass, entry)
+    result = await _configure(hass, result, {"next_step_id": "zuordnung_aendern"})
+    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0",
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _configure(hass, result, {"raumfuehler": ["sensor.wohnzimmer_temperatur"],
+                                             "room_target": "sensor.wohnzimmer_temperatur"})
+    # nur eine Rolle aendern (Rest bleibt vorbelegt)
+    result = await _configure(hass, result, {"curve": "number.zuhause_circuit_0_heating_curve",
+                                             "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
+                                             "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
+    assert result["step_id"] == "benachrichtigung"
+    defaults = {str(key): key.default() for key in result["data_schema"].schema if hasattr(key, "default")}
+    assert defaults["benachrichtigung"] == ["notify.mobile_app_handy"]
+    assert defaults["hinweise_aus"] == ["batterie"]
+    assert defaults["batterien"] == ["sensor.wohnzimmer_batterie"]
+
+    result = await _configure(hass, result, {"raum_soll": 20.0})
+    result = await _configure(hass, result, {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "reconfigure_successful")
+    anfrage = next(call[1] for call in server.calls if call[0] == "neu_konfigurieren")
+    assert anfrage["benachrichtigung"] == ["notify.mobile_app_handy"] and anfrage["hinweise_aus"] == ["batterie"]
+    assert anfrage["batterien"] == ["sensor.wohnzimmer_batterie"]
+
+
 async def test_reconfigure_removes_the_device(hass, server):
     entry = await _eingerichtet(hass, server)
     result = await _reconfigure(hass, entry)
@@ -736,7 +769,7 @@ _ABORTS = {
 }
 _ERRORS = {
     "invalid_auth", "too_many", "uebernahme_gesperrt", "uebernahme_fehlgeschlagen", "anmeldung_gebunden", "cannot_connect", "unknown",
-    "sitzung_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
+    "server_veraltet", "sitzung_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
     "unit_mismatch", "out_of_range", "duplicate_entity", "zone_is_room_target", "entity_wrong_integration",
     "entity_wrong_installation", "room_sensors_required", "wrong_state_class", "unknown_service", "unknown_hint",
 }

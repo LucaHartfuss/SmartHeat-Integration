@@ -305,3 +305,21 @@ async def test_secrets_never_reach_the_log(aiohttp_client, unreachable, caplog):
     assert ours  # es wird etwas geloggt
     for secret in ("tok-geheim-9", "pw-geheim-7", "code-geheim-3", "Bearer"):
         assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+async def test_redirects_are_not_followed_and_never_resend_the_password(aiohttp_client, status):
+    seen = {"target": 0}
+
+    async def login(request):
+        return web.Response(status=status, headers={"Location": f"{P}/ziel"}, text="Ziel: geheim-im-body")
+
+    async def ziel(request):
+        seen["target"] += 1
+        return web.json_response({"token": "t"})
+
+    client = await _client(aiohttp_client, [("POST", "/anmelden", login), ("POST", "/ziel", ziel)], token=None)
+    with pytest.raises(ApiError) as caught:
+        await client.anmelden("a@b.de", "pw")
+    assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
+    assert seen["target"] == 0 and client.token is None

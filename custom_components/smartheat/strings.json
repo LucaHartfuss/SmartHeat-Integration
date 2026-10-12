@@ -109,6 +109,7 @@
       "uebernahme_fehlgeschlagen": "The device could not be claimed: {grund}",
       "anmeldung_gebunden": "The device could not be claimed with this sign-in: {grund}",
       "cannot_connect": "The SmartHeat service cannot be reached.",
+      "server_veraltet": "The SmartHeat server does not know the setup for Home Assistant (outdated server version?).",
       "unknown": "Unexpected error.",
       "sitzung_abgelaufen": "The sign-in has expired. Please sign in again.",
       "required": "Please assign.",

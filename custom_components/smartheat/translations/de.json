@@ -109,6 +109,7 @@
       "uebernahme_fehlgeschlagen": "Das Gerät konnte nicht übernommen werden: {grund}",
       "anmeldung_gebunden": "Das Gerät ließ sich mit dieser Anmeldung nicht übernehmen: {grund}",
       "cannot_connect": "Der SmartHeat-Dienst ist nicht erreichbar.",
+      "server_veraltet": "Der SmartHeat-Server kennt die Einrichtung für Home Assistant nicht (veraltete Server-Version?).",
       "unknown": "Unerwarteter Fehler.",
       "sitzung_abgelaufen": "Die Anmeldung ist abgelaufen. Bitte neu anmelden.",
       "required": "Bitte zuordnen.",

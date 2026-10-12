@@ -107,7 +107,6 @@ WATCHDOG_REASONS = {
     STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: {addons}",
     STATUS_REAGIERT_NICHT: "Heizungsbrücke meldet sich seit 15 Minuten nicht",
 }
-WATCHDOG_ALL_CLEAR_MESSAGE = "SmartHeat: Das Add-on läuft wieder, die Heizungssteuerung ist wieder aktiv."
 
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"

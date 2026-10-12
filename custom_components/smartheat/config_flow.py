@@ -333,6 +333,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return "cannot_connect", "-"
         except ApiError as error:
             _LOGGER.warning("Einrichtung: Anmelden fehlgeschlagen (%s)", type(error).__name__)
+            if error.status in (404, 405):
+                # Die Adresse antwortet, kennt /einrichtung/v1 aber nicht: Server ohne Einrichtungs-API.
+                return "server_veraltet", "-"
             return "unknown", "-"
         code = await self._uebernahme_code()
         try:
@@ -534,14 +537,21 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         je_entity = z.get("batterie_je_entity") or {}
         gewaehlt = [*(self._eingaben.get("raumfuehler") or []), self._eingaben.get("room_target")]
         batterien = list(dict.fromkeys(je_entity[e] for e in gewaehlt if e in je_entity))
+        bisher = self._bisherige_bindung()
+        # Neu konfigurieren: der Server liefert nur die Auswahlmoeglichkeiten, die bisherige Wahl steht in der
+        # Konfiguration des Geraets; sie bleibt erhalten, soweit sie noch angeboten wird.
+        if "batterien" in bisher:
+            batterien = self._noch_angeboten(bisher["batterien"], set(je_entity.values()))
+        handys = self._noch_angeboten(bisher.get("benachrichtigung"), set(z.get("benachrichtigung") or []))
+        hinweise = self._noch_angeboten(bisher.get("hinweise_aus"), set(z.get("hinweise") or []))
         felder: dict = {}
         if z.get("benachrichtigung"):
-            felder[vol.Optional("benachrichtigung", default=self._eingaben.get("benachrichtigung") or [])] = _auswahl(
+            felder[vol.Optional("benachrichtigung", default=self._vorgabe("benachrichtigung", handys))] = _auswahl(
                 list(z["benachrichtigung"]), multiple=True)
-        felder[vol.Optional("hinweise_aus", default=self._eingaben.get("hinweise_aus") or [])] = _auswahl(
+        felder[vol.Optional("hinweise_aus", default=self._vorgabe("hinweise_aus", hinweise))] = _auswahl(
             list(z.get("hinweise") or []), multiple=True, translation_key="hinweise")
         if je_entity:
-            felder[vol.Optional("batterien", default=self._eingaben.get("batterien") or batterien)] = _entities(
+            felder[vol.Optional("batterien", default=self._vorgabe("batterien", batterien))] = _entities(
                 sorted(set(je_entity.values())), multiple=True)
         felder[_vorbelegt("raum_soll", self._eingaben.get("raum_soll") or z.get("raum_soll"))] = \
             selector.NumberSelector(selector.NumberSelectorConfig(
@@ -549,6 +559,21 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                 mode=selector.NumberSelectorMode.BOX))
         return self.async_show_form(step_id="benachrichtigung", data_schema=vol.Schema(felder),
                                     errors=self._fehler_fuer(_BENACHRICHTIGUNG))
+
+    def _bisherige_bindung(self) -> dict:
+        """Bindung der aktuellen Konfiguration des Geraets; nur beim Neu konfigurieren (sonst leer)."""
+        konfiguration = self._geraet.get("konfiguration") if self._reconfigure else None
+        bindung = konfiguration.get("bindung") if isinstance(konfiguration, dict) else None
+        return bindung if isinstance(bindung, dict) else {}
+
+    def _vorgabe(self, key: str, sonst: list) -> list:
+        """Schon im Assistenten gewaehlter Wert (auch eine bewusst leere Wahl), sonst `sonst`."""
+        gewaehlt = self._eingaben.get(key)
+        return list(gewaehlt) if gewaehlt is not None else sonst
+
+    @staticmethod
+    def _noch_angeboten(werte: object, angebot: set) -> list:
+        return [w for w in dict.fromkeys(werte if isinstance(werte, list) else []) if w in angebot]
 
     def _fehler_fuer(self, felder: tuple[str, ...]) -> dict[str, str]:
         return {key: value for key, value in self._fehler.items() if key in felder}
