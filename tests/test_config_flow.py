@@ -4,6 +4,8 @@ Fixture `server` (Discovery, bootstrap_url, Mindestversion)."""
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.components.hassio import AddonError
@@ -12,7 +14,8 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from custom_components.smartheat import config_flow
-from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DOMAIN
+from custom_components.smartheat.einrichtung_client import InvalidResponse, TooMany
 from custom_components.smartheat.supervisor_client import AddonOutdatedError
 
 from .einrichtung_fakes import (
@@ -36,6 +39,7 @@ DISCOVERY = HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "nicht_
                                       "claim_code": CLAIM_CODE},
                               name="Heizungsbruecke", slug="abc_heizungsbruecke", uuid="u1")
 LOGIN = {"email": "a@b.de", "password": PASSWORT}
+BRUECKE = SimpleNamespace(slug="abc_heizungsbruecke", url=ADDON_REPOSITORY_URL, version="1.0.0")
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 
 
@@ -63,8 +67,13 @@ def server(monkeypatch):
             raise fake.addon_error
         return {}
 
-    fake.discovery = None
+    def supervisor(hass):
+        return SimpleNamespace(addons=SimpleNamespace(list=AsyncMock(side_effect=lambda: list(fake.addons))))
+
+    fake.discovery = {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE}
+    fake.addons = [BRUECKE]
     fake.addon_error = None
+    monkeypatch.setattr(config_flow.addon_control, "get_supervisor_client", supervisor)
     monkeypatch.setattr(config_flow.addon_control, "async_bootstrap_url", bootstrap_url)
     monkeypatch.setattr(config_flow.addon_control, "async_discovery", discovery)
     monkeypatch.setattr(config_flow.supervisor_client, "async_resolve_addons", resolve)
@@ -196,17 +205,23 @@ async def test_wrong_password_stays_on_the_form(hass, server):
     assert not any(call[0] == "uebernehmen" for call in server.calls)
 
 
-@pytest.mark.parametrize(("route", "error", "key"), [
-    ("anmelden", CannotConnect(), "cannot_connect"),
-    ("uebernehmen", Rejected("Code falsch"), "uebernahme_fehlgeschlagen"),
-    ("uebernehmen", Conflict("gebunden", 409), "anmeldung_gebunden"),
+@pytest.mark.parametrize(("route", "error", "key", "grund"), [
+    ("anmelden", CannotConnect(), "cannot_connect", "-"),
+    ("anmelden", TooMany("Zu viele Versuche", 429), "too_many", "-"),
+    ("anmelden", InvalidResponse("anmelden: kein JSON"), "unknown", "-"),
+    ("uebernehmen", Rejected("Code oder Gerät unbekannt."), "uebernahme_fehlgeschlagen", "Code oder Gerät unbekannt."),
+    ("uebernehmen", Conflict("Diese Anmeldung gehört schon zu einem anderen Gerät.", 409), "anmeldung_gebunden",
+     "Diese Anmeldung gehört schon zu einem anderen Gerät."),
+    ("uebernehmen", TooMany("Zu viele Fehlversuche, bitte 15 Minuten warten.", 429), "uebernahme_gesperrt",
+     "Zu viele Fehlversuche, bitte 15 Minuten warten."),
 ])
-async def test_login_and_claim_errors_stay_on_the_form_and_log_out(hass, server, route, error, key):
+async def test_login_and_claim_errors_stay_on_the_form_and_log_out(hass, server, route, error, key, grund):
     server.fehler[route] = error
 
     result = await _bis_anlage(hass)
 
     assert result["step_id"] == "anmelden" and result["errors"] == {"base": key}
+    assert result["description_placeholders"]["grund"] == grund
     if route == "uebernehmen":
         assert server.calls[-1] == ("abmelden",)
 
@@ -227,6 +242,29 @@ async def test_field_errors_on_setup_return_to_the_mapping(hass, server):
     result = await _configure(hass, await _bis_zusammenfassung(hass), {})
 
     assert result["step_id"] == "anlagenwerte" and result["errors"] == {"curve": "entity_unavailable"}
+
+
+@pytest.mark.parametrize(("fehler", "text", "grund"), [
+    ({"kreis": "required"}, "Bitte eine Anlage wählen.", "Bitte eine Anlage wählen."),
+    ({"tenant_id": "required"}, "", "tenant_id: required"),
+])
+async def test_field_errors_without_a_form_field_abort_with_the_server_text(hass, server, fehler, text, grund):
+    server.fehler["einrichten"] = Rejected(text, fehler)
+
+    result = await _configure(hass, await _bis_zusammenfassung(hass), {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "abgelehnt")
+    assert result["description_placeholders"]["grund"] == grund
+
+
+async def test_unusable_server_answer_is_an_unexpected_error(hass, server):
+    server.fehler["zuordnung"] = InvalidResponse("zuordnung: Antwort ist kein Objekt")
+
+    result = await _configure(hass, await _bis_raeume_vorher(hass), {
+        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "unknown")
+    assert "description_placeholders" not in result or not result["description_placeholders"]
 
 
 async def test_warnings_are_shown_as_text(hass, server):
@@ -263,6 +301,7 @@ async def test_setup_job_timeout_has_its_own_text(hass, server, monkeypatch):
 
 async def test_already_set_up_device_only_creates_the_entry(hass, server):
     server.geraet_sicht.update(eingerichtet=True, tenant_id=TENANT, konfiguration=KONFIGURATION)
+    server.discovery = {"geraet_id": GERAET_ID, "zustand": "regelt"}
 
     result = await _bis_anlage(hass, HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "regelt"}, name="x",
                                                        slug="abc_heizungsbruecke", uuid="u2"))
@@ -283,12 +322,40 @@ async def test_discovery_of_a_configured_device_aborts(hass, server):
     assert result["reason"] in ("already_configured", "single_instance_allowed")
 
 
-@pytest.mark.parametrize("config", [{}, {"geraet_id": 7}, {"geraet_id": ""}])
+@pytest.mark.parametrize("config", [{}, {"geraet_id": 7}, {"geraet_id": ""}, {"geraet_id": "shg-aaaaaaaaaaaaaaa1"},
+                                    {"geraet_id": "SHG-AAAAAAAAAAAAAAAA"}, {"geraet_id": f"{GERAET_ID} [x](y)"}])
 async def test_invalid_discovery_aborts(hass, server, config):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=HassioServiceInfo(
         config=config, name="x", slug="abc_heizungsbruecke", uuid="u3"))
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
+
+
+@pytest.mark.parametrize("addons", [
+    [BRUECKE],  # die Discovery stammt von einem anderen Add-on (slug passt nicht)
+    [SimpleNamespace(slug="xyz_heizungsbruecke", url="https://github.com/fremd/addons", version="9.9.9")],
+    [],
+])
+async def test_discovery_of_a_foreign_addon_aborts(hass, server, addons):
+    server.addons = addons
+    foreign = HassioServiceInfo(config=DISCOVERY.config, name="x", slug="xyz_heizungsbruecke", uuid="u5")
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=foreign)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
+
+
+@pytest.mark.parametrize("discovery", [None, {"geraet_id": "shg-bbbbbbbbbbbbbbbb", "zustand": "nicht_uebernommen",
+                                               "claim_code": "ANDERERCODE1"}])
+async def test_claim_without_a_trusted_discovery_of_this_device_aborts(hass, server, discovery):
+    """Nie auf Geraete-ID und Code der ersten Meldung zurueckfallen."""
+    server.discovery = discovery
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "geraet_nicht_gemeldet")
+    assert not any(call[0] == "uebernehmen" for call in server.calls)
+    assert server.calls[-1] == ("abmelden",)
 
 
 async def test_claim_uses_the_current_discovery_code(hass, server):
@@ -449,6 +516,7 @@ async def test_expired_token_goes_back_to_login(hass, server):
 
 
 async def test_required_role_without_candidates_aborts_with_a_hint(hass, server):
+    hass.config.language = "de"
     server.zuordnung_antwort = {**ZUORDNUNG, "rollen": [*ROLLEN[:2], {**ROLLEN[2], "vorschlag": None,
                                                                        "kandidaten": []}]}
 
@@ -456,7 +524,7 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
         "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
-    assert result["description_placeholders"]["rolle"] == "outdoor_temp"
+    assert result["description_placeholders"]["rolle"] == "Außentemperatur"
 
 
 async def test_closing_the_dialog_logs_out(hass, server):
@@ -536,6 +604,8 @@ async def test_addon_error_shows_no_supervisor_text(hass, server, monkeypatch, c
 async def test_manual_start_without_discovery_times_out(hass, server, monkeypatch):
     async def install(hass_):
         return None
+
+    server.discovery = None
 
     monkeypatch.setattr(config_flow.addon_control, "async_install_and_start", install)
     monkeypatch.setattr(config_flow, "is_hassio", lambda hass_: True)
@@ -642,14 +712,14 @@ async def test_options_flow_is_gone(hass, server):
 
 _ABORTS = {
     "kein_supervisor", "addon_fehler", "addon_veraltet", "addon_mehrdeutig", "bootstrap_url_ungueltig",
-    "keine_discovery", "discovery_ungueltig", "keine_anlage", "inventur_fehler", "keine_integration",
+    "keine_discovery", "discovery_ungueltig", "geraet_nicht_gemeldet", "keine_anlage", "inventur_fehler", "keine_integration",
     "nicht_unterstuetzt", "rolle_ohne_kandidaten", "einrichten_fehler", "einrichten_zeit", "keine_konfiguration",
     "entfernen_fehler", "entfernen_laeuft", "entfernt", "cannot_connect", "abgelehnt", "geraet_unbekannt",
     "alter_eintrag", "unknown", "already_configured", "already_in_progress", "single_instance_allowed",
     "reconfigure_successful",
 }
 _ERRORS = {
-    "invalid_auth", "too_many", "uebernahme_fehlgeschlagen", "anmeldung_gebunden", "cannot_connect", "unknown",
+    "invalid_auth", "too_many", "uebernahme_gesperrt", "uebernahme_fehlgeschlagen", "anmeldung_gebunden", "cannot_connect", "unknown",
     "sitzung_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
     "unit_mismatch", "out_of_range", "duplicate_entity", "zone_is_room_target", "entity_wrong_integration",
     "entity_wrong_installation", "room_sensors_required", "wrong_state_class", "unknown_service", "unknown_hint",
@@ -672,6 +742,8 @@ def test_every_step_error_and_abort_has_a_text(path):
     assert "options" not in data
     for key in ("inventur_fehler", "keine_integration", "einrichten_fehler", "entfernen_fehler", "abgelehnt"):
         assert "{grund}" in config["abort"][key], (path, key)
+    for key in ("uebernahme_fehlgeschlagen", "uebernahme_gesperrt", "anmeldung_gebunden"):
+        assert "{grund}" in config["error"][key], (path, key)
 
 
 def test_every_role_has_a_label():

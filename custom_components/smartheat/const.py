@@ -51,6 +51,9 @@ HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingrif
 # Supervisor-Discovery des Add-ons (Plan D Task 8) und lokales Wunsch-Ereignis (Plan D Task 5).
 DISCOVERY_SERVICE = "smartheat"
 DISCOVERY_FIELDS = ("geraet_id", "zustand", "claim_code")
+# Geraete-ID: "shg-" + 16 Zeichen Base32 (klein) des SHA-256 des oeffentlichen Schluessels (Add-on
+# smartheat_device/identity.device_id_for, Server device_protocol.DEVICE_ID_PREFIX/DEVICE_ID_HASH_CHARS).
+GERAET_ID_RE = re.compile(r"shg-[a-z2-7]{16}")
 ZUSTAND_NICHT_UEBERNOMMEN = "nicht_uebernommen"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5

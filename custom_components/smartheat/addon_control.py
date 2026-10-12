@@ -60,9 +60,10 @@ WAIT_TIMEOUT = "timeout"
 ADDON_NAME = "Heizungsbruecke"
 
 
-async def _slug(hass: HomeAssistant) -> str | None:
-    """Echter (praefigierter) Slug der installierten Heizungsbruecke, None wenn nicht installiert. Mehrfach
-    installiert ist mehrdeutig und wird nicht geraten (AddonError)."""
+async def async_bridge_slug(hass: HomeAssistant) -> str | None:
+    """Echter (praefigierter) Slug der installierten Heizungsbruecke aus dem SmartHeat-Repository (Repository-URL und
+    Slug-Suffix; ein anderes Repository mit einem *_heizungsbruecke zaehlt nicht), None wenn nicht installiert.
+    Mehrfach installiert ist mehrdeutig und wird nicht geraten (AddonError). Wirft AddonError."""
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
@@ -82,7 +83,7 @@ async def async_bridge_manager(hass: HomeAssistant) -> AddonManager | None:
     if not is_hassio(hass):
         return None
     try:
-        slug = await _slug(hass)
+        slug = await async_bridge_slug(hass)
     except AddonError as error:
         _LOGGER.warning("Add-on nicht auffindbar: %s", error)
         return None
@@ -114,7 +115,7 @@ async def async_install_and_start(hass: HomeAssistant) -> AddonManager:
     danach Watchdog und Autostart an. Wirft AddonError."""
     if not is_hassio(hass):
         raise AddonError("Kein Supervisor: das Add-on laesst sich hier nicht installieren")
-    slug = await _slug(hass) or f"{await _repository_hash(hass)}_{HEIZUNGSBRUECKE_ADDON_SLUG}"
+    slug = await async_bridge_slug(hass) or f"{await _repository_hash(hass)}_{HEIZUNGSBRUECKE_ADDON_SLUG}"
     manager = _manager(hass, slug)
     info = await manager.async_get_addon_info()
     if info.state == AddonState.NOT_INSTALLED:
@@ -402,7 +403,7 @@ async def async_bootstrap_url(hass: HomeAssistant) -> str | None:
     try:
         if not is_hassio(hass):
             return DEFAULT_BASE_URL
-        slug = await _slug(hass)
+        slug = await async_bridge_slug(hass)
         if slug is None:
             return DEFAULT_BASE_URL
         options = (await get_supervisor_client(hass).addons.addon_info(slug)).options
@@ -424,7 +425,7 @@ async def async_discovery(hass: HomeAssistant) -> dict | None:
     try:
         if not is_hassio(hass):
             return None
-        slug = await _slug(hass)
+        slug = await async_bridge_slug(hass)
         if slug is None:
             return None
         messages = await get_supervisor_client(hass).discovery.list()

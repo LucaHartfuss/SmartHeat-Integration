@@ -37,6 +37,7 @@ from .const import (
     DISCOVERY_WAIT_SECONDS,
     DOMAIN,
     ENTFERNEN_WAIT_SECONDS,
+    GERAET_ID_RE,
     INVENTUR_WAIT_SECONDS,
     MIN_ADDON_VERSIONS,
     POLL_SECONDS,
@@ -50,6 +51,7 @@ from .einrichtung_client import (
     Conflict,
     EinrichtungClient,
     InvalidAuth,
+    InvalidResponse,
     NotFound,
     Rejected,
     ServerError,
@@ -57,7 +59,7 @@ from .einrichtung_client import (
     TooMany,
 )
 from .flow_progress import ProgressFlowMixin
-from .texts import async_hint
+from .texts import async_hint, async_role_label
 
 _LOGGER = logging.getLogger(__name__)
 _RAEUME = ("raumfuehler", "room_target")
@@ -75,9 +77,10 @@ class _NeuAnmelden(_Unterbrechung):
 
 
 class _Feldfehler(_Unterbrechung):
-    def __init__(self, fehler: dict[str, str]) -> None:
+    def __init__(self, fehler: dict[str, str], text: str = "") -> None:
         super().__init__("feldfehler")
         self.fehler = fehler
+        self.text = text
 
 
 class _Abbruch(_Unterbrechung):
@@ -88,10 +91,14 @@ class _Abbruch(_Unterbrechung):
 
 
 def _discovery(config: Any) -> dict[str, str]:
-    """Discovery-Felder des Add-ons; nur nicht leere Texte (die Werte sind ungeprueft)."""
+    """Discovery-Felder des Add-ons; nur nicht leere Texte, die Geraete-ID nur im Format des Servers (sonst fehlt sie:
+    sie wird unique_id und steht im Dialog)."""
     if not isinstance(config, Mapping):
         return {}
-    return {key: value for key in DISCOVERY_FIELDS if isinstance(value := config.get(key), str) and value}
+    result = {key: value for key in DISCOVERY_FIELDS if isinstance(value := config.get(key), str) and value}
+    if not GERAET_ID_RE.fullmatch(result.get("geraet_id", "")):
+        result.pop("geraet_id", None)
+    return result
 
 
 def _text(value: Any) -> str:
@@ -163,12 +170,16 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             raise _Abbruch("cannot_connect") from None
         except Rejected as error:
             if error.fehler:
-                raise _Feldfehler(error.fehler) from None
+                raise _Feldfehler(error.fehler, error.text) from None
             raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
         except NotFound as error:
             raise _Abbruch("geraet_unbekannt", grund=_text(error.text)) from None
         except Conflict as error:
             raise _Abbruch(konflikt, grund=_text(error.text)) from None
+        except InvalidResponse:
+            # Text ist eine interne Diagnose, kein Text des Servers
+            _LOGGER.warning("Einrichtung: unbrauchbare Antwort des Servers")
+            raise _Abbruch("unknown") from None
         except ApiError as error:
             raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
 
@@ -187,6 +198,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return self._anmelden_formular({"base": "sitzung_abgelaufen"})
         if isinstance(unterbrechung, _Feldfehler):
             self._fehler = dict(unterbrechung.fehler)
+            if self._fehler_ohne_feld():
+                # Kein Formular zeigt das Feld (z. B. kreis, tenant_id): Zurueckschicken liefe im Kreis.
+                grund = unterbrechung.text or ", ".join(f"{k}: {v}" for k, v in self._fehler.items())
+                return await self._abbrechen("abgelehnt", grund=grund)
             return await self._formular_mit_fehlern()
         assert isinstance(unterbrechung, _Abbruch)
         return await self._abbrechen(unterbrechung.reason, **unterbrechung.placeholders)
@@ -197,14 +212,27 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Start ---
 
     async def async_step_hassio(self, discovery_info: HassioServiceInfo) -> ConfigFlowResult:
+        """Nur die Discovery der Heizungsbruecke aus dem SmartHeat-Repository: jedes Add-on mit `discovery: [smartheat]`
+        kann eine schicken, und eine fremde Geraete-ID liesse den Nutzer ein fremdes Geraet uebernehmen."""
         config = _discovery(discovery_info.config)
-        if "geraet_id" not in config:
+        if "geraet_id" not in config or not await self._von_der_heizungsbruecke(discovery_info.slug):
             return self.async_abort(reason="discovery_ungueltig")
         await self.async_set_unique_id(config["geraet_id"])
         self._abort_if_unique_id_configured()
         self._discovery = config
         self.context["title_placeholders"] = {"geraet": config["geraet_id"]}
         return await self.async_step_bestaetigen()
+
+    async def _von_der_heizungsbruecke(self, slug: str) -> bool:
+        try:
+            eigener = await addon_control.async_bridge_slug(self.hass)
+        except (AddonError, KeyError) as error:
+            _LOGGER.warning("Einrichtung: Herkunft der Discovery nicht pruefbar (%s)", type(error).__name__)
+            return False
+        if eigener is None or slug != eigener:
+            _LOGGER.warning("Einrichtung: Discovery eines anderen Add-ons verworfen")
+            return False
+        return True
 
     async def async_step_bestaetigen(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is None:
@@ -264,13 +292,14 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     # --- Anmelden und Uebernehmen ---
 
-    def _anmelden_formular(self, errors: dict[str, str]) -> ConfigFlowResult:
+    def _anmelden_formular(self, errors: dict[str, str], grund: str = "-") -> ConfigFlowResult:
         schema = vol.Schema({
             vol.Required("email"): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.EMAIL)),
             vol.Required("password"): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
         })
-        return self.async_show_form(step_id="anmelden", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="anmelden", data_schema=schema, errors=errors,
+                                    description_placeholders={"grund": grund})
 
     async def async_step_anmelden(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self._client is None:
@@ -280,42 +309,59 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             self._client = EinrichtungClient(async_get_clientsession(self.hass), base_url)
         if user_input is None:
             return self._anmelden_formular({})
-        if (fehler := await self._anmelden(user_input["email"], user_input["password"])) is not None:
+        try:
+            fehler = await self._anmelden(user_input["email"], user_input["password"])
+        except _Abbruch as abbruch:
+            return await self._unterbrechung(abbruch)
+        if fehler is not None:
             await self._abmelden()
-            return self._anmelden_formular({"base": fehler})
+            return self._anmelden_formular({"base": fehler[0]}, fehler[1])
         return await self.async_step_geraet()
 
-    async def _anmelden(self, email: str, password: str) -> str | None:
+    async def _anmelden(self, email: str, password: str) -> tuple[str, str] | None:
         """Anmelden und das Geraet uebernehmen (ein eigenes, schon uebernommenes Geraet: ohne Fehler erneut);
-        Fehlerschluessel des Formulars oder None."""
+        (Fehlerschluessel des Formulars, Text des Servers) oder None. _Abbruch, wenn das Add-on das Geraet nicht
+        (mehr) meldet."""
         assert self._client is not None
         try:
             await self._client.anmelden(email, password)
-            await self._client.uebernehmen(self._discovery["geraet_id"], await self._uebernahme_code())
-        except TokenUngueltig:
-            return "sitzung_abgelaufen"
         except InvalidAuth:
-            return "invalid_auth"
+            return "invalid_auth", "-"
         except TooMany:
-            return "too_many"
-        except Rejected:
-            return "uebernahme_fehlgeschlagen"
-        except Conflict:
-            return "anmeldung_gebunden"
+            return "too_many", "-"
         except (CannotConnect, ServerError):
-            return "cannot_connect"
+            return "cannot_connect", "-"
         except ApiError as error:
             _LOGGER.warning("Einrichtung: Anmelden fehlgeschlagen (%s)", type(error).__name__)
-            return "unknown"
+            return "unknown", "-"
+        code = await self._uebernahme_code()
+        try:
+            await self._client.uebernehmen(self._discovery["geraet_id"], code)
+        except TokenUngueltig:
+            return "sitzung_abgelaufen", "-"
+        except TooMany as error:
+            return "uebernahme_gesperrt", _text(error.text)
+        except Conflict as error:
+            return "anmeldung_gebunden", _text(error.text)
+        except (CannotConnect, ServerError):
+            return "cannot_connect", "-"
+        except InvalidResponse:
+            return "unknown", "-"
+        except ApiError as error:
+            return "uebernahme_fehlgeschlagen", _text(error.text)
         return None
 
     async def _uebernahme_code(self) -> str | None:
-        """Code aus der aktuellen Discovery: die erste kann ohne Code sein (Add-on `startet`), ein abgelaufener wird
-        ersetzt. Senden schadet nie (ein eigenes Geraet nimmt den Server auch mit Code an)."""
+        """Code nur aus der aktuellen Discovery der Heizungsbruecke (async_discovery liest nur deren Nachrichten),
+        nie aus der ersten Meldung, die den Flow gestartet hat. Meldet das Add-on kein oder ein anderes Geraet:
+        Abbruch. Neu konfigurieren uebernimmt ein eigenes Geraet ohne Code."""
+        if self._reconfigure:
+            return None
         frisch = _discovery(await addon_control.async_discovery(self.hass))
-        if frisch.get("geraet_id") == self._discovery["geraet_id"]:
-            self._discovery = {**self._discovery, **frisch}
-        return self._discovery.get("claim_code")
+        if frisch.get("geraet_id") != self._discovery["geraet_id"]:
+            _LOGGER.warning("Einrichtung: das Add-on meldet dieses Geraet nicht (mehr)")
+            raise _Abbruch("geraet_nicht_gemeldet")
+        return frisch.get("claim_code")
 
     async def async_step_geraet(self, user_input: dict | None = None) -> ConfigFlowResult:
         assert self._client is not None
@@ -443,7 +489,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return await self._unterbrechung(unterbrechung)
         for rolle in self._zuordnung.get("rollen") or []:
             if rolle.get("pflicht") and not rolle.get("kandidaten"):
-                return await self._abbrechen("rolle_ohne_kandidaten", rolle=_text(rolle.get("rolle")))
+                bezeichnung = await async_role_label(self.hass, _text(rolle.get("rolle")))
+                return await self._abbrechen("rolle_ohne_kandidaten", rolle=bezeichnung)
         return await self.async_step_raeume()
 
     # --- Zuordnung ---
@@ -476,10 +523,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                 _entities(r["kandidaten"])
             for r in rollen
         }
-        errors = self._fehler_fuer(tuple(r["rolle"] for r in rollen))
-        if fremd := self._fehler_ohne_feld():
-            errors["base"] = fremd
-        return self.async_show_form(step_id="anlagenwerte", data_schema=vol.Schema(felder), errors=errors)
+        return self.async_show_form(step_id="anlagenwerte", data_schema=vol.Schema(felder),
+                                    errors=self._fehler_fuer(tuple(r["rolle"] for r in rollen)))
 
     async def async_step_benachrichtigung(self, user_input: dict | None = None) -> ConfigFlowResult:
         z = self._zuordnung
@@ -508,11 +553,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     def _fehler_fuer(self, felder: tuple[str, ...]) -> dict[str, str]:
         return {key: value for key, value in self._fehler.items() if key in felder}
 
-    def _fehler_ohne_feld(self) -> str | None:
-        """Feldfehler eines Felds, das kein Formular zeigt (z. B. eine Rolle ohne Kandidaten): als Fehler des
-        Formulars Anlagenwerte."""
+    def _fehler_ohne_feld(self) -> bool:
+        """Feldfehler eines Felds, das kein Formular zeigt (z. B. kreis, tenant_id, eine Rolle ohne Kandidaten)."""
         bekannt = {*_RAEUME, *_BENACHRICHTIGUNG, *(r["rolle"] for r in self._rollen())}
-        return next((value for key, value in self._fehler.items() if key not in bekannt), None)
+        return any(key not in bekannt for key in self._fehler)
 
     async def _formular_mit_fehlern(self) -> ConfigFlowResult:
         if self._fehler_fuer(_RAEUME):
@@ -649,6 +693,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             try:
                 auftrag = await self._client.auftrag(job_id)
             except (InvalidAuth, NotFound):
+                # Die Freigabe hat das Token widerrufen. Unschaerfe (selten): laeuft das Token genau jetzt ab (1 h,
+                # bei Nutzung verlaengert), sieht das gleich aus und meldet "entfernt", obwohl der Auftrag noch
+                # laeuft; das Geraet fuehrt ihn trotzdem aus, nur der Eintrag verschwindet frueher.
                 return "entfernt"
             except (CannotConnect, ServerError) as error:
                 _LOGGER.info("Einrichtung: Stand des Entfernens nicht lesbar (%s)", type(error).__name__)

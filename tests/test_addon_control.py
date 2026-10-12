@@ -597,7 +597,7 @@ async def test_install_and_start_never_writes_options(hass, monkeypatch):
     manager = _install_manager(AddonState.NOT_INSTALLED, AddonState.NOT_RUNNING)
     supervision = AsyncMock(return_value=[])
     monkeypatch.setattr(addon_control, "_manager", lambda hass, slug: manager)
-    monkeypatch.setattr(addon_control, "_slug", AsyncMock(return_value=None))
+    monkeypatch.setattr(addon_control, "async_bridge_slug", AsyncMock(return_value=None))
     monkeypatch.setattr(addon_control, "_repository_hash", AsyncMock(return_value="abc"))
     monkeypatch.setattr(addon_control, "async_set_supervision", supervision)
     monkeypatch.setattr(addon_control, "is_hassio", lambda hass: True)
@@ -611,7 +611,7 @@ async def test_install_and_start_never_writes_options(hass, monkeypatch):
 async def test_install_and_start_leaves_a_running_addon_alone(hass, monkeypatch):
     manager = _install_manager(AddonState.RUNNING)
     monkeypatch.setattr(addon_control, "_manager", lambda hass, slug: manager)
-    monkeypatch.setattr(addon_control, "_slug", AsyncMock(return_value=SLUG))
+    monkeypatch.setattr(addon_control, "async_bridge_slug", AsyncMock(return_value=SLUG))
     monkeypatch.setattr(addon_control, "async_set_supervision", AsyncMock(return_value=[]))
     monkeypatch.setattr(addon_control, "is_hassio", lambda hass: True)
     await addon_control.async_install_and_start(hass)
