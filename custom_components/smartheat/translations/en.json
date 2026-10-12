@@ -244,7 +244,8 @@
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
       "addon_version": {"name": "Add-on version"}
     },
-    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}}
+    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}},
+    "number": {"wunschtemperatur": {"name": "Desired temperature"}}
   },
   "issues": {
     "complete_setup": {
