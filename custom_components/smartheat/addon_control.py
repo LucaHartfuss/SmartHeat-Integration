@@ -1,31 +1,40 @@
-"""Add-on-Steuerung der Integration (Spec TP7 2.5-2.7): Optionen zusammenfuehren, Watchdog und
-Boot setzen, auf das Status-Event warten, beim Entfernen abmelden. Nur das Add-on schreibt auf die
-Anlage; die Integration steuert nur die Add-ons."""
+"""Add-on-Steuerung der Integration. Neu ab 1.0.0 (Spec 5c 2.1): Heizungsbruecke finden, bei Bedarf installieren und
+ohne Optionen starten, Watchdog/Autostart, Discovery und die Option bootstrap_url lesen; die Integration schreibt
+keine Optionen. Der Rest (Optionen zusammenfuehren, Status-Event abwarten, Abmelden) ist der alte Pfad aus Spec TP7
+2.5-2.7 und entfaellt in Task 7 (Plan 5c I). Nur das Add-on schreibt auf die Anlage."""
 from __future__ import annotations
 
 import asyncio
 import logging
+import urllib.parse
 from dataclasses import dataclass, field
 
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonBoot, AddonsOptions
+from aiohasupervisor.models.addons import StoreAddRepository
 from homeassistant.components import persistent_notification
-from homeassistant.components.hassio import AddonError, AddonManager, get_supervisor_client
+from homeassistant.components.hassio import AddonError, AddonManager, AddonState, get_supervisor_client
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.hassio import is_hassio
 
 from . import provisioning
 from .api_client import HeizungsserverClient
 from .const import (
+    ADDON_REPOSITORY_URL,
     ADDON_STATUS_VALUES,
     BOOST_KEINER,
     BRIDGE_ACCESS_OPTIONS,
     CLOUDFLARED_ADDON_SLUG,
+    DEFAULT_BASE_URL,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
+    DISCOVERY_FIELDS,
+    DISCOVERY_SERVICE,
     HEIZUNGSBRUECKE_ADDON_SLUG,
     LEGACY_ADDON_SPECS,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
+    OPTION_BOOTSTRAP_URL,
     PROBLEM_CLEAR,
     PROBLEM_FOREIGN_TENANT,
     PROBLEM_NO_SIGN_OFF,
@@ -39,7 +48,7 @@ from .const import (
     removal_notification_id,
     watchdog_notification_id,
 )
-from .supervisor_client import async_find_addon_managers
+from .supervisor_client import _matching_addons, async_find_addon_managers
 from .texts import async_hint
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,6 +56,76 @@ _LOGGER = logging.getLogger(__name__)
 WAIT_DONE = "done"
 WAIT_FAILED = "failed"
 WAIT_TIMEOUT = "timeout"
+
+ADDON_NAME = "Heizungsbruecke"
+
+
+async def _slug(hass: HomeAssistant) -> str | None:
+    """Echter (praefigierter) Slug der installierten Heizungsbruecke, None wenn nicht installiert. Mehrfach
+    installiert ist mehrdeutig und wird nicht geraten (AddonError)."""
+    try:
+        installed = await get_supervisor_client(hass).addons.list()
+    except SupervisorError as error:
+        raise AddonError(f"Supervisor nicht erreichbar: {type(error).__name__}") from None
+    matches = _matching_addons(installed, ADDON_REPOSITORY_URL, HEIZUNGSBRUECKE_ADDON_SLUG)
+    if len(matches) > 1:
+        raise AddonError("Die Heizungsbruecke ist mehrfach installiert")
+    return matches[0].slug if matches else None
+
+
+def _manager(hass: HomeAssistant, slug: str) -> AddonManager:
+    return AddonManager(hass, _LOGGER, ADDON_NAME, slug)
+
+
+async def async_bridge_manager(hass: HomeAssistant) -> AddonManager | None:
+    """Manager der installierten Heizungsbruecke, sonst None (nicht installiert, kein Supervisor, nicht lesbar)."""
+    if not is_hassio(hass):
+        return None
+    try:
+        slug = await _slug(hass)
+    except AddonError as error:
+        _LOGGER.warning("Add-on nicht auffindbar: %s", error)
+        return None
+    return _manager(hass, slug) if slug else None
+
+
+def _same_repository(url: str | None) -> bool:
+    return (url or "").rstrip("/").removesuffix(".git") == ADDON_REPOSITORY_URL
+
+
+async def _repository_hash(hass: HomeAssistant) -> str:
+    """Slug-Praefix des SmartHeat-Repositorys im Add-on-Store (der Supervisor praefigiert damit die Slugs). Fehlt das
+    Repository im Store, wird es hinzugefuegt (aiohasupervisor kennt store.add_repository)."""
+    store = get_supervisor_client(hass).store
+    try:
+        for attempt in (0, 1):
+            for repository in await store.repositories_list():
+                if _same_repository(repository.source) or _same_repository(repository.url):
+                    return repository.slug
+            if attempt == 0:
+                await store.add_repository(StoreAddRepository(repository=ADDON_REPOSITORY_URL))
+    except SupervisorError as error:
+        raise AddonError(f"Add-on-Repository nicht verfuegbar: {type(error).__name__}") from None
+    raise AddonError(f"Das Add-on-Repository {ADDON_REPOSITORY_URL} ist im Add-on-Store nicht eingetragen")
+
+
+async def async_install_and_start(hass: HomeAssistant) -> AddonManager:
+    """Installiert die Heizungsbruecke aus dem Repository (falls noetig) und startet sie, ohne Optionen zu schreiben;
+    danach Watchdog und Autostart an. Wirft AddonError."""
+    if not is_hassio(hass):
+        raise AddonError("Kein Supervisor: das Add-on laesst sich hier nicht installieren")
+    slug = await _slug(hass) or f"{await _repository_hash(hass)}_{HEIZUNGSBRUECKE_ADDON_SLUG}"
+    manager = _manager(hass, slug)
+    info = await manager.async_get_addon_info()
+    if info.state == AddonState.NOT_INSTALLED:
+        await manager.async_install_addon()
+        info = await manager.async_get_addon_info()
+    if info.state == AddonState.NOT_RUNNING:
+        await manager.async_start_addon()
+    failed = await async_set_supervision(hass, [slug], True)
+    if failed:
+        _LOGGER.warning("Watchdog und Autostart der Heizungsbruecke nicht gesetzt")
+    return manager
 
 
 class StatusListener:
@@ -303,3 +382,59 @@ async def _async_sign_off_bridge(hass: HomeAssistant, bridge: AddonManager, tena
     if grund:
         _LOGGER.warning("Entfernen: Heizungsbruecke abgemeldet, aber: %s", grund)
     return False, True
+
+
+def _valid_url(value) -> bool:
+    """Wie das Add-on (__main__._url_fehler): Text, http oder https, mit Host."""
+    if not isinstance(value, str):
+        return False
+    try:
+        parts = urllib.parse.urlsplit(value)
+        return parts.scheme in ("http", "https") and bool(parts.hostname)
+    except ValueError:
+        return False
+
+
+async def async_bootstrap_url(hass: HomeAssistant) -> str | None:
+    """Bootstrap-Adresse, die das Add-on benutzt (Option bootstrap_url): gueltig = benutzt; fehlt oder null (oder das
+    Add-on ist noch nicht installiert) = Produktion; sonst None -- nie ein Rueckfall auf die Produktion, die Aufrufer
+    brechen mit einem Text ab (die Option laesst das Add-on im Ruhezustand). Wirft nie."""
+    try:
+        if not is_hassio(hass):
+            return DEFAULT_BASE_URL
+        slug = await _slug(hass)
+        if slug is None:
+            return DEFAULT_BASE_URL
+        options = (await get_supervisor_client(hass).addons.addon_info(slug)).options
+        value = options.get(OPTION_BOOTSTRAP_URL) if isinstance(options, dict) else None
+    except Exception as error:  # noqa: BLE001 - Optionen nicht lesbar: nicht raten
+        _LOGGER.warning("Add-on-Optionen nicht lesbar (%s)", type(error).__name__)
+        return None
+    if value is None:
+        return DEFAULT_BASE_URL
+    if _valid_url(value):
+        return value.rstrip("/")
+    _LOGGER.warning("Option bootstrap_url des Add-ons ist ungueltig")
+    return None
+
+
+async def async_discovery(hass: HomeAssistant) -> dict | None:
+    """Config der Discovery des Add-ons (nur DISCOVERY_FIELDS): Dienst smartheat von der Heizungsbruecke; bei mehreren
+    Nachrichten (kurz nebeneinander moeglich) die mit Uebernahme-Code, sonst die juengste. Wirft nie."""
+    try:
+        if not is_hassio(hass):
+            return None
+        slug = await _slug(hass)
+        if slug is None:
+            return None
+        messages = await get_supervisor_client(hass).discovery.list()
+    except Exception as error:  # noqa: BLE001
+        _LOGGER.warning("Discovery nicht lesbar (%s)", type(error).__name__)
+        return None
+    candidates = [m.config for m in messages
+                  if m.service == DISCOVERY_SERVICE and m.addon == slug and isinstance(m.config, dict)]
+    with_code = [config for config in candidates if config.get("claim_code")]
+    chosen = (with_code or candidates or [None])[-1]
+    if chosen is None:
+        return None
+    return {key: chosen[key] for key in DISCOVERY_FIELDS if key in chosen}
