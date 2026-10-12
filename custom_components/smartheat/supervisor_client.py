@@ -28,7 +28,7 @@ from homeassistant.components.hassio import AddonError, AddonManager, get_superv
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.hassio import is_hassio
 
-from .const import ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS
+from .const import ADDON_REPOSITORY_URL, LEGACY_MIN_ADDON_VERSIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ async def async_get_addon_managers(
 ) -> list[AddonManager]:
     """AddonManager je (Anzeigename, config_slug), Reihenfolge wie uebergeben."""
     resolved = await async_resolve_addons(
-        hass, ADDON_REPOSITORY_URL, {slug: MIN_ADDON_VERSIONS[slug] for _, slug in addon_specs},
+        hass, ADDON_REPOSITORY_URL, {slug: LEGACY_MIN_ADDON_VERSIONS[slug] for _, slug in addon_specs},
     )
     return [AddonManager(hass, _LOGGER, name, resolved[slug].slug) for name, slug in addon_specs]
 

@@ -22,9 +22,9 @@ from homeassistant.helpers.event import async_track_time_interval
 from . import provisioning
 from .const import (
     ADDON_DISPLAY_NAMES,
-    ADDON_SPECS,
     ADDON_STATUS_VALUES,
     HEIZUNGSBRUECKE_ADDON_SLUG,
+    LEGACY_ADDON_SPECS,
     MAX_RESTARTS_PER_WINDOW,
     OPTION_NOTIFY_SERVICES,
     RESTART_WINDOW_SECONDS,
@@ -217,7 +217,7 @@ class SmartHeatCoordinator:
         self._checking = True
         try:
             try:
-                managers = await async_find_addon_managers(self.hass, ADDON_SPECS)
+                managers = await async_find_addon_managers(self.hass, LEGACY_ADDON_SPECS)
             except AddonError as error:
                 # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)

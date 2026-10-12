@@ -18,8 +18,8 @@ from . import provisioning
 from .addon_control import async_notify_open_steps, async_set_supervision, async_sign_off
 from .api_client import ApiError, HeizungsserverClient
 from .const import (
-    ADDON_SPECS,
     CLOUDFLARED_ADDON_SLUG,
+    LEGACY_ADDON_SPECS,
     PROBLEM_ADDONS,
     PROBLEM_PROFILE,
     PROBLEM_REVOKE,
@@ -163,7 +163,7 @@ async def _async_restore_addons(
                else provisioning.CLOUDFLARED_CLEARED_OPTIONS),
         }
     try:
-        heizungsbruecke, cloudflared = await async_get_addon_managers(hass, ADDON_SPECS)
+        heizungsbruecke, cloudflared = await async_get_addon_managers(hass, LEGACY_ADDON_SPECS)
     except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
         _LOGGER.warning("Rueckbau: Add-ons nicht gefunden: %s", type(error).__name__)
         return False

@@ -2,6 +2,7 @@
 import pytest
 
 from custom_components.smartheat import sensor
+from custom_components.smartheat.const import STATUS_EVENT_SCHEMA
 
 VAILLANT = {"lever_set": "vaillant_vrc720", "shift_lever": "room_setpoint"}
 
@@ -39,7 +40,7 @@ def test_unknown_lever_set_has_no_lever_sensors():
 
 
 EVENT = {
-    "schema": 2, "tenant_id": "t1", "status": "regelt", "hebelsatz": "vaillant_vrc720",
+    "schema": STATUS_EVENT_SCHEMA, "tenant_id": "t1", "status": "regelt", "hebelsatz": "vaillant_vrc720",
     "hebel": {"curve": 1.05, "room_setpoint": 21.0, "heat_limit": 16.0, "min_flow": 20.5},
     "gelernt": {"curve": 1.05, "heat_limit": 16.2},
 }

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from homeassistant.components.hassio import AddonError, AddonState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.const import DOMAIN, STATUS_EVENT_SCHEMA
 
 from .addon_schema import validate
 
@@ -91,9 +91,9 @@ class FakeSupervisor:
 
 
 def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -> dict:
-    """Volles Status-Event Schema 2 (Spec TP7 1.1, Plan 3c Praezisierung 7)."""
+    """Volles Status-Event (Schema aus const; Spec TP7 1.1, Plan 3c Praezisierung 7)."""
     event = {
-        "schema": 2, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
+        "schema": STATUS_EVENT_SCHEMA, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
         "letzte_serverantwort": None, "hebelsatz": "vaillant_vrc720", "hebel": None, "gelernt": None,
         "abo": "aktiv", "abo_frist_ende": None,

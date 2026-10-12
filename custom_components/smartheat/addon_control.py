@@ -17,13 +17,13 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from . import provisioning
 from .api_client import HeizungsserverClient
 from .const import (
-    ADDON_SPECS,
     ADDON_STATUS_VALUES,
     BOOST_KEINER,
     BRIDGE_ACCESS_OPTIONS,
     CLOUDFLARED_ADDON_SLUG,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     HEIZUNGSBRUECKE_ADDON_SLUG,
+    LEGACY_ADDON_SPECS,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
     PROBLEM_CLEAR,
@@ -211,7 +211,7 @@ async def async_sign_off(hass: HomeAssistant, tenant_id: str, *, notify: bool = 
     Benachrichtigung an (der Rueckbau des Wizards meldet selbst)."""
     problems: list[str] = []
     try:
-        managers = await async_find_addon_managers(hass, ADDON_SPECS)
+        managers = await async_find_addon_managers(hass, LEGACY_ADDON_SPECS)
     except AddonError as error:
         _LOGGER.warning("Entfernen: Supervisor nicht erreichbar, Add-ons nicht abgemeldet: %s", type(error).__name__)
         managers = {}

@@ -58,16 +58,16 @@ from .catalog import (
 )
 from .const import (
     ADDON_REPOSITORY_URL,
-    ADDON_SPECS,
     DEFAULT_HEIZUNGSSERVER_BASE_URL,
     DOMAIN,
     KPI_ENERGY_CHANNELS,
     KPI_ROLE_STATE_CLASS_EXPECTATIONS,
     KPI_ROLES_WITHOUT_STATE_CLASS,
     KPI_SCALAR_ROLE_BY_CAPABILITY,
+    LEGACY_ADDON_SPECS,
+    LEGACY_MIN_ADDON_VERSIONS,
     LEVER_OPTIONS,
     LEVER_SET_FIELDS,
-    MIN_ADDON_VERSIONS,
     OPTION_ABGEMELDET,
     OPTION_ACCOUNTS_API_BASE_URL,
     OPTION_BATTERY_ENTITIES,
@@ -344,7 +344,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
 
     async def _addon_problem(self) -> tuple[str, dict[str, str]] | None:
         try:
-            await async_resolve_addons(self.hass, ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS)
+            await async_resolve_addons(self.hass, ADDON_REPOSITORY_URL, LEGACY_MIN_ADDON_VERSIONS)
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
             return _classify_addon_error(error)
         return None
@@ -855,7 +855,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         if self._entry is None or self._reauth:
             return ""
         try:
-            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
+            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, LEGACY_ADDON_SPECS)
             bridge_options = (await heizungsbruecke.async_get_addon_info()).options
             cloudflared_options = (await cloudflared.async_get_addon_info()).options
         except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError):
@@ -971,7 +971,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=D
         tenant_id = self._tenant_id
         assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
         try:
-            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
+            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, LEGACY_ADDON_SPECS)
             if self._entry is not None and not self._reauth and self._snapshot is None:
                 # Stand vor dem ERSTEN Schreiben dieses Laufs (auch nach "Zurueck zur Auswahl").
                 self._snapshot = ReconfigureSnapshot(

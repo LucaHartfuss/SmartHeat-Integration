@@ -18,8 +18,8 @@ from homeassistant.helpers import selector
 from . import detection, validation
 from .addon_control import WAIT_DONE, WAIT_FAILED, StatusListener
 from .const import (
-    ADDON_SPECS,
     HINT_CATEGORIES,
+    LEGACY_ADDON_SPECS,
     OPTION_BATTERY_ENTITIES,
     OPTION_ENTITY_ROOM_TARGET,
     OPTION_NOTIFY_HINTS_OFF,
@@ -195,7 +195,7 @@ class SmartHeatOptionsFlow(ProgressFlowMixin, OptionsFlow):
         previous: dict = {}
         written = False
         try:
-            heizungsbruecke, _ = await async_get_addon_managers(self.hass, ADDON_SPECS)
+            heizungsbruecke, _ = await async_get_addon_managers(self.hass, LEGACY_ADDON_SPECS)
             previous = dict((await heizungsbruecke.async_get_addon_info()).options)
             await heizungsbruecke.async_set_addon_options({**previous, **new, OPTION_SETUP_ID: self._setup_id})
             written = True
