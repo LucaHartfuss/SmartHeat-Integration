@@ -6,16 +6,25 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 
 from . import binary_sensor, number, repairs, sensor
 from .const import DOMAIN
 from .coordinator import SmartHeatCoordinator
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
+# Eintrag aus einer Version vor 1.0.0 (ohne Geraete-ID, z. B. client1 bis zum Umzug in 5d): Fehler mit Text statt
+# eines KeyError, dazu ein Reparatur-Hinweis.
+ALTER_EINTRAG = "alter_eintrag"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    if not entry.data.get("geraet_id"):
+        ir.async_create_issue(hass, DOMAIN, ALTER_EINTRAG, is_fixable=False, severity=ir.IssueSeverity.ERROR,
+                              translation_key=ALTER_EINTRAG)
+        raise ConfigEntryError(translation_domain=DOMAIN, translation_key=ALTER_EINTRAG)
     coordinator = SmartHeatCoordinator(hass, entry)
     entry.runtime_data = coordinator
     coordinator.async_start()
@@ -35,10 +44,16 @@ def _remove_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry, tenant_id
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Entladen (auch Deaktivieren): die Hinweise des Geraets verschwinden mit; nach dem Laden bringt das naechste
+    Status-Ereignis (spaetestens das Lebenszeichen) sie zurueck."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        repairs.async_clear(hass)
+    return unloaded
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Spec 5c 4: das Geraet regelt weiter (kein Server-Aufruf, das Add-on laeuft weiter); Entfernen der Anlage geht
     ueber das Portal oder "Neu konfigurieren". Nur die eigenen Reparatur-Hinweise verschwinden."""
     repairs.async_clear(hass)
+    ir.async_delete_issue(hass, DOMAIN, ALTER_EINTRAG)

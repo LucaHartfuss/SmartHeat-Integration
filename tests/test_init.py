@@ -2,13 +2,14 @@
 Entities weg, Entfernen ohne Server und ohne das Add-on anzuhalten."""
 from unittest.mock import AsyncMock
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.smartheat.const import DOMAIN, STATUS_EVENT
 
-from .addon_fakes import FakeAddon, make_device_entry, status_event
+from .addon_fakes import FakeAddon, make_device_entry, make_entry, status_event
 
 CO = "custom_components.smartheat.coordinator"
 
@@ -123,3 +124,37 @@ async def test_unloaded_entry_no_longer_follows_events(hass, monkeypatch):
 
     assert hass.states.get("sensor.smartheat_wohnung1_status").state == "unavailable"
     assert hass.states.get("number.smartheat_wohnung1_wunschtemperatur").state == "unavailable"
+
+
+async def test_an_entry_from_before_1_0_fails_with_a_text_and_a_repair_issue(hass, monkeypatch, caplog):
+    """Ein Eintrag aus 0.16 (ohne geraet_id, VERSION 2 wie client1 heute): Fehler mit uebersetztem Grund und ein
+    Reparatur-Hinweis statt eines KeyError; Entfernen raeumt den Hinweis weg."""
+    monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(return_value={}))
+    entry = make_entry(hass, tenant_id="client1")
+
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert (entry.error_reason_translation_domain, entry.error_reason_translation_key) == (DOMAIN, "alter_eintrag")
+    assert "KeyError" not in caplog.text
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "alter_eintrag")
+    assert (issue.is_fixable, issue.severity, issue.translation_key) == (False, ir.IssueSeverity.ERROR, "alter_eintrag")
+    assert hass.states.get("sensor.smartheat_client1_status") is None
+
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "alter_eintrag") is None
+
+
+async def test_unloading_clears_the_hint_issues(hass, monkeypatch):
+    """Ein deaktivierter Eintrag hinterlaesst keine veralteten Hinweise."""
+    entry = await _setup(hass, monkeypatch)
+    hass.bus.async_fire(STATUS_EVENT, status_event("wohnung1", "regelt", geraet_hinweise=[
+        {"key": "wunsch_begrenzt", "stufe": "warnung", "text": "Auf 25 °C begrenzt"}]))
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_wunsch_begrenzt") is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_wunsch_begrenzt") is None

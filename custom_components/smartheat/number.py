@@ -4,15 +4,16 @@ sofort lokal an (Boost bei Erhoehung, auch ohne Internet) und meldet ihn als Bed
 Server-Aufruf aus der Integration. Angezeigt wird der wirksame Soll aus dem Status-Ereignis."""
 from __future__ import annotations
 
-from math import isfinite
+from math import floor, isfinite
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import RAUM_SOLL_MAX, RAUM_SOLL_MIN, RAUM_SOLL_STEP, WUNSCH_EVENT
+from .const import DOMAIN, RAUM_SOLL_MAX, RAUM_SOLL_MIN, RAUM_SOLL_STEP, WUNSCH_EVENT
 from .entity import SmartHeatEntity
 
 KEY = "wunschtemperatur"
@@ -27,6 +28,12 @@ def _temperature(value) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
         return None
     return float(value)
+
+
+def _auf_schritt(value: float) -> float:
+    """Auf den 0,5er-Schritt runden (halbe Schritte aufwaerts, 22,25 -> 22,5), dann in den Bedienbereich."""
+    stufe = floor(value / RAUM_SOLL_STEP + 0.5) * RAUM_SOLL_STEP
+    return min(max(stufe, RAUM_SOLL_MIN), RAUM_SOLL_MAX)
 
 
 class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
@@ -49,6 +56,11 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
             self._attr_native_value = None
 
     async def async_set_native_value(self, value: float) -> None:
-        self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": float(value)}, context=self._context)
-        self._attr_native_value = float(value)
+        """NaN/inf lehnt die Entity ab (HAs min/max-Pruefung laesst NaN durch), sonst geht der auf den Schritt
+        gerundete Wert ans Add-on."""
+        if not isfinite(value):
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="wunsch_ungueltig")
+        raum_soll = _auf_schritt(float(value))
+        self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)
+        self._attr_native_value = raum_soll
         self.async_write_ha_state()
