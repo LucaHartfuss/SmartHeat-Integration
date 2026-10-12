@@ -16,9 +16,9 @@ Direkter Aufruf bleibt möglich: `python3.14 -m venv .venv && .venv/bin/pip inst
 requirements_test.txt && .venv/bin/python -m pytest -q` (`pytest-homeassistant-custom-component`
 braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup; `pytest.ini`:
 `asyncio_mode = auto`, `testpaths = tests`). `addon_fakes.py` (Fake-Add-on-Manager, Status-Ereignis, Einträge) und
-`einrichtung_fakes.py` (Fake-Einrichtungs-Server) sind gemeinsame Test-Doubles. `tests/fixtures/` enthält nur noch,
-was `../tools/contract_check.py` liest (`tests/fixtures/README.md`); `catalog.py`, diese Fixtures und der Block am
-Ende von `const.py` bleiben bis Plan 5c W Teil B (Contract-Loader), der Schritt `contract` ist bis dahin rot.
+`einrichtung_fakes.py` (Fake-Einrichtungs-Server) sind gemeinsame Test-Doubles. `../tools/contract_check.py` liest aus
+diesem Repo nur `const.py` und `translations/{de,en}.json` (Checks 7, 8, 12, 14, 54, 56, 58–60); der Katalog-Parser und
+die Fixture-Kopien bis 0.16 sind mit Plan 5c W Teil B entfallen.
 
 Feature-Branches (`feat/…`/`fix/…`) zweigen von `develop` ab und werden `--no-ff` nach `develop`
 gemergt — nie direkt nach `main`. `main` bewegt sich nur per Release-Tag (`vX.Y.Z`,

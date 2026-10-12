@@ -102,12 +102,12 @@ async def async_set_supervision(hass: HomeAssistant, slugs: list[str], enabled: 
 
 
 def _valid_url(value) -> bool:
-    """Wie das Add-on (__main__._url_fehler): Text, http oder https, mit Host."""
+    """Wie das Add-on (__main__._url_fehler): Option nur https mit Host (5c F/Q4)."""
     if not isinstance(value, str):
         return False
     try:
         parts = urllib.parse.urlsplit(value)
-        return parts.scheme in ("http", "https") and bool(parts.hostname)
+        return parts.scheme == "https" and bool(parts.hostname)
     except ValueError:
         return False
 

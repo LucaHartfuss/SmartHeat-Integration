@@ -212,7 +212,8 @@
   },
   "exceptions": {
     "alter_eintrag": {"message": "Dieser SmartHeat-Eintrag stammt aus einer Version vor 1.0.0 und muss neu eingerichtet werden (Umzug auf das Add-on als Gerät)."},
-    "wunsch_ungueltig": {"message": "Die Wunschtemperatur muss eine Zahl sein."}
+    "wunsch_ungueltig": {"message": "Die Wunschtemperatur muss eine Zahl sein."},
+    "thermostat_aus": {"message": "Das Thermostat ist ausgeschaltet. Solange es aus ist, nimmt SmartHeat keine Wunschtemperatur an."}
   },
   "issues": {
     "alter_eintrag": {"title": "SmartHeat: Eintrag neu einrichten", "description": "Dieser SmartHeat-Eintrag stammt aus einer Version vor 1.0.0 und funktioniert mit dieser Version nicht mehr. Bitte den Eintrag entfernen und SmartHeat neu einrichten (Umzug auf das Add-on als Gerät). Das Add-on regelt bis dahin mit seiner letzten Konfiguration weiter."},

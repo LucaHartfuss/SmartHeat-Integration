@@ -1,7 +1,8 @@
 """Wunschtemperatur als Entity (Spec 5c 1.3/2.2): fuer HA-Automationen und das Dashboard. Setzen feuert nur das lokale
 Ereignis smartheat_wunsch (mit dem Kontext des Dienstaufrufs: Nutzer oder Automation); das Add-on wendet den Wert
 sofort lokal an (Boost bei Erhoehung, auch ohne Internet) und meldet ihn als Bedienwunsch an den Server. Kein
-Server-Aufruf aus der Integration. Angezeigt wird der wirksame Soll aus dem Status-Ereignis."""
+Server-Aufruf aus der Integration. Angezeigt wird der wirksame Soll aus dem Status-Ereignis. Solange das Thermostat
+aus ist (Hinweis soll_quelle_aus), lehnt die Entity ab (5c F/Q3)."""
 from __future__ import annotations
 
 from math import floor, isfinite
@@ -13,7 +14,7 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, RAUM_SOLL_MAX, RAUM_SOLL_MIN, RAUM_SOLL_STEP, WUNSCH_EVENT
+from .const import DOMAIN, HINWEIS_SOLL_QUELLE_AUS, RAUM_SOLL_MAX, RAUM_SOLL_MIN, RAUM_SOLL_STEP, WUNSCH_EVENT
 from .entity import SmartHeatEntity
 
 KEY = "wunschtemperatur"
@@ -60,6 +61,9 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         gerundete Wert ans Add-on."""
         if not isfinite(value):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="wunsch_ungueltig")
+        hinweise = (self.coordinator.data or {}).get("geraet_hinweise") or []
+        if any(isinstance(h, dict) and h.get("key") == HINWEIS_SOLL_QUELLE_AUS for h in hinweise):
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="thermostat_aus")
         raum_soll = _auf_schritt(float(value))
         self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)
         self._attr_native_value = raum_soll
