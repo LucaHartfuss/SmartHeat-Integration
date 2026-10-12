@@ -1,218 +1,181 @@
 {
   "config": {
+    "flow_title": "SmartHeat ({geraet})",
     "step": {
-      "user": {
-        "title": "SmartHeat login",
-        "description": "Sign in with your SmartHeat account. The setup then detects your heating system; you only confirm and choose your rooms.",
+      "bestaetigen": {
+        "title": "SmartHeat found",
+        "description": "The Heizungsbrücke add-on (device {geraet}) is ready. Connect it to your SmartHeat account now?"
+      },
+      "anmelden": {
+        "title": "SmartHeat account",
+        "description": "Sign in with your SmartHeat account. The sign-in is only used for this setup.",
         "data": {"email": "Email", "password": "Password"}
       },
-      "tenant": {
-        "title": "Select installation",
-        "description": "Your account has several heating installations. Which one would you like to set up?",
-        "data": {"tenant_id": "Installation"}
+      "schon_eingerichtet": {
+        "title": "Already set up",
+        "description": "This device already controls the installation {anlage}. Show SmartHeat in Home Assistant again?"
       },
-      "heating": {
+      "anlage": {
+        "title": "Installation",
+        "data": {"anlage": "Installation"}
+      },
+      "ersetzen": {
+        "title": "Replace device",
+        "description": "The installation {anlage} is attached to another device. This device replaces it; the learned values are kept."
+      },
+      "inventur_zeit": {
+        "title": "Inventory",
+        "description": "Home Assistant did not deliver the inventory in time. Submit to try again."
+      },
+      "integration": {
         "title": "Heating integration",
-        "description": "Several supported heating integrations are set up. Which one controls the heating to be regulated?",
-        "data": {"integration": "Heating integration"}
+        "data": {"integration": "Integration"}
       },
       "system": {
-        "title": "Your heating system",
-        "description": "Heating system found via {integration}. How does the heat reach your rooms? This determines the local safety limits, so please choose carefully.\n\n{hinweis}",
-        "data": {"verteilsystem": "Heat distribution", "erzeuger_typ": "Heat source", "circuit": "Heating circuit"}
+        "title": "Heating",
+        "description": "{integration}\n\n{hinweis}",
+        "data": {"kreis": "Heating circuit", "profil": "Installation profile"}
       },
-      "lever_set": {
-        "title": "Control variables",
-        "description": "Which control variables of your heating system should SmartHeat use? Without heating curve and summer/winter switch-over, SmartHeat controls only via the room setpoint (less precise, no curve base point at the heating system).",
-        "data": {"lever_set": "Control variables"}
+      "hebelsatz": {
+        "title": "Control",
+        "data": {"hebelsatz": "Control"}
       },
-      "rooms": {
-        "title": "Rooms",
-        "description": "Choose the room temperature sensors (several are averaged) and the entity holding your desired temperature. A thermostat can be both. Thermostats and sensors with the device class \"Temperature\" are offered.\n\nImportant for good learning: turn the thermostatic valve heads on the radiators in this room fully open or set them at least 1 °C above the desired temperature; otherwise they throttle the heating and SmartHeat sets the heating curve too high. The desired temperature should not follow its own schedule (e.g. no night setback on the thermostat): frequent changes pause the learning.",
-        "data": {"room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature"}
+      "raeume": {
+        "title": "Room",
+        "description": "Room sensors and the desired temperature entity (e.g. the thermostat in the living room).",
+        "data": {"raumfuehler": "Room sensors", "room_target": "Desired temperature entity"}
       },
-      "plant_values": {
+      "anlagenwerte": {
         "title": "Heating values",
-        "description": "Pre-filled from your heating system, please check:\n{origins}\nOnly sensors with a matching device class (e.g. \"Temperature\") are offered. {regelhinweis}",
+        "description": "Prefilled from the heating integration; please check.",
         "data": {
-          "entity_curve_current": "Heating curve",
-          "entity_shift_current": "Room setpoint or zone",
-          "entity_level_current": "Heating curve level",
-          "entity_mode_select": "Operating mode or heating program",
-          "entity_setpoint_comfort": "Room setpoint comfort",
-          "entity_setpoint_setback": "Room setpoint setback",
-          "entity_min_flow": "Minimum flow temperature",
-          "entity_heat_limit": "Heating limit (controlled by SmartHeat)",
-          "entity_outdoor_temp": "Outdoor temperature",
-          "entity_flow_setpoint": "Heating flow setpoint (optional)"
-        },
-        "sections": {
-          "advanced": {
-            "name": "Advanced: measurements for evaluations",
-            "description": "Optional. Pre-filled where detected. Energy counters need the state class 'total_increasing'.",
-            "data": {
-              "entity_flow_temperature": "Flow temperature",
-              "entity_return_temperature": "Return temperature",
-              "entity_operating_mode": "Operating mode",
-              "entity_generator_hours": "Heat generator operating hours",
-              "entity_generator_starts": "Heat generator starts",
-              "entity_generator_state": "Heat generator status",
-              "entity_system_water_pressure": "System water pressure",
-              "entity_efficiency_ratio": "Manufacturer efficiency ratio",
-              "entity_energy_electrical_heating": "Energy: electrical heating",
-              "entity_energy_electrical_dhw": "Energy: electrical (hot water)",
-              "entity_energy_primary_heating": "Energy: primary heating",
-              "entity_energy_primary_dhw": "Energy: primary (hot water)",
-              "entity_energy_thermal_heating": "Energy: thermal heating",
-              "entity_energy_thermal_dhw": "Energy: thermal (hot water)",
-              "entity_energy_electrical_total": "Energy: electrical total"
-            },
-            "data_description": {
-              "entity_generator_hours": "Optional. Lets SmartHeat verify that the heating actually delivers heat.",
-              "entity_generator_starts": "Optional. Lets SmartHeat verify that the heating actually delivers heat.",
-              "entity_generator_state": "Optional. Lets SmartHeat verify that the heating actually delivers heat."
-            }
-          }
+          "curve": "Heating curve",
+          "room_setpoint": "Room setpoint or zone",
+          "level": "Heating curve level",
+          "heat_limit": "Heating limit (controlled by SmartHeat)",
+          "min_flow": "Minimum flow temperature",
+          "mode_select": "Operating mode or heating program",
+          "setpoint_comfort": "Room setpoint comfort",
+          "setpoint_setback": "Room setpoint setback",
+          "outdoor_temp": "Outdoor temperature",
+          "flow_temperature": "Flow temperature (optional)",
+          "flow_setpoint": "Heating flow setpoint (optional)",
+          "return_temperature": "Return temperature (optional)",
+          "operating_mode": "Operating mode reading (optional)",
+          "system_water_pressure": "System water pressure (optional)",
+          "efficiency_ratio": "Manufacturer efficiency ratio (optional)",
+          "generator_hours": "Heat generator operating hours (optional)",
+          "generator_starts": "Heat generator starts (optional)",
+          "generator_state": "Heat generator status (optional)",
+          "energy_electrical_heating": "Energy: electrical heating (optional)",
+          "energy_electrical_dhw": "Energy: electrical, hot water (optional)",
+          "energy_primary_heating": "Energy: primary heating (optional)",
+          "energy_primary_dhw": "Energy: primary, hot water (optional)",
+          "energy_thermal_heating": "Energy: thermal heating (optional)",
+          "energy_thermal_dhw": "Energy: thermal, hot water (optional)",
+          "energy_electrical_total": "Energy: electrical total (optional)"
         }
       },
-      "notifications": {
-        "title": "Notifications",
-        "description": "{phones_note}\n\nMonitored batteries: {batteries}",
-        "data": {"notify_services": "Phones"}
-      },
-      "summary": {
-        "title": "Summary",
-        "description": "Room temperature: {room_temperature} °C (average of {room_sensor_count} sensors)\nDesired temperature: {room_target} °C\nOutdoor temperature: {outdoor_temperature} °C ({outdoor_source})\n{plant_values}\n\nSmartHeat writes to:\n{write_entities}\n\nProfile: {profile}\nPhones: {recipients}\nMonitored batteries: {batteries}\n\nNotes:\n{warnings}\n\n{credentials_note}",
+      "benachrichtigung": {
+        "title": "Notifications and desired temperature",
         "data": {
-          "confirm_stale": "I checked the sources without an update for more than 6 hours",
-          "confirm_deviation": "I checked the room sensors deviating by more than 3 K",
-          "confirm_write_role_unmatched": "I checked that these entities belong to the chosen heating circuit",
-          "confirm_poll_interval": "I checked the heating integration's update interval"
+          "benachrichtigung": "Phones",
+          "hinweise_aus": "Notes without push",
+          "batterien": "Batteries",
+          "raum_soll": "Desired temperature"
         }
       },
-      "setup_failed": {
-        "title": "Setup failed",
-        "description": "{grund}",
-        "menu_options": {"rooms": "Back to selection", "cancel": "Cancel"}
+      "zusammenfassung": {"title": "Summary", "description": "Installation {anlage}. Notes:\n{warnungen}\n\nSet up now?"},
+      "menue": {
+        "title": "Reconfigure",
+        "description": "Installation {anlage}: what should change?",
+        "menu_options": {"zuordnung_aendern": "Change mapping", "geraet_entfernen": "Remove device"}
       },
-      "setup_timeout": {
-        "title": "No response from the add-on",
-        "description": "The Heizungsbruecke add-on did not report ready within 3 minutes. Please check its log (Settings → Add-ons → Heizungsbruecke → Log).",
-        "menu_options": {"wait_status": "Check again", "cancel": "Cancel"}
+      "geraet_entfernen": {
+        "title": "Remove device",
+        "description": "SmartHeat resets the heating of installation {anlage} to the last learned values and releases the device."
       }
     },
     "progress": {
-      "setup": "Setting up SmartHeat: requesting access, configuring and starting the add-ons, waiting for the add-on to report ready (up to 3 minutes)."
+      "addon_starten": "Installing and starting the add-on …",
+      "inventur": "Searching Home Assistant for the heating …",
+      "einrichten": "The device is applying the settings …",
+      "entfernen": "The device is being reset …"
     },
     "error": {
-      "invalid_auth": "Invalid email or password",
-      "invalid_response": "The SmartHeat server sent an unreadable answer. Please try again later.",
-      "cannot_connect": "Could not reach the SmartHeat service",
-      "no_tenants": "Subscribe on our website to get access to our heating control server.",
-      "profile_combination_unsupported": "This combination is not supported yet",
-      "unit_mismatch": "Wrong unit, °C is required",
-      "entity_not_found": "This entity does not exist",
-      "entity_wrong_integration": "This entity does not belong to the chosen heating integration",
-      "entity_wrong_installation": "This entity belongs to another installation of the heating integration",
-      "entity_unavailable": "This entity currently has no value",
-      "not_numeric": "This entity does not provide a number",
-      "out_of_range": "The value is outside the physically plausible range",
-      "duplicate_entity": "The same entity is used for two roles",
-      "wrong_domain": "This entity does not fit this field",
-      "zone_is_room_target": "The desired room temperature cannot come from the heating system itself (the same device as a value SmartHeat writes, e.g. the zone or its setpoint sensor). Choose a room thermostat or sensor",
-      "room_sensors_required": "Choose at least one room temperature sensor",
-      "advanced_invalid": "Please check the fields under 'Advanced'",
-      "warnings_not_confirmed": "Please confirm all notes",
-      "session_expired": "Your session has expired. Please sign in again.",
-      "unknown": "Unexpected error",
-      "state_class_expected_measurement": "Expected state class 'measurement' (entities without any state_class are also rejected)",
-      "state_class_expected_total_increasing": "Expected state class 'total_increasing'. Counters with 'total' cannot be used."
+      "invalid_auth": "Wrong email or password.",
+      "too_many": "Too many sign-in attempts, please wait a moment.",
+      "uebernahme_gesperrt": "Claiming is locked after too many failed attempts: {grund}",
+      "uebernahme_fehlgeschlagen": "The device could not be claimed: {grund}",
+      "anmeldung_gebunden": "The device could not be claimed with this sign-in: {grund}",
+      "cannot_connect": "The SmartHeat service cannot be reached.",
+      "server_veraltet": "The SmartHeat server does not know the setup for Home Assistant (outdated server version?).",
+      "unknown": "Unexpected error.",
+      "sitzung_abgelaufen": "The sign-in has expired. Please sign in again.",
+      "required": "Please assign.",
+      "wrong_domain": "This entity does not fit this field.",
+      "entity_not_found": "Entity not found.",
+      "entity_unavailable": "Entity is unavailable.",
+      "not_numeric": "Not a number.",
+      "unit_mismatch": "Unit is not °C.",
+      "out_of_range": "Value is implausible.",
+      "duplicate_entity": "Assigned twice.",
+      "zone_is_room_target": "The desired temperature cannot be a value of the heating itself.",
+      "entity_wrong_integration": "Does not belong to the chosen heating integration.",
+      "entity_wrong_installation": "Belongs to another installation of this integration.",
+      "room_sensors_required": "At least one room sensor.",
+      "wrong_state_class": "Wrong kind of measurement.",
+      "unknown_service": "Unknown phone.",
+      "unknown_hint": "Unknown note."
     },
     "abort": {
-      "access_denied": "The SmartHeat server denied access: {grund}",
-      "not_supervisor": "This integration only works on a Home Assistant installation with Supervisor (Home Assistant OS or Home Assistant Supervised), because it provisions real MQTT credentials and configures companion add-ons via the Supervisor API.",
-      "already_configured": "This installation is already set up. To change it, open the SmartHeat entry and choose ⋮ → Reconfigure.",
-      "single_instance_allowed": "SmartHeat is already set up in this Home Assistant. To change it, open the SmartHeat entry and choose ⋮ → “Reconfigure”.",
-      "catalog_outdated": "The SmartHeat server is older than this integration (catalog v3 required). Please update the server first or contact support.",
-      "no_verified_profiles": "No verified profile is currently available for your heating system. Please try again later or contact support.",
-      "addon_missing": "The add-on {addon} is not installed. Install it from the SmartHeat add-on repository, then start the setup again.",
-      "addon_ambiguous": "The add-on {addon} is installed more than once. Remove the duplicate installation, then start the setup again.",
-      "addon_outdated": "The add-on {addon} is outdated (installed {installed}, required {required}). Update it, then start the setup again.",
-      "supervisor_unavailable": "The Supervisor is not reachable. Please try again later.",
-      "no_supported_integration": "No supported heating integration is set up in Home Assistant. Supported: {supported}.",
-      "no_heating_circuit": "No heating circuit with the required control variables was found in {integration}.\n\n{hinweis}",
-      "setup_cancelled": "Setup cancelled.",
-      "lever_set_unsupported": "This SmartHeat version does not know the control variables of this profile yet. Please update SmartHeat.",
-      "wrong_account": "This account does not include the installation of this entry.",
-      "reconfigure_first": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure.",
-      "reconfigure_successful": "SmartHeat was reconfigured. Your access credentials stayed the same.{notes}",
-      "reconfigure_successful_new_credentials": "SmartHeat was reconfigured. New access credentials were issued, because the add-ons had no complete ones.{notes}",
-      "reauth_successful": "SmartHeat is signed in again.{notes}"
-    },
-    "create_entry": {
-      "setup_notes": "SmartHeat is set up.\n\n{notes}"
+      "kein_supervisor": "SmartHeat needs Home Assistant with add-ons (Supervisor).",
+      "addon_fehler": "The Heizungsbrücke add-on could not be installed, started or checked. Please try again; details are in the log.",
+      "addon_veraltet": "Please update the Heizungsbrücke add-on to 1.0.0 and then start the setup again.",
+      "addon_mehrdeutig": "The Heizungsbrücke add-on is installed more than once. Please remove one installation and try again.",
+      "bootstrap_url_ungueltig": "The bootstrap_url option of the Heizungsbrücke add-on is invalid. Please correct or clear it and start the setup again.",
+      "keine_discovery": "The add-on did not report. Please check the add-on log.",
+      "discovery_ungueltig": "Invalid message from the add-on.",
+      "geraet_nicht_gemeldet": "The Heizungsbrücke add-on does not report this device (any more). Please start the setup again.",
+      "keine_anlage": "The account has no free, active installation. An installation that still runs on the previous access is moved by a separate step.",
+      "inventur_fehler": "The installation could not be checked: {grund}",
+      "keine_integration": "{grund}",
+      "nicht_unterstuetzt": "For {integration} there is no complete heating circuit or no released installation profile.",
+      "rolle_ohne_kandidaten": "Home Assistant reported no suitable entity for {rolle}. Please check the heating integration and start the setup again.",
+      "einrichten_fehler": "Setup not completed: {grund}",
+      "einrichten_zeit": "The device did not answer in time. Is the Heizungsbrücke add-on running? Please start the setup again.",
+      "keine_konfiguration": "The device does not report a configuration yet. Please try again in a few minutes.",
+      "entfernen_fehler": "Removal not completed: {grund}",
+      "entfernen_laeuft": "The device cannot be reached right now; the removal continues as soon as it is online.",
+      "entfernt": "The device has been removed and released.",
+      "cannot_connect": "The SmartHeat service cannot be reached.",
+      "abgelehnt": "The SmartHeat service refused: {grund}",
+      "geraet_unbekannt": "The device does not belong to this account or is locked ({grund}).",
+      "alter_eintrag": "This entry comes from a version before 1.0.0. Please remove the entry and set up SmartHeat again.",
+      "unknown": "Unexpected error; details are in the log.",
+      "already_configured": "SmartHeat is already set up.",
+      "already_in_progress": "The setup is already running.",
+      "single_instance_allowed": "SmartHeat is already set up.",
+      "reconfigure_successful": "The new mapping has been applied."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "SmartHeat options",
-        "description": "Changes here need no sign-in. SmartHeat restarts the Heizungsbruecke add-on afterwards. Thermostats and sensors with the device class \"Temperature\" are offered.\n\nImportant for good learning: turn the thermostatic valve heads on the radiators in this room fully open or set them at least 1 °C above the desired temperature; otherwise they throttle the heating and SmartHeat sets the heating curve too high. The desired temperature should not follow its own schedule (e.g. no night setback on the thermostat): frequent changes pause the learning.",
-        "data": {
-          "room_sensors": "Room temperature sensors", "entity_room_target": "Desired temperature",
-          "notify_services": "Phones", "battery_entities": "Monitored batteries",
-          "hint_raumfuehler": "Notify about a failed room sensor", "hint_batterie": "Notify about a low battery",
-          "hint_manueller_eingriff": "Notify about a manual change of a value controlled by SmartHeat",
-          "hint_quellwechsel": "Notify about a changed temperature source",
-          "hint_schreibbudget": "Notify when the daily limit for write operations is reached",
-          "hint_schreibzaehler": "Notify when many write operations over the device lifetime are reached"
-        }
-      },
-      "confirm": {
-        "title": "Please check",
-        "description": "{warnings}",
-        "data": {
-          "confirm_stale": "I checked the sources without an update for more than 6 hours",
-          "confirm_deviation": "I checked the room sensors deviating by more than 3 K"
-        }
-      },
-      "failed": {"title": "Not applied", "description": "{grund}\n\n{restore}\n\nSubmit to go back to the options."},
-      "timeout": {
-        "title": "No response from the add-on",
-        "description": "The Heizungsbruecke add-on did not report within 3 minutes. The options are saved anyway; its status is shown at the SmartHeat device."
-      }
-    },
-    "progress": {"apply": "Applying the options and restarting the Heizungsbruecke add-on (up to 3 minutes)."},
-    "error": {
-      "room_sensors_required": "Choose at least one room temperature sensor",
-      "entity_not_found": "This entity does not exist",
-      "entity_unavailable": "This entity currently has no value",
-      "not_numeric": "This entity does not provide a number",
-      "unit_mismatch": "Wrong unit, °C is required",
-      "out_of_range": "The value is outside the physically plausible range",
-      "duplicate_entity": "The same entity is used for two roles",
-      "wrong_domain": "This entity does not fit this field",
-      "zone_is_room_target": "The desired room temperature cannot come from the heating system itself (the same device as a value SmartHeat writes, e.g. the zone or its setpoint sensor). Choose a room thermostat or sensor",
-      "warnings_not_confirmed": "Please confirm all notes"
-    },
-    "abort": {"setup_incomplete": "Please complete the setup first: open the SmartHeat entry and choose ⋮ → Reconfigure."}
-  },
   "selector": {
-    "verteilsystem": {
-      "options": {
-        "heizkoerper": "Radiators: metal panels on the walls, often under windows",
-        "fussbodenheizung": "Underfloor heating: the floor gets warm, no radiators on the walls"
-      }
-    },
-    "erzeuger_typ": {
-      "options": {"gastherme": "Gas boiler", "waermepumpe": "Heat pump"}
-    },
     "lever_set": {
       "options": {
         "vaillant_vrc720": "Heating curve, zone setpoint and heating limit",
         "weishaupt_wwp": "Heating curve, room setpoint and summer/winter switch-over",
         "weishaupt_wwp_basis": "Room setpoint only (without heating curve and summer/winter switch-over)",
         "viessmann_vicare": "Slope, level and room setpoint"
+      }
+    },
+    "hinweise": {
+      "options": {
+        "raumfuehler": "Room sensor",
+        "batterie": "Battery",
+        "manueller_eingriff": "Manual intervention",
+        "quellwechsel": "Source change",
+        "schreibbudget": "Write budget",
+        "schreibzaehler": "Write counter"
       }
     }
   },
@@ -244,77 +207,26 @@
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
       "addon_version": {"name": "Add-on version"}
     },
-    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}}
+    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}},
+    "number": {"wunschtemperatur": {"name": "Desired temperature"}}
+  },
+  "exceptions": {
+    "alter_eintrag": {"message": "This SmartHeat entry comes from a version before 1.0.0 and has to be set up again (move to the add-on as a device)."},
+    "wunsch_ungueltig": {"message": "The desired temperature must be a number."}
   },
   "issues": {
-    "complete_setup": {
-      "title": "SmartHeat: complete the setup for {tenant}",
-      "description": "The setup of {tenant} is incomplete or comes from an older version. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
-    }
+    "alter_eintrag": {"title": "SmartHeat: set up the entry again", "description": "This SmartHeat entry comes from a version before 1.0.0 and no longer works with this version. Please remove the entry and set up SmartHeat again (move to the add-on as a device). Until then the add-on keeps controlling with its last configuration."},
+    "update_noetig": {"title": "SmartHeat: update the add-on", "description": "{text} Settings → Add-ons → Heizungsbrücke → Update."},
+    "geraet_doppelt": {"title": "SmartHeat is running twice", "description": "{text} Please stop the second Home Assistant instance with the same add-on (e.g. a restored backup)."},
+    "wunsch_begrenzt": {"title": "SmartHeat: desired temperature limited", "description": "{text}"},
+    "soll_quelle_aus": {"title": "SmartHeat: thermostat is off", "description": "{text}"},
+    "konfiguration_abgelehnt": {"title": "SmartHeat: setting rejected", "description": "The add-on rejected the new setting: {text} Please check it under SmartHeat → Reconfigure."},
+    "gesperrt": {"title": "SmartHeat: device blocked", "description": "{text}"},
+    "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"}
   },
   "common": {
-    "done_status_datenfehler": "The add-on reports a data error ({grund}). SmartHeat regulates as soon as the values are valid again; details on the SmartHeat device.",
-    "done_status_notbetrieb": "The add-on cannot reach the SmartHeat server right now and runs in emergency mode. It reconnects on its own; the status is shown on the SmartHeat device.",
-    "done_status_abo_inaktiv": "Your subscription is currently inactive. SmartHeat resumes as soon as it is active.",
-    "done_status_abo_beendet": "Your subscription has ended. The system keeps its base values until the subscription is renewed.",
-    "done_supervision": "The add-on watchdog could not be enabled, please check the log.",
-    "access_denied": "The SmartHeat server denied access: {grund}",
-    "profile_rejected": "The SmartHeat server rejected the chosen heating profile. Please choose another combination or contact support.",
-    "role_entity_curve_current": "Heating curve",
-    "role_entity_shift_current": "Room setpoint or zone",
-    "role_entity_min_flow": "Minimum flow temperature",
-    "role_entity_heat_limit": "Heating limit",
-    "role_entity_outdoor_temp": "Outdoor temperature",
-    "role_entity_flow_setpoint": "Flow setpoint",
-    "role_entity_level_current": "Heating curve level",
-    "role_entity_mode_select": "Operating mode or heating program",
-    "role_entity_setpoint_comfort": "Room setpoint comfort",
-    "role_entity_setpoint_setback": "Room setpoint setback",
-    "origin_integration": "{role}: {entity} (detected from {integration})",
-    "origin_weather": "{role}: {entity} (weather service, your heating has no outdoor sensor)",
-    "origin_none": "{role}: not detected, please choose",
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
-    "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
-    "warning_poll_interval": "The heating integration only polls its values every {entities}. SmartHeat may then not see its own changes in time and treat them as a manual change. Please set the heating integration's update interval to 30 minutes or less.",
-    "none": "none",
-    "notifications_phones": "SmartHeat notifies the selected phones when the control stops, a room sensor fails or a battery runs low.",
-    "notifications_no_phones": "No Home Assistant companion app was found, so SmartHeat can only show its important messages (e.g. when the control stops) as notifications in Home Assistant. Install the companion app on a phone to also receive push messages, e.g. about a failed room sensor or a low battery.",
-    "erzeuger_typ_gastherme": "gas boiler",
-    "erzeuger_typ_waermepumpe": "heat pump",
-    "verteilsystem_heizkoerper": "radiators",
-    "verteilsystem_fussbodenheizung": "underfloor heating",
-    "addon_missing": "The add-on {addon} is not installed.",
-    "addon_ambiguous": "The add-on {addon} is installed more than once. Please remove the duplicate installation.",
-    "addon_outdated": "The add-on {addon} is outdated (installed {installed}, required {required}). Please update it.",
-    "supervisor_unavailable": "The Supervisor is not reachable. Please try again.",
-    "provisioning_failed": "The SmartHeat server could not issue access credentials. Please try again later.",
-    "invalid_provisioning_response": "The SmartHeat server returned an incomplete setup response. Please try again later or contact support.",
-    "verteilsystem_mismatch": "The SmartHeat server reported a different heating distribution system than you selected. Setup was cancelled so the wrong safety limits are not applied. Please contact support.",
-    "setup_unexpected": "Unexpected error during setup, see the Home Assistant log.",
-    "new_credentials": "New access credentials will be issued.",
-    "profile_update_failed": "The SmartHeat server could not change the heating profile. Please try again later.",
-    "options_addon_failed": "The Heizungsbruecke add-on could not be updated. Please check the Supervisor and try again.",
-    "options_restored": "The previous Heizungsbrücke settings have been restored.",
-    "options_restore_failed": "The previous Heizungsbrücke settings could not be restored. Please save the options again.",
-    "removal_incomplete": "SmartHeat was removed, but not every step succeeded:",
-    "rollback_first_setup": "The SmartHeat setup was cancelled. The add-ons were stopped and the issued credentials revoked.",
-    "rollback_reconfigure": "“Reconfigure” was cancelled. The previous add-on settings and heating profile have been restored.",
-    "rollback_first_setup_incomplete": "The SmartHeat setup was cancelled, but not every step of the rollback succeeded:",
-    "rollback_reconfigure_incomplete": "“Reconfigure” was cancelled, but not every step of the restore succeeded:",
-    "rollback_reconfigure_new_access": "“Reconfigure” was cancelled. The previous add-on settings and heating profile have been restored; the system keeps the new credentials issued during the attempt.",
-    "rollback_reconfigure_new_access_incomplete": "“Reconfigure” was cancelled and the new credentials were kept, but not every step of the restore succeeded:",
-    "open_step_supervisor": "The Supervisor was unreachable. Please stop the add-ons Heizungsbrücke and Cloudflared Access TCP-Bridge manually under Settings → Add-ons.",
-    "open_step_foreign_tenant": "The add-ons belong to another SmartHeat installation and were left untouched.",
-    "open_step_no_sign_off": "Heizungsbrücke did not confirm the sign-off and was stopped anyway. Please check the heating circuit's values in the manufacturer's app: boost values (SmartHeat's local maximum values) may have been left in place.",
-    "open_step_stop": "An add-on could not be stopped. Please stop it manually under Settings → Add-ons.",
-    "open_step_revoke": "The credentials could not be revoked on the SmartHeat server. They will be replaced at the next setup.",
-    "open_step_clear": "The credentials could not be removed from the add-on options. Please uninstall the add-ons if SmartHeat is no longer used.",
-    "open_step_profile": "The previous heating profile could not be restored on the SmartHeat server. Please run “Reconfigure” again.",
-    "open_step_addons": "The previous add-on settings could not be restored. Please run “Reconfigure” again.",
-    "regelhinweis_vaillant_vrc720": "SmartHeat sets the heating zone to \"Manual\" and controls its target temperature itself; the minimum flow temperature follows your target temperature at the room thermostat.",
-    "regelhinweis_weishaupt_wwp": "SmartHeat sets the heating circuit's operating mode to \"Normal\" and controls the heating curve, the normal room setpoint and the summer/winter switch itself; it only moves the comfort and setback setpoints when the normal setpoint would not fit between them otherwise.",
-    "regelhinweis_weishaupt_wwp_basis": "SmartHeat sets the heating circuit's operating mode to \"Normal\" and controls the normal room setpoint itself; the heating curve stays as it is. It only moves the comfort and setback setpoints when the normal setpoint would not fit between them otherwise.",
-    "regelhinweis_viessmann_vicare": "SmartHeat ends an active comfort or eco program and controls the slope, the level and the normal temperature of the heating circuit itself."
+    "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities."
   }
 }

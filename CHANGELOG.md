@@ -3,6 +3,17 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## Unveröffentlicht
+
+- **1.0.0** (Spec 5c): Einrichtung über die Supervisor-Discovery des Add-ons und die Einrichtungs-API des Servers;
+  Erkennung und Prüfung laufen auf dem Server. Neue Entity Wunschtemperatur (wirkt lokal über das Add-on).
+  Reparatur-Hinweise aus dem Gerät. Kein Server-Token im Betrieb, keine Add-on-Optionen. Setzt das Add-on 1.0.0
+  voraus; bestehende Installationen (0.16) ziehen mit einem eigenen Schritt um (5d).
+- **Entfernt:** der Optionsdialog, die Erkennung und Prüfung in der Integration, der Rückbau über die Integration
+  und das zweite Add-on `cloudflared_access_mqtt` im Assistenten. „Neu konfigurieren“ bietet stattdessen
+  „Zuordnung ändern“ und „Gerät entfernen“.
+- Die Entity-IDs von `client1` (13 aus 0.16.1) bleiben, dazu kommt `number.smartheat_<anlage>_wunschtemperatur`.
+
 ## 0.16.1
 
 - **Anzeige:** Gelernte Steigung und gelernte Heizgrenze erscheinen mit zwei Nachkommastellen (bisher ungerundet,

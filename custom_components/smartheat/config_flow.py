@@ -1,1373 +1,747 @@
-"""Config-Flow der SmartHeat-Integration: Setup-Wizard 2.0 (Spec TP6) mit Neu konfigurieren und
-Reauth (Spec TP7 2.3, 2.4).
+"""Assistent der SmartHeat-Integration ab 1.0.0 (Spec 5c 2.1): feste Schritte, Inhalte vom Server.
 
-Einrichten: user (Vorabpruefung der Add-ons, Login) -> tenant (bei einem Tenant uebersprungen) ->
-heating (bei einer Integration uebersprungen) -> system -> (lever_set, nur bei mehreren Hebelsaetzen des
-Profils) -> rooms -> plant_values ->
-notifications -> summary -> setup (Fortschritt: Zugang, Add-on-Optionen, Watchdog/Boot,
-Neustart, Warten auf das Status-Event) -> finish.
-Neu konfigurieren: derselbe Weg ab Login mit festem Tenant, vorbelegt aus dem Eintrag; statt
-provision() nur der Profilwechsel, der Zugang bleibt (provision() nur, wenn das Add-on keinen
-vollstaendigen Zugang hat oder der Server inzwischen eine andere Transportart nutzt, Spec AWS-IoT
-4.4). Reauth: Login -> setup mit provision(). provision() sendet immer einen CSR; der private
-Schluessel entsteht hier und bleibt im Add-on (Spec AWS-IoT 4.1, 5.2). Bei iot_core wird
-cloudflared geleert, gestoppt und ohne Watchdog/Boot gelassen (Plan AWS-2, Praez. 1). Der Eintrag
-enthaelt keine Zugangsdaten."""
+Start aus der Supervisor-Discovery des Add-ons (Geraete-ID, Uebernahme-Code) oder manuell (Add-on installieren und
+starten, dann dessen Discovery lesen); beide Wege pruefen vorher die Mindestversion des Add-ons. Anmelden gibt ein
+kurzlebiges Einrichtungs-Token, das nur dieser Flow im Speicher haelt (Spec 5c 3, Regel 6); es wird bei jedem Ende
+(Eintrag, Abbruch, Schliessen) beim Server beendet. Inventur, Vorschlag, Zuordnung und Pruefung laufen auf dem Server,
+die Uebernahme der Konfiguration im Geraet; der Assistent zeigt nur an. "Neu konfigurieren": nach neuer Anmeldung ein
+Menue "Zuordnung aendern" (Auftrag neu_konfigurieren) bzw. "Geraet entfernen" (Auftrag entfernen).
+
+Fehler der Einrichtungs-API: abgelaufenes Token -> zurueck zur Anmeldung; Feldfehler der Pruefung -> zurueck ins
+Formular mit dem Feld; nicht erreichbar -> Abbruch cannot_connect; alles andere -> Abbruch mit dem Text des Servers.
+Vom Supervisor wird nie ein Fehlertext gezeigt oder geloggt (er kann Optionswerte zitieren), nur die Fehlerart."""
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
-import uuid
-from collections.abc import Mapping
+import time
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 import voluptuous as vol
-from homeassistant import config_entries
-from homeassistant.components import persistent_notification
 from homeassistant.components.hassio import AddonError
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import AbortFlow, section
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
-from homeassistant.loader import async_get_integration
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
-from . import detection, provisioning, validation
-from .addon_control import (
-    WAIT_DONE,
-    WAIT_FAILED,
-    StatusListener,
-    async_set_supervision,
-    async_update_addon_options,
-)
-from .api_client import (
-    AccessDenied,
-    ApiError,
-    CannotConnect,
-    HeizungsserverClient,
-    InvalidAuth,
-    InvalidResponse,
-    ProfileRejected,
-)
-from .catalog import (
-    IntegrationDescriptor,
-    parse_integrations,
-    profile_lever_sets,
-    profile_shift_lever,
-    verified_profiles,
-)
+from . import addon_control, supervisor_client
 from .const import (
     ADDON_REPOSITORY_URL,
-    ADDON_SPECS,
-    DEFAULT_HEIZUNGSSERVER_BASE_URL,
+    AUFTRAG_FEHLGESCHLAGEN,
+    AUFTRAG_FERTIG,
+    AUFTRAG_WAIT_SECONDS,
+    DISCOVERY_FIELDS,
+    DISCOVERY_WAIT_SECONDS,
     DOMAIN,
-    KPI_ENERGY_CHANNELS,
-    KPI_ROLE_STATE_CLASS_EXPECTATIONS,
-    KPI_ROLES_WITHOUT_STATE_CLASS,
-    KPI_SCALAR_ROLE_BY_CAPABILITY,
-    LEVER_OPTIONS,
-    LEVER_SET_FIELDS,
+    ENTFERNEN_WAIT_SECONDS,
+    GERAET_ID_RE,
+    INVENTUR_WAIT_SECONDS,
     MIN_ADDON_VERSIONS,
-    OPTION_ABGEMELDET,
-    OPTION_ACCOUNTS_API_BASE_URL,
-    OPTION_BATTERY_ENTITIES,
-    OPTION_ENTITY_ROOM_TARGET,
-    OPTION_LEVER_SET,
-    OPTION_NOTIFY_HINTS_OFF,
-    OPTION_NOTIFY_SERVICES,
-    OPTION_POLL_INTERVAL,
-    OPTION_ROOM_SENSORS,
-    OPTION_SETUP_ID,
-    OPTIONAL_LEVER_SET_FIELDS,
-    POLL_INTERVAL_MAX_SECONDS,
-    POLL_INTERVAL_OPTION_RANGE,
-    REQUIRED_CATALOG_VERSION,
-    SETUP_DONE_STATUSES,
-    STATUS_KONFIGURATIONSFEHLER,
-    STATUS_REGELT,
-    STATUS_WAIT_SECONDS,
-    STATUS_ZUGANG_ABGELEHNT,
-    UNMANAGED_ADDON_OPTIONS,
-    entry_incomplete,
-    field_domains,
-    field_for_role,
-    kpi_energy_role,
-    lever_set_levers,
-    plant_fields,
-    setup_notification_id,
-    write_role_fields,
+    POLL_SECONDS,
+    RAUM_SOLL_MAX,
+    RAUM_SOLL_MIN,
+    RAUM_SOLL_STEP,
+)
+from .einrichtung_client import (
+    ApiError,
+    CannotConnect,
+    Conflict,
+    EinrichtungClient,
+    InvalidAuth,
+    InvalidResponse,
+    NotFound,
+    Rejected,
+    ServerError,
+    TokenUngueltig,
+    TooMany,
 )
 from .flow_progress import ProgressFlowMixin
-from .options_flow import SmartHeatOptionsFlow
-from .setup_rollback import (
-    ReconfigureSnapshot,
-    async_rollback_first_setup,
-    async_rollback_reconfigure,
-    async_rollback_server_only,
-)
-from .supervisor_client import (
-    AddonNotFoundError,
-    AddonOutdatedError,
-    AmbiguousAddonMatchError,
-    async_get_addon_managers,
-    async_resolve_addons,
-)
-from .texts import async_hint
+from .texts import async_hint, async_role_label
 
 _LOGGER = logging.getLogger(__name__)
+_RAEUME = ("raumfuehler", "room_target")
+_BENACHRICHTIGUNG = ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")
+_INVENTUR_FERTIG = "fertig"
+_INVENTUR_FEHLGESCHLAGEN = "fehlgeschlagen"
 
-ADVANCED_SECTION = "advanced"
-# Beide Karten immer, ohne Vorbelegung bei der Ersteinrichtung: das Verteilsystem bestimmt die
-# lokalen Sicherheits-Clamps (Spec TP6, Nutzer-Entscheidung 2026-09-25). Werte = Uebersetzungsschluessel.
-VERTEILSYSTEM_OPTIONS = ["fussbodenheizung", "heizkoerper"]
-ORIGIN_INTEGRATION = "integration"
-ORIGIN_WEATHER = "weather"
 
+class _Unterbrechung(Exception):
+    """Ein Aufruf der Einrichtungs-API hat den normalen Weg verlassen; `_unterbrechung` entscheidet, wie weiter."""
 
-class SmartHeatConfigFlow(ProgressFlowMixin, config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 2
 
-    def __init__(self) -> None:
-        self._token: str | None = None
-        self._tenants: list[dict] = []
-        self._tenant_id: str | None = None
-        # Gesetzt, wenn ein 401 mitten im Ablauf zurueck zum Login zwingt (Hinweis im Formular).
-        self._session_expired = False
-        self._catalog: dict | None = None
-        self._integrations: list[IntegrationDescriptor] = []
-        self._integration: IntegrationDescriptor | None = None
-        self._entries: list[detection.RegistryEntry] = []
-        self._devices: list[detection.DeviceInfo] = []
-        self._circuits: list[detection.Circuit] = []
-        self._circuit: detection.Circuit | None = None
-        self._profile: dict | None = None
-        # Hebelsatz des Profils (Plan 3c): ohne Rueckfrage bei einem Kandidaten, sonst Schritt lever_set.
-        self._lever_set: str | None = None
-        self._lever_set_candidates: list[str] = []
-        self._rooms_input: dict = {}
-        self._room_sensors: list[str] = []
-        self._room_target: str | None = None
-        self._plant: dict[str, str] = {}
-        self._kpi: dict[str, str] = {}
-        # (Integration, Kreis-Schluessel, Hebelsatz), zu denen _plant/_kpi gehoeren; None = keine Auswahl (AU-003).
-        self._plant_binding: tuple[str | None, str, str | None] | None = None
-        # None = Schritt notifications noch nicht bestaetigt (dann alle Handys vorbelegen).
-        self._notify_services: list[str] | None = None
-        self._battery_entities: list[str] = []
-        # Neu konfigurieren eines vollstaendigen Eintrags: gespeicherte Handys (bleiben waehlbar,
-        # auch wenn gerade nicht registriert) und die in den Optionen gewaehlten Batterien (statt
-        # der Erkennung); None = Erkennung wie bei der Ersteinrichtung.
-        self._stored_notify_services: list[str] = []
-        self._stored_battery_entities: list[str] | None = None
-        self._hints_off: list[str] = []
-        # Zugang dieses Laufs (neu ausgestellt oder aus den Add-ons uebernommen) und die zugehoerigen
-        # profile_params; der Schluessel steckt nur im Add-on-Zugang, nie im Eintrag.
-        self._access: provisioning.Access | None = None
-        self._profile_params: dict | None = None
-        # provision() lief in diesem Flow: neuer Zugang (Abschlusstext im Neu konfigurieren) und das
-        # dabei ausgestellte Installations-Token fuer den Rueckbau.
-        self._new_credentials = False
-        self._new_token: str | None = None
-        self._setup_id: str | None = None
-        self._setup_error = ""
-        # Neu konfigurieren/Reauth: der bestehende Eintrag, Tenant fest.
-        self._entry: config_entries.ConfigEntry | None = None
-        self._reauth = False
-        self._system_defaults: dict = {}
-        self._status: StatusListener | None = None
-        self._supervision_failed = False
-        # Letzter Status des Add-ons beim Abschluss (TP12c 3.1), fuer den Abschlusstext.
-        self._final_status: str | None = None
-        self._final_grund: str | None = None
-        # Rueckbau ohne Abschluss (TP12c 3.2): in die Add-ons geschrieben, abgeschlossen, Rueckbau
-        # gelaufen; beim Neu konfigurieren der Stand vor dem ersten Schreiben. Aenderungen auf dem
-        # Server vor dem ersten Schreiben: _new_credentials (provision) und _profile_changed
-        # (update_profile beim Neu konfigurieren).
-        self._written = False
-        self._profile_changed = False
-        self._finished = False
-        self._rolled_back = False
-        self._snapshot: ReconfigureSnapshot | None = None
+class _NeuAnmelden(_Unterbrechung):
+    """Token abgelaufen oder widerrufen."""
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> SmartHeatOptionsFlow:
-        return SmartHeatOptionsFlow()
 
-    @callback
-    def async_remove(self) -> None:
-        if self._status is not None:
-            self._status.close()
-            self._status = None
-        if self._needs_rollback() or self._token is not None:
-            # Dialog geschlossen oder Flow abgebrochen: Rueckbau/Logout im Hintergrund (TP12c 3.2).
-            self.hass.async_create_background_task(self._async_rollback_then_logout(), "smartheat_setup_cleanup")
+class _Feldfehler(_Unterbrechung):
+    def __init__(self, fehler: dict[str, str], text: str = "") -> None:
+        super().__init__("feldfehler")
+        self.fehler = fehler
+        self.text = text
 
-    def _needs_rollback(self) -> bool:
-        changed = self._written or self._new_credentials or self._profile_changed
-        return changed and not self._finished and not self._rolled_back and not self._reauth
 
-    async def _async_rollback(self) -> None:
-        """Genau einmal (async_remove laeuft bei jedem Flow-Ende); vor dem Logout, weil der
-        Profil-Rueckbau das Token braucht. Ohne Schreiben in die Add-ons nur auf dem Server."""
-        if not self._needs_rollback():
-            return
-        self._rolled_back = True
-        tenant_id = self._tenant_id
-        assert tenant_id is not None  # geaendert wird erst nach der Tenant-Auswahl
-        new_token = self._new_token if self._new_credentials else None
-        if self._entry is None:
-            if self._written:
-                # Widerruft ueber die Zugangsdaten in den Optionen der Heizungsbruecke und, falls das Schreiben
-                # scheiterte, direkt ueber das Token dieses Laufs (Audit 4, A4-39).
-                await async_rollback_first_setup(self.hass, tenant_id, client=self._client(), new_token=new_token)
-            else:
-                await async_rollback_server_only(
-                    self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=True,
-                    new_token=new_token, previous_profile_id=None, profile_id=None,
-                )
-            return
-        snapshot, profile = self._snapshot, self._profile
-        # _run_setup setzt den Snapshot vor _obtain_access, also vor jeder Aenderung.
-        assert snapshot is not None and profile is not None
-        if self._written or self._new_credentials:
-            # Neue Zugangsdaten ersetzen die alten schon auf dem Server: sie gehen auch ohne Schreiben in die Add-ons
-            # (Audit 4, A4-13; E7).
-            await async_rollback_reconfigure(
-                self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, snapshot=snapshot,
-                profile_id=profile["profile_id"], keep_access=self._access if self._new_credentials else None,
-            )
-        else:
-            await async_rollback_server_only(
-                self.hass, client=self._client(), token=self._token, tenant_id=tenant_id, first_setup=False,
-                new_token=None, previous_profile_id=snapshot.profile_id, profile_id=profile["profile_id"],
-            )
+class _Abbruch(_Unterbrechung):
+    def __init__(self, reason: str, **placeholders: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.placeholders = placeholders
 
-    async def _abort(self, reason: str, **placeholders: str):
-        """Jeder Abbruch nach dem Login meldet die Sitzung ab (AU-036)."""
-        await self._logout()
-        return self.async_abort(reason=reason, description_placeholders=placeholders or None)
 
-    async def _async_rollback_then_logout(self) -> None:
-        """Ein unerwarteter Fehler im Rueckbau darf den Logout nicht verhindern; er wird nur mit
-        dem Typnamen protokolliert (der Text koennte Optionswerte zitieren)."""
-        try:
-            await self._async_rollback()
-        except Exception as error:  # noqa: BLE001 -- best effort, der Abbruch laeuft weiter
-            _LOGGER.warning("Rueckbau unerwartet fehlgeschlagen: %s", type(error).__name__)
-        finally:
-            await self._logout()
+def _discovery(config: Any) -> dict[str, str]:
+    """Discovery-Felder des Add-ons; nur nicht leere Texte, die Geraete-ID nur im Format des Servers (sonst fehlt sie:
+    sie wird unique_id und steht im Dialog)."""
+    if not isinstance(config, Mapping):
+        return {}
+    result = {key: value for key in DISCOVERY_FIELDS if isinstance(value := config.get(key), str) and value}
+    if not GERAET_ID_RE.fullmatch(result.get("geraet_id", "")):
+        result.pop("geraet_id", None)
+    return result
 
-    def _client(self) -> HeizungsserverClient:
-        return HeizungsserverClient(async_get_clientsession(self.hass), DEFAULT_HEIZUNGSSERVER_BASE_URL)
 
-    async def _hint(self, key: str, **placeholders: str) -> str:
-        return await async_hint(self.hass, key, **placeholders)
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) and value else "-"
 
-    # --- Einstiege Neu konfigurieren / Reauth ---
 
-    async def async_step_reconfigure(self, user_input: dict | None = None):
-        """Spec TP7 2.3: derselbe Wizard ab Login, Tenant fest, vorbelegt aus dem Eintrag; bei
-        `unvollstaendig` (client1 nach dem Update) aus der Erkennung."""
-        self._entry = self._get_reconfigure_entry()
-        self._tenant_id = self._entry.data["tenant_id"]
-        self._prefill_from_entry()
-        return await self.async_step_user()
+def _entities(kandidaten: list[str], *, multiple: bool = False) -> selector.EntitySelector:
+    return selector.EntitySelector(selector.EntitySelectorConfig(include_entities=list(kandidaten), multiple=multiple))
 
-    async def async_step_reauth(self, entry_data):
-        """Spec TP7 2.4: das Add-on meldet zugang_abgelehnt -> Login, dann neue Zugangsdaten."""
-        self._entry = self._get_reauth_entry()
-        if entry_incomplete(self._entry.data):
-            return self.async_abort(reason="reconfigure_first")
-        self._reauth = True
-        self._tenant_id = self._entry.data["tenant_id"]
-        return await self.async_step_user()
 
-    def _prefill_from_entry(self) -> None:
-        """Vorbelegung fuer Neu konfigurieren. Bei `unvollstaendig` (client1 nach dem Update) nur die vom
-        Hebelsatz unabhaengigen Kundenwerte, soweit gespeichert (Raeume, Handys, Batterien, abgeschaltete
-        Hinweise; Schluss-Review Plan 3c); Anlage und Verteilsystem kommen dann aus der Erkennung wie bei
-        der Ersteinrichtung."""
-        entry = self._entry
-        # _prefill_from_entry() laeuft nur aus async_step_reconfigure(), das self._entry vorher
-        # setzt (async_step_reauth() ruft es nicht auf).
-        assert entry is not None
-        options = entry.options
-        if entry_incomplete(entry.data):
-            self._prefill_stored_options(options)
-            return
-        self._rooms_input = {
-            OPTION_ROOM_SENSORS: [validation.entity_of(ref) for ref in options.get(OPTION_ROOM_SENSORS, [])],
-            OPTION_ENTITY_ROOM_TARGET: validation.entity_of(options.get(OPTION_ENTITY_ROOM_TARGET, "")),
-        }
-        entities = entry.data.get("entities", {})
-        # Vollstaendig heisst: bekannter Hebelsatz (entry_incomplete oben).
-        lever_set = entry.data[OPTION_LEVER_SET]
-        plant_field_names = plant_fields(lever_set)
-        self._plant = {field: entities[field] for field in plant_field_names if field in entities}
-        self._kpi = {field: value for field, value in entities.items() if field not in plant_field_names}
-        stored = entry.data.get("circuit") or {}
-        self._plant_binding = (
-            entry.data.get("integration_domain"),
-            f"{stored.get('config_entry_id')}|{stored.get('system_key')}|{stored.get('circuit')}",
-            lever_set,
-        )
-        self._notify_services = list(options.get(OPTION_NOTIFY_SERVICES, []))
-        self._stored_notify_services = list(self._notify_services)
-        if OPTION_BATTERY_ENTITIES in options:
-            self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES])
-        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF, []))
-        self._system_defaults = {
-            "integration": entry.data.get("integration_domain"),
-            "circuit": entry.data.get("circuit"),
-            "profile_id": entry.data.get("profile_id"),
-            "lever_set": lever_set,
-        }
-
-    def _prefill_stored_options(self, options: Mapping) -> None:
-        """Nur gespeicherte Werte: ein fehlender Schluessel laesst die Erkennung wie bei der Ersteinrichtung
-        greifen (keine Raeume vorbelegt, alle Handys vorgewaehlt, Batterien aus der Erkennung)."""
-        rooms = {}
-        if OPTION_ROOM_SENSORS in options:
-            rooms[OPTION_ROOM_SENSORS] = [validation.entity_of(ref) for ref in options[OPTION_ROOM_SENSORS] or []]
-        if options.get(OPTION_ENTITY_ROOM_TARGET):
-            rooms[OPTION_ENTITY_ROOM_TARGET] = validation.entity_of(options[OPTION_ENTITY_ROOM_TARGET])
-        self._rooms_input = rooms
-        if OPTION_NOTIFY_SERVICES in options:
-            self._notify_services = list(options[OPTION_NOTIFY_SERVICES] or [])
-            self._stored_notify_services = list(self._notify_services)
-        if OPTION_BATTERY_ENTITIES in options:
-            self._stored_battery_entities = list(options[OPTION_BATTERY_ENTITIES] or [])
-        self._hints_off = list(options.get(OPTION_NOTIFY_HINTS_OFF) or [])
-
-    # --- Schritt 0/1: Vorabpruefung und Login ---
-
-    async def _addon_problem(self) -> tuple[str, dict[str, str]] | None:
-        try:
-            await async_resolve_addons(self.hass, ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS)
-        except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError) as error:
-            return _classify_addon_error(error)
-        return None
-
-    async def async_step_user(self, user_input: dict | None = None):
-        # Nur auf Supervisor-Installationen: provision() stellt echte Zugangsdaten aus, die in
-        # zwei Add-ons geschrieben werden. is_hassio ist HAs kanonischer Check; der rohe
-        # SUPERVISOR_TOKEN-Check bleibt als Verteidigung in der Tiefe.
-        if not is_hassio(self.hass) or "SUPERVISOR_TOKEN" not in os.environ:
-            return self.async_abort(reason="not_supervisor")
-        if user_input is None:
-            problem = await self._addon_problem()
-            if problem is not None:
-                return self.async_abort(reason=problem[0], description_placeholders=problem[1])
-
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            self._session_expired = False
-            try:
-                self._token = await self._client().login(user_input["email"], user_input["password"])
-                self._tenants = await self._client().list_tenants(self._token)
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidResponse:
-                errors["base"] = "invalid_response"
-            except ApiError:
-                errors["base"] = "unknown"
-            else:
-                if not self._tenants:
-                    errors["base"] = "no_tenants"
-                elif self._entry is None:
-                    return await self.async_step_tenant()
-                elif self._tenant_id not in {tenant["tenant_id"] for tenant in self._tenants}:
-                    return await self._abort("wrong_account")
-                elif self._reauth:
-                    return await self.async_step_setup()
-                else:
-                    return await self.async_step_heating()
-        elif self._session_expired:
-            errors["base"] = "session_expired"
-
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema({vol.Required("email"): str, vol.Required("password"): str}),
-            errors=errors,
-        )
-
-    async def _session_lost(self):
-        self._token = None
-        self._session_expired = True
-        return await self.async_step_user()
-
-    async def _logout(self) -> None:
-        """Best effort, wie am regulaeren Flow-Ende: ein Fehler wird nur geloggt."""
-        token = self._token
-        if token is None:  # ohne Login nichts abzumelden; best effort, kein Fehler
-            return
-        try:
-            await self._client().logout(token)
-        except ApiError as error:
-            _LOGGER.warning("Logout fehlgeschlagen: %s", error)
-        self._token = None
-
-    # --- Schritt 2: Tenant (nur Ersteinrichtung) ---
-
-    async def async_step_tenant(self, user_input: dict | None = None):
-        tenant_ids = sorted({tenant["tenant_id"] for tenant in self._tenants})
-        if user_input is None and len(tenant_ids) == 1:
-            user_input = {"tenant_id": tenant_ids[0]}
-        if user_input is not None:
-            self._tenant_id = user_input["tenant_id"]
-            # Single-Instance-Guard: zwei Eintraege wuerden dieselben Add-ons beanspruchen.
-            await self.async_set_unique_id(self._tenant_id)
-            try:
-                self._abort_if_unique_id_configured()
-            except AbortFlow:
-                await self._logout()
-                raise
-            return await self.async_step_heating()
-        return self.async_show_form(
-            step_id="tenant", data_schema=vol.Schema({vol.Required("tenant_id"): _select(tenant_ids)}),
-        )
-
-    # --- Schritt 3: Heizungs-Integration ---
-
-    async def async_step_heating(self, user_input: dict | None = None):
-        if self._catalog is None:
-            errors: dict[str, str] = {}
-            token = self._token
-            assert token is not None  # dieser Schritt folgt nur nach erfolgreichem Login
-            try:
-                self._catalog = await self._client().get_catalog(token)
-            except InvalidAuth:
-                return await self._session_lost()
-            except AccessDenied as error:
-                return await self._abort("access_denied", grund=error.reason or "-")
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidResponse:
-                errors["base"] = "invalid_response"
-            except ApiError:
-                errors["base"] = "unknown"
-            if errors:
-                return self.async_show_form(step_id="heating", data_schema=vol.Schema({}), errors=errors)
-            # Kein Fehlerpfad oben griff (sonst waere oben schon zurueckgekehrt worden): self._catalog
-            # wurde also gerade erfolgreich gesetzt.
-            catalog = self._catalog
-            assert catalog is not None
-            version = catalog.get("catalog_version")
-            if not isinstance(version, int) or version < REQUIRED_CATALOG_VERSION:
-                return await self._abort("catalog_outdated")
-            descriptors = parse_integrations(catalog)
-            entry_domains = {entry.domain for entry in self.hass.config_entries.async_entries()}
-            self._integrations = detection.installed_integrations(descriptors, entry_domains)
-            if not self._integrations:
-                return await self._abort(
-                    "no_supported_integration", supported=", ".join(sorted(d.label for d in descriptors)),
-                )
-            user_input = None
-        domains = [descriptor.domain for descriptor in self._integrations]
-        if user_input is None and len(domains) == 1:
-            user_input = {"integration": domains[0]}
-        if user_input is not None:
-            self._integration = next(d for d in self._integrations if d.domain == user_input["integration"])
-            self._circuits = []
-            return await self.async_step_system()
-        options: list[selector.SelectOptionDict] = [
-            {"value": d.domain, "label": d.label} for d in self._integrations
-        ]
-        # Vorbelegung, kein Ueberspringen: bei mehreren erkannten Integrationen muss der Kunde
-        # beim Neu konfigurieren weiterhin wechseln koennen, auch wenn die im Eintrag gespeicherte
-        # Integration noch installiert ist (Spec 2.3: "vorausgefuellt").
-        default = self._system_defaults.get("integration")
-        integration_key = vol.Required("integration", default=default) if default in domains else vol.Required("integration")
-        return self.async_show_form(
-            step_id="heating",
-            data_schema=vol.Schema({integration_key: selector.SelectSelector(
-                selector.SelectSelectorConfig(options=options, mode=selector.SelectSelectorMode.LIST),
-            )}),
-        )
-
-    # --- Schritt 4: System ---
-
-    def _profile_defaults(self, profiles: list[dict]) -> tuple[str | None, str | None]:
-        """Verteilsystem/Erzeugertyp aus dem Profil des Eintrags (nur Neu konfigurieren)."""
-        profile = next((p for p in profiles if p["profile_id"] == self._system_defaults.get("profile_id")), None)
-        if profile is None:
-            return None, None
-        return profile["verteilsystem"].lower(), profile["erzeuger_typ"].lower()
-
-    def _stored_circuit_key(self) -> str | None:
-        stored = self._system_defaults.get("circuit") or {}
-        wanted = (stored.get("config_entry_id"), stored.get("system_key"), stored.get("circuit"))
-        return next((c.key for c in self._circuits if (c.config_entry_id, c.system_key, c.circuit) == wanted), None)
-
-    async def async_step_system(self, user_input: dict | None = None):
-        integration = self._integration
-        catalog = self._catalog
-        # Dieser Schritt folgt nur nach der Integrationsauswahl in async_step_heating(), die beide
-        # setzt.
-        assert integration is not None
-        assert catalog is not None
-        if not self._circuits:
-            self._entries, self._devices = detection.registry_snapshot(self.hass)
-            self._circuits = detection.find_circuits(integration, self._entries, self._devices)
-            if not self._circuits:
-                return await self._abort(
-                    "no_heating_circuit", integration=integration.label, hinweis=integration.hinweis or "",
-                )
-        profiles = [p for p in verified_profiles(catalog) if p["hersteller"] == integration.hersteller]
-        if not profiles:
-            return await self._abort("no_verified_profiles")
-        erzeuger_typen = _erzeuger_typen(catalog)
-
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            profile = _match_profile(profiles, user_input["erzeuger_typ"], user_input["verteilsystem"])
-            if profile is None:
-                errors["base"] = "profile_combination_unsupported"
-            else:
-                self._profile = profile
-                key = user_input.get("circuit")
-                self._circuit = next((c for c in self._circuits if c.key == key), self._circuits[0])
-                return await self._choose_lever_set()
-
-        verteilsystem_default, erzeuger_default = self._profile_defaults(profiles)
-        suggestion = erzeuger_default or detection.suggest_erzeuger_typ(
-            integration, {circuit.config_entry_id for circuit in self._circuits}, self._devices,
-        )
-        erzeuger_key = (
-            vol.Required("erzeuger_typ", default=suggestion.lower())
-            if suggestion is not None and suggestion.lower() in erzeuger_typen else vol.Required("erzeuger_typ")
-        )
-        # Pflichtfrage: bestimmt die lokalen Sicherheits-Clamps. Vorbelegt nur beim Neu konfigurieren
-        # eines vollstaendigen Eintrags (Spec TP7 2.3).
-        verteilsystem_key = (
-            vol.Required("verteilsystem", default=verteilsystem_default)
-            if verteilsystem_default in VERTEILSYSTEM_OPTIONS else vol.Required("verteilsystem")
-        )
-        schema = {
-            verteilsystem_key: _select(VERTEILSYSTEM_OPTIONS, "verteilsystem", selector.SelectSelectorMode.LIST),
-            erzeuger_key: _select(erzeuger_typen, "erzeuger_typ"),
-        }
-        if len(self._circuits) > 1:
-            stored_key = self._stored_circuit_key()
-            circuit_key = vol.Required("circuit", default=stored_key) if stored_key else vol.Required("circuit")
-            schema[circuit_key] = selector.SelectSelector(selector.SelectSelectorConfig(
-                options=[{"value": c.key, "label": c.label} for c in self._circuits],
-                mode=selector.SelectSelectorMode.DROPDOWN,
-            ))
-        return self.async_show_form(
-            step_id="system", data_schema=vol.Schema(schema), errors=errors,
-            description_placeholders={"integration": integration.label, "hinweis": integration.hinweis or ""},
-        )
-
-    # --- Schritt 4b: Hebelsatz (Plan 3c, Spec 5.5) ---
-
-    async def _choose_lever_set(self):
-        """Kandidaten: Hebelsaetze des Profils in dessen Reihenfolge, die diese Integration kennt. Ein Kandidat: ohne
-        Rueckfrage; mehrere (Weishaupt voll/Basis): eigener Schritt."""
-        profile = self._profile
-        assert profile is not None  # gesetzt in async_step_system()
-        self._lever_set_candidates = [
-            lever_set["id"] for lever_set in profile_lever_sets(profile) if lever_set["id"] in LEVER_SET_FIELDS
-        ]
-        if not self._lever_set_candidates:
-            return await self._abort("lever_set_unsupported")
-        if len(self._lever_set_candidates) == 1:
-            self._lever_set = self._lever_set_candidates[0]
-            return await self.async_step_rooms()
-        return await self.async_step_lever_set()
-
-    def _detected_lever_set(self) -> str:
-        """Erster Kandidat, dessen Hebel-Entities die Erkennung fuer den Kreis alle findet; sonst der erste."""
-        _, origins = self._suggestions()
-        for lever_set in self._lever_set_candidates:
-            if all(origins.get(LEVER_OPTIONS[lever]) == ORIGIN_INTEGRATION for lever in lever_set_levers(lever_set)):
-                return lever_set
-        return self._lever_set_candidates[0]
-
-    async def async_step_lever_set(self, user_input: dict | None = None):
-        if user_input is not None:
-            self._lever_set = user_input[OPTION_LEVER_SET]
-            return await self.async_step_rooms()
-        stored = self._system_defaults.get("lever_set")
-        default = stored if stored in self._lever_set_candidates else self._detected_lever_set()
-        return self.async_show_form(
-            step_id="lever_set",
-            data_schema=vol.Schema({vol.Required(OPTION_LEVER_SET, default=default): _select(
-                self._lever_set_candidates, "lever_set", selector.SelectSelectorMode.LIST,
-            )}),
-        )
-
-    # --- Schritt 5: Raeume ---
-
-    async def async_step_rooms(self, user_input: dict | None = None):
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            self._rooms_input = dict(user_input)
-            refs, target, errors = validation.check_rooms(
-                self.hass, user_input.get(OPTION_ROOM_SENSORS) or [], user_input[OPTION_ENTITY_ROOM_TARGET],
-            )
-            if not errors:
-                self._room_sensors, self._room_target = refs, target
-                return await self.async_step_plant_values()
-        schema = vol.Schema({
-            vol.Required(OPTION_ROOM_SENSORS): validation.entity_selector(OPTION_ROOM_SENSORS, multiple=True),
-            vol.Required(OPTION_ENTITY_ROOM_TARGET): validation.entity_selector(OPTION_ENTITY_ROOM_TARGET),
-        })
-        return self.async_show_form(
-            step_id="rooms", data_schema=self.add_suggested_values_to_schema(schema, self._rooms_input), errors=errors,
-        )
-
-    # --- Schritt 6: Anlagenwerte ---
-
-    def _binding(self) -> tuple[str, str, str | None]:
-        """Integration, Kreis und Hebelsatz, zu denen eine Auswahl im Schritt Anlagenwerte gehoert (AU-003)."""
-        integration, circuit = self._integration, self._circuit
-        assert integration is not None and circuit is not None  # erst nach async_step_system()
-        return integration.domain, circuit.key, self._lever_set
-
-    def _suggestions(self) -> tuple[dict[str, str], dict[str, str]]:
-        integration = self._integration
-        circuit = self._circuit
-        # Dieser Schritt folgt nur nach async_step_system(), das beide setzt.
-        assert integration is not None
-        assert circuit is not None
-        found = {
-            **circuit.roles,
-            **detection.system_role_suggestions(integration, circuit, self._entries),
-        }
-        suggestions = {field_for_role(role): entity_id for role, entity_id in found.items()}
-        origins = {field: ORIGIN_INTEGRATION for field in suggestions}
-        if "entity_outdoor_temp" not in suggestions:
-            weather = detection.weather_fallback(detection.weather_candidates(self.hass))
-            if weather is not None:
-                suggestions["entity_outdoor_temp"] = weather
-                origins["entity_outdoor_temp"] = ORIGIN_WEATHER
-        return suggestions, origins
-
-    async def _origins_text(self, suggestions: dict[str, str], origins: dict[str, str]) -> str:
-        integration, lever_set = self._integration, self._lever_set
-        assert integration is not None and lever_set is not None  # erst nach async_step_system()/Hebelsatz
-        lines = []
-        for field in plant_fields(lever_set):
-            role = await self._hint(f"role_{field}")
-            origin = origins.get(field)
-            if origin == ORIGIN_INTEGRATION:
-                line = await self._hint(
-                    "origin_integration", role=role, entity=suggestions[field], integration=integration.label,
-                )
-            elif origin == ORIGIN_WEATHER:
-                line = await self._hint("origin_weather", role=role, entity=suggestions[field])
-            else:
-                line = await self._hint("origin_none", role=role)
-            lines.append(f"- {line}")
-        return "\n".join(lines)
-
-    def _check_plant(self, plant: dict[str, str]) -> dict[str, str]:
-        lever_set = self._lever_set
-        integration, circuit = self._integration, self._circuit
-        assert lever_set is not None and integration is not None and circuit is not None
-        checks = {field: validation.check_plant_field(self.hass, field, ref, lever_set) for field, ref in plant.items()}
-        for field in write_role_fields(lever_set):
-            if field in plant and not checks.get(field):
-                checks[field] = validation.check_installation(
-                    self.hass, plant[field], integration.domain, circuit.config_entry_id,
-                )
-        return {field: error for field, error in checks.items() if error}
-
-    async def async_step_plant_values(self, user_input: dict | None = None):
-        profile = self._profile
-        room_target = self._room_target
-        lever_set = self._lever_set
-        # Dieser Schritt folgt nur nach async_step_system()/Hebelsatz/async_step_rooms(), die alle drei setzen.
-        assert profile is not None
-        assert room_target is not None
-        assert lever_set is not None
-        required, optional = LEVER_SET_FIELDS[lever_set], OPTIONAL_LEVER_SET_FIELDS[lever_set]
-        fields = plant_fields(lever_set)
-        kpi_fields = _kpi_fields(profile.get("telemetry_capabilities"))
-        suggestions, origins = self._suggestions()
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            plant = {field: user_input[field] for field in required}
-            plant.update({field: user_input[field] for field in optional if user_input.get(field)})
-            advanced = user_input.get(ADVANCED_SECTION) or {}
-            errors = self._check_plant(plant)
-            kpi, kpi_errors = _resolve_kpi_entities(self.hass, advanced, kpi_fields)
-            errors.update(kpi_errors)
-            if not errors:
-                duplicates = validation.duplicate_fields({
-                    OPTION_ROOM_SENSORS: self._room_sensors, "entity_room_target": [room_target],
-                    **{field: [value] for field, value in plant.items()},
-                    **{field: [entity_id] for field, entity_id in kpi.items()},
-                })
-                errors = {field: error for field, error in duplicates.items() if field in plant or field in kpi}
-                writes = [plant[field] for field in write_role_fields(lever_set) if plant.get(field)]
-                if validation.room_target_mirrors_plant(self.hass, room_target, writes):
-                    errors["entity_shift_current"] = validation.ERROR_ZONE_IS_ROOM_TARGET
-            if any(field in kpi_fields for field in errors):
-                errors["base"] = "advanced_invalid"
-            if not errors:
-                self._plant, self._kpi = plant, kpi
-                self._plant_binding = self._binding()
-                return await self.async_step_notifications()
-            suggested = {
-                **{field: user_input.get(field) for field in fields},
-                ADVANCED_SECTION: advanced,
-            }
-        elif self._plant and self._plant_binding == self._binding():
-            # Nur fuer dieselbe Integration und denselben Kreis (AU-003); sonst gilt die Erkennung.
-            # Zurueck nach setup_failed: die Auswahl des Kunden, nicht erneut die Erkennung (I-1).
-            # KPI genau wie gewaehlt: ein bewusst leer gelassenes Feld bleibt leer.
-            suggested = {
-                **{
-                    field: self._plant.get(field) or suggestions.get(field)
-                    for field in fields
-                },
-                ADVANCED_SECTION: {field: self._kpi[field] for field in kpi_fields if field in self._kpi},
-            }
-        else:
-            suggested = {
-                **{field: suggestions.get(field) for field in fields},
-                ADVANCED_SECTION: {field: suggestions[field] for field in kpi_fields if field in suggestions},
-            }
-        integration = self._integration
-        assert integration is not None  # erst nach async_step_system()
-
-        def _selector(field: str):
-            return validation.entity_selector(
-                field, integration=integration.domain if field in write_role_fields(lever_set) else None,
-                domains=field_domains(lever_set, field),
-            )
-
-        schema: dict[vol.Marker, Any] = {vol.Required(field): _selector(field) for field in required}
-        for field in optional:
-            schema[vol.Optional(field)] = _selector(field)
-        if kpi_fields:
-            schema[vol.Required(ADVANCED_SECTION)] = section(
-                vol.Schema({
-                    vol.Optional(field): validation.entity_selector(field) for field in kpi_fields
-                }),
-                {"collapsed": True},
-            )
-        return self.async_show_form(
-            step_id="plant_values",
-            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema), suggested),
-            errors=errors,
-            description_placeholders={
-                "origins": await self._origins_text(suggestions, origins),
-                "regelhinweis": await self._hint(f"regelhinweis_{lever_set}"),
-            },
-        )
-
-    # --- Schritt 7: Benachrichtigungen ---
-
-    async def _battery_text(self) -> str:
-        return ", ".join(self._battery_entities) if self._battery_entities else await self._hint("none")
-
-    async def async_step_notifications(self, user_input: dict | None = None):
-        if self._stored_battery_entities is not None:
-            # Neu konfigurieren: die Auswahl aus den Optionen bleibt.
-            self._battery_entities = list(self._stored_battery_entities)
-        else:
-            battery_candidates = [entry.entity_id for entry in self._entries if entry.device_class == "battery"]
-            self._battery_entities = detection.battery_entities(
-                [validation.entity_of(ref) for ref in [*self._room_sensors, self._room_target]],
-                self._entries, detection.unit_map(self.hass, battery_candidates),
-            )
-        registered = detection.mobile_app_services(self.hass.services.async_services_for_domain("notify"))
-        # Gespeicherte, gerade nicht registrierte Handys bleiben waehlbar (wie options_flow._notify_options):
-        # sonst fielen sie beim Neu konfigurieren still aus notify_services, und die
-        # Waechter-Meldungen verstummten.
-        services = [*registered, *[s for s in self._stored_notify_services if s not in registered]]
-        if user_input is not None:
-            chosen = user_input.get(OPTION_NOTIFY_SERVICES, [])
-            self._notify_services = [service for service in services if service in chosen]
-            return await self.async_step_summary()
-        # Ohne Companion-App trotzdem zeigen: der Kunde erfaehrt, dass Meldungen nur in HA
-        # erscheinen, und sieht die ueberwachten Batterien.
-        schema = {}
-        if services:
-            schema[vol.Optional(OPTION_NOTIFY_SERVICES)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(options=services, multiple=True, mode=selector.SelectSelectorMode.LIST),
-            )
-        # Vorbelegung statt default: ein weggelassener Schluessel (alle abgewaehlt) bleibt [] und
-        # wird nicht wieder mit allen Handys gefuellt. Nach "Zurueck" die Auswahl des Kunden.
-        chosen = services if self._notify_services is None else [s for s in services if s in self._notify_services]
-        return self.async_show_form(
-            step_id="notifications",
-            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema), {OPTION_NOTIFY_SERVICES: chosen}),
-            description_placeholders={
-                "phones_note": await self._hint("notifications_phones" if services else "notifications_no_phones"),
-                "batteries": await self._battery_text(),
-            },
-        )
-
-    # --- Schritt 8: Zusammenfassung ---
-
-    def _warnings(self) -> dict[str, list[str]]:
-        refs = [*self._room_sensors, self._room_target, *self._plant.values(), *self._kpi.values()]
-        warnings = validation.collect_warnings(self.hass, refs, self._room_sensors)
-        unmatched = self._unmatched_write_roles()
-        if unmatched:
-            warnings[validation.WARNING_WRITE_ROLE_UNMATCHED] = unmatched
-        seconds = self._poll_interval_seconds()
-        if seconds is not None and seconds > POLL_INTERVAL_MAX_SECONDS:
-            warnings[validation.WARNING_POLL_INTERVAL] = [f"{seconds / 60:g} min"]
-        return warnings
-
-    def _unmatched_write_roles(self) -> list[str]:
-        """Gebundene Felder, die nicht der Erkennung fuer den gewaehlten Kreis entsprechen (AU-019);
-        das optionale Vorlauf-Soll nur, wenn es eine abweichende Erkennung gibt."""
-        lever_set = self._lever_set
-        assert lever_set is not None  # erst nach dem Schritt Anlagenwerte
-        suggestions, origins = self._suggestions()
-        result = []
-        for field in write_role_fields(lever_set):
-            chosen = self._plant.get(field)
-            detected = suggestions.get(field) if origins.get(field) == ORIGIN_INTEGRATION else None
-            if chosen is None or chosen == detected:
-                continue
-            if field in OPTIONAL_LEVER_SET_FIELDS[lever_set] and detected is None:
-                continue
-            result.append(chosen)
-        return result
-
-    def _entity_label(self, entity_id: str) -> str:
-        state = self.hass.states.get(entity_id)
-        name = state.name if state is not None else entity_id
-        return f"{name} ({entity_id})" if name != entity_id else entity_id
-
-    def _poll_interval_seconds(self) -> float | None:
-        integration, circuit = self._integration, self._circuit
-        assert integration is not None and circuit is not None
-        option = integration.poll_interval_option
-        if option is None or circuit.config_entry_id is None:
-            return None
-        entry = self.hass.config_entries.async_get_entry(circuit.config_entry_id)
-        return None if entry is None else option.seconds(entry.options)
-
-    async def _credentials_note(self) -> str:
-        """Neu konfigurieren ohne Zugangsdaten im Add-on (neu installiert, zuvor abgemeldet): der
-        Kunde erfaehrt vorher, dass neue ausgestellt werden (Spec TP7 2.3)."""
-        if self._entry is None or self._reauth:
-            return ""
-        try:
-            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
-            bridge_options = (await heizungsbruecke.async_get_addon_info()).options
-            cloudflared_options = (await cloudflared.async_get_addon_info()).options
-        except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError, AddonError):
-            return ""
-        if self._keepable_access(bridge_options, cloudflared_options) is not None:
-            return ""
-        return await self._hint("new_credentials")
-
-    def _server_transport_kind(self) -> str | None:
-        """transport_kind aus /accounts/me/tenants (Spec AWS-IoT 4.4); None, wenn der Server keins nennt."""
-        for tenant in self._tenants:
-            if tenant.get("tenant_id") == self._tenant_id:
-                kind = tenant.get("transport_kind")
-                return kind if isinstance(kind, str) else None
-        return None
-
-    def _keepable_access(self, bridge_options: dict, cloudflared_options: dict) -> provisioning.Access | None:
-        """Der laufende Zugang, wenn Neu konfigurieren ihn behalten darf: vollstaendig (also nicht von
-        vor AWS-2 und mit Tunnel-Token bei Mosquitto) und von der Transportart, die der Server nennt."""
-        access = provisioning.access_from_options(bridge_options, cloudflared_options)
-        server_kind = self._server_transport_kind()
-        if access is None or (server_kind is not None and access.kind != server_kind):
-            return None
-        return access
-
-    def _plant_value(self, field: str) -> str:
-        ref = self._plant[field]
-        if field == "entity_mode_select":
-            state = self.hass.states.get(ref)
-            return state.state if state is not None else "–"
-        if field == "entity_shift_current" and ref.startswith("climate."):
-            ref = validation.room_target_ref(ref)
-        value = validation.read_value(self.hass, ref)[0]
-        return "–" if value is None else f"{value:g}"
-
-    async def _summary_placeholders(self, warnings: dict[str, list[str]]) -> dict[str, str]:
-        room_target = self._room_target
-        profile = self._profile
-        notify_services = self._notify_services
-        lever_set = self._lever_set
-        # Die Zusammenfassung folgt nur nach Raeumen/System/Hebelsatz/Benachrichtigungen, die alle
-        # setzen.
-        assert room_target is not None
-        assert profile is not None
-        assert notify_services is not None
-        assert lever_set is not None
-
-        def _value(ref: str) -> str:
-            value = validation.read_value(self.hass, ref)[0]
-            return "–" if value is None else f"{value:g}"
-
-        room_values = [v for v in (validation.read_value(self.hass, ref)[0] for ref in self._room_sensors) if v is not None]
-        lines = [
-            f"- {await self._hint(f'warning_{kind}', entities=', '.join(entities))}"
-            for kind, entities in warnings.items()
-        ]
-        return {
-            "room_temperature": f"{sum(room_values) / len(room_values):.1f}" if room_values else "–",
-            "room_sensor_count": str(len(self._room_sensors)),
-            "room_target": _value(room_target),
-            "outdoor_temperature": _value(self._plant["entity_outdoor_temp"]),
-            "outdoor_source": self._plant["entity_outdoor_temp"],
-            "plant_values": "\n".join([
-                f"- {await self._hint(f'role_{field}')}: {self._plant_value(field)}"
-                for field in plant_fields(lever_set) if field in self._plant and field != "entity_outdoor_temp"
-            ]),
-            "write_entities": "\n".join([
-                f"- {await self._hint(f'role_{field}')}: {self._entity_label(self._plant[field])}"
-                for field in write_role_fields(lever_set) if field in self._plant
-            ]),
-            "profile": ", ".join([
-                profile["hersteller"],
-                await self._hint(f"erzeuger_typ_{profile['erzeuger_typ'].lower()}"),
-                await self._hint(f"verteilsystem_{profile['verteilsystem'].lower()}"),
-            ]),
-            "recipients": str(len(notify_services)),
-            "batteries": await self._battery_text(),
-            "warnings": "\n".join(lines) if lines else await self._hint("none"),
-            "credentials_note": await self._credentials_note(),
-        }
-
-    async def async_step_summary(self, user_input: dict | None = None):
-        warnings = self._warnings()
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            if all(user_input.get(f"confirm_{kind}") for kind in warnings):
-                return await self.async_step_setup()
-            errors["base"] = "warnings_not_confirmed"
-        schema = vol.Schema({vol.Required(f"confirm_{kind}", default=False): bool for kind in warnings})
-        return self.async_show_form(
-            step_id="summary", data_schema=schema, errors=errors,
-            description_placeholders=await self._summary_placeholders(warnings),
-        )
-
-    # --- Schritt 9: Einrichten (Fortschritt) ---
-
-    async def async_step_setup(self, user_input: dict | None = None):
-        return await self._run_progress("setup", "setup", self._run_setup)
-
-    async def async_step_wait_status(self, user_input: dict | None = None):
-        return await self._run_progress("wait_status", "setup", self._wait_for_status)
-
-    async def _progress_error_step(self) -> str:
-        self._setup_error = await self._hint("setup_unexpected")
-        return "setup_failed"
-
-    async def _run_setup(self) -> str:
-        """Liefert den naechsten Schritt: finish, setup_failed, setup_timeout oder user."""
-        problem = await self._addon_problem()
-        if problem is not None:
-            self._setup_error = await self._hint(problem[0], **problem[1])
-            return "setup_failed"
-        tenant_id = self._tenant_id
-        assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
-        try:
-            heizungsbruecke, cloudflared = await async_get_addon_managers(self.hass, ADDON_SPECS)
-            if self._entry is not None and not self._reauth and self._snapshot is None:
-                # Stand vor dem ERSTEN Schreiben dieses Laufs (auch nach "Zurueck zur Auswahl").
-                self._snapshot = ReconfigureSnapshot(
-                    dict((await heizungsbruecke.async_get_addon_info()).options),
-                    dict((await cloudflared.async_get_addon_info()).options),
-                    self._entry.data.get("profile_id"),
-                )
-            if self._access is None:
-                next_step = await self._obtain_access(heizungsbruecke, cloudflared)
-                if next_step is not None:
-                    return next_step
-            self._setup_id = uuid.uuid4().hex
-            if self._status is None:
-                self._status = StatusListener(self.hass, tenant_id)
-            existing = (await heizungsbruecke.async_get_addon_info()).options
-            options = self._heizungsbruecke_options(existing)
-            # Vor dem Aufruf: auch ein abgebrochener oder gescheiterter Aufruf kann geschrieben haben.
-            self._written = True
-            await heizungsbruecke.async_set_addon_options(options)
-            access = self._access
-            assert access is not None  # siehe _heizungsbruecke_options()
-            if access.cloudflared is not None:
-                await cloudflared.async_set_addon_options(access.cloudflared)
-                supervised = [heizungsbruecke.addon_slug, cloudflared.addon_slug]
-            else:
-                # iot_core (Plan AWS-2, Praez. 1): cloudflared ohne Ziel und Token, gestoppt, ohne Watchdog/Boot.
-                await async_update_addon_options(cloudflared, provisioning.CLOUDFLARED_CLEARED_OPTIONS)
-                await cloudflared.async_stop_addon()
-                await async_set_supervision(self.hass, [cloudflared.addon_slug], enabled=False)
-                supervised = [heizungsbruecke.addon_slug]
-            failed = await async_set_supervision(self.hass, supervised, enabled=True)
-            self._supervision_failed = bool(failed)
-            if access.cloudflared is not None:
-                await cloudflared.async_restart_addon()
-            await heizungsbruecke.async_restart_addon()
-        except (AddonNotFoundError, AmbiguousAddonMatchError, AddonOutdatedError) as error:
-            key, placeholders = _classify_addon_error(error)
-            self._setup_error = await self._hint(key, **placeholders)
-            return "setup_failed"
-        except AddonError as error:
-            self._setup_error = self._sanitize_addon_error(str(error))
-            return "setup_failed"
-        return await self._wait_for_status()
-
-    async def _obtain_access(self, heizungsbruecke, cloudflared) -> str | None:
-        """Zugang fuer diesen Lauf. Ersteinrichtung und Reauth stellen einen neuen aus (provision);
-        Neu konfigurieren behaelt den laufenden und wechselt nur das Profil, solange er vollstaendig
-        ist und zur Transportart des Servers passt (Spec AWS-IoT 4.4). None = erledigt, sonst der
-        naechste Schritt."""
-        if self._entry is not None and not self._reauth:
-            bridge_options = (await heizungsbruecke.async_get_addon_info()).options
-            cloudflared_options = (await cloudflared.async_get_addon_info()).options
-            access = self._keepable_access(bridge_options, cloudflared_options)
-            if access is not None:
-                return await self._keep_access(access)
-        return await self._provision()
-
-    def _expire_session(self) -> str:
-        self._token = None
-        self._session_expired = True
-        return "user"
-
-    async def _provision(self) -> str | None:
-        if self._profile is not None:
-            profile_id = self._profile["profile_id"]
-        else:
-            entry = self._entry
-            # Ohne self._profile lief kein async_step_system() (Ersteinrichtung/Neu konfigurieren);
-            # das ist nur beim Reauth der Fall, das self._entry bereits gesetzt hat.
-            assert entry is not None
-            profile_id = entry.data["profile_id"]
-        token = self._token
-        tenant_id = self._tenant_id
-        assert token is not None  # dieser Schritt folgt nur nach erfolgreichem Login
-        assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
-        key_pem, csr = await self.hass.async_add_executor_job(provisioning.generate_key_and_csr, tenant_id)
-        version = str((await async_get_integration(self.hass, DOMAIN)).version)
-        try:
-            body = await self._client().provision(token, tenant_id, profile_id, csr, version)
-        except InvalidAuth:
-            return self._expire_session()
-        except AccessDenied as error:
-            self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
-            return "setup_failed"
-        except ProfileRejected:
-            self._setup_error = await self._hint("profile_rejected")
-            return "setup_failed"
-        except ApiError:
-            self._setup_error = await self._hint("provisioning_failed")
-            return "setup_failed"
-        try:
-            access = provisioning.parse_provisioning(body, key_pem)
-        except provisioning.InvalidProvisioning as error:
-            # Keine Rueckfallwerte: ohne vollstaendige Antwort startet das Add-on nicht (Spec TP3, 4).
-            # Der Text nennt nur Schluessel, nie Werte. Ein ausgestelltes, aber unbrauchbares Ergebnis
-            # kann der Rueckbau mangels Token nicht widerrufen; reconcile-broker findet es.
-            _LOGGER.error("Provisionierungs-Antwort unbrauchbar: %s", error)
-            self._setup_error = await self._hint("invalid_provisioning_response")
-            return "setup_failed"
-        # Ab hier gibt es einen gueltigen neuen Zugang: der Rueckbau kennt ihn auch bei einem Abbruch unten.
-        self._access = access
-        self._new_credentials, self._new_token = True, access.installation_token
-        return await self._accept_profile_params(access.profile_params)
-
-    async def _accept_profile_params(self, raw) -> str | None:
-        """Audit 4, A4-02/A4-11: nur bekannte Schluessel, Verteilsystem wie gewaehlt (Reauth: ohne Auswahl)."""
-        chosen = self._profile["verteilsystem"] if self._profile is not None else None
-        try:
-            self._profile_params = provisioning.checked_profile_params(raw, chosen)
-        except provisioning.VerteilsystemMismatch:
-            _LOGGER.error("Server meldet ein anderes Verteilsystem als gewaehlt, Einrichtung abgebrochen")
-            self._setup_error = await self._hint("verteilsystem_mismatch")
-            return "setup_failed"
-        except provisioning.InvalidProvisioning as error:
-            _LOGGER.error("Profil-Parameter unbrauchbar: %s", error)
-            self._setup_error = await self._hint("invalid_provisioning_response")
-            return "setup_failed"
-        return None
-
-    async def _keep_access(self, access: provisioning.Access) -> str | None:
-        """Spec TP7 2.3: Profilwechsel am Server; Zugang und cloudflared-Optionen aus den laufenden
-        Add-ons. So bleibt der Rueckweg per Backup-Restore gueltig."""
-        token = self._token
-        tenant_id = self._tenant_id
-        profile = self._profile
-        # _keep_access() laeuft nur beim Neu konfigurieren (siehe _obtain_access), das immer durch
-        # einen erfolgreichen Login (Token/Tenant) und async_step_system() (setzt self._profile) kam.
-        assert token is not None
-        assert tenant_id is not None
-        assert profile is not None
-        # Vor dem Aufruf (wie _written): auch ein abgebrochener Aufruf oder einer ohne gueltige
-        # Antwort kann das Profil gewechselt haben. Nur eine klare Ablehnung laesst es unveraendert.
-        self._profile_changed = True
-        try:
-            profile_params = await self._client().update_profile(token, tenant_id, profile["profile_id"])
-        except InvalidAuth:
-            self._profile_changed = False
-            return self._expire_session()
-        except AccessDenied as error:
-            self._profile_changed = False
-            self._setup_error = await self._hint("access_denied", grund=error.reason or "-")
-            return "setup_failed"
-        except ProfileRejected:
-            self._profile_changed = False
-            self._setup_error = await self._hint("profile_rejected")
-            return "setup_failed"
-        except ApiError:
-            self._setup_error = await self._hint("profile_update_failed")
-            return "setup_failed"
-        self._access = access
-        return await self._accept_profile_params(profile_params)
-
-    async def _wait_for_status(self) -> str:
-        """Nur ein Event mit der setup_id dieses Laufs zaehlt (Spec TP7 2.5)."""
-        status = self._status
-        assert status is not None  # _run_setup() setzt ihn, bevor dieser Schritt erreichbar ist
-        outcome, grund = await status.async_wait(
-            setup_id=self._setup_id, done=frozenset(SETUP_DONE_STATUSES),
-            failed=frozenset({STATUS_KONFIGURATIONSFEHLER, STATUS_ZUGANG_ABGELEHNT}), timeout=STATUS_WAIT_SECONDS,
-        )
-        if outcome == WAIT_DONE:
-            latest = status.latest or {}
-            self._final_status = latest.get("status")
-            self._final_grund = latest.get("grund")
-            return "finish"
-        if outcome == WAIT_FAILED:
-            assert grund is not None  # WAIT_FAILED traegt immer einen Text (StatusListener._outcome)
-            self._setup_error = grund
-            return "setup_failed"
-        return "setup_timeout"
-
-    def _heizungsbruecke_options(self, existing: dict) -> dict:
-        """Einrichten/Neu konfigurieren: vom Wizard verwaltete Felder vollstaendig neu, nicht
-        verwaltete aus den bestehenden Optionen (I3); veraltete Felder (entity_room_actual,
-        notify_service, profile) fallen weg. Reauth: nur Zugangsdaten, Laufkennung und
-        abgemeldet, alles andere bleibt (Spec TP7 2.4)."""
-        # _obtain_access() (via _provision()/_keep_access()) setzt self._access und _profile_params,
-        # bevor dieser Schritt in _run_setup() erreicht wird.
-        assert self._access is not None and self._profile_params is not None
-        access = {
-            **provisioning.bridge_access_options(self._access),
-            OPTION_SETUP_ID: self._setup_id,
-            OPTION_ABGEMELDET: False,
-        }
-        if self._reauth:
-            return {**existing, **access}
-        notify_services = self._notify_services
-        assert notify_services is not None  # Ersteinrichtung/Neu konfigurieren durchlaufen async_step_notifications()
-        options = {key: existing[key] for key in UNMANAGED_ADDON_OPTIONS if key in existing}
-        # profile_params zuerst: die festen Schluessel danach kann der Server nicht ueberschreiben.
-        options.update(self._profile_params)
-        options.update({
-            "tenant_id": self._tenant_id,
-            **access,
-            OPTION_ACCOUNTS_API_BASE_URL: DEFAULT_HEIZUNGSSERVER_BASE_URL,
-            OPTION_ROOM_SENSORS: list(self._room_sensors),
-            OPTION_NOTIFY_SERVICES: list(notify_services),
-            OPTION_BATTERY_ENTITIES: list(self._battery_entities),
-            OPTION_NOTIFY_HINTS_OFF: list(self._hints_off),
-            OPTION_ENTITY_ROOM_TARGET: self._room_target,
-            **self._plant,
-            **self._kpi,
-        })
-        options[OPTION_LEVER_SET] = self._lever_set
-        seconds = self._poll_interval_seconds()
-        low, high = POLL_INTERVAL_OPTION_RANGE
-        if seconds is not None and low <= seconds <= high:
-            options[OPTION_POLL_INTERVAL] = int(seconds)
-        return options
-
-    def _secrets(self) -> set[str]:
-        """Alles, was nie angezeigt werden darf: Passwort bzw. privater Schluessel (auch zeilenweise,
-        falls der Supervisor ihn umbricht), Installations-Token, Service-Token. Das Zertifikat ist
-        oeffentlich und bleibt lesbar."""
-        access = self._access
-        if access is None:
-            return set()
-        values = [value for key, value in access.credential.items() if key != "tls_certificate"]
-        values.append(access.installation_token)
-        if access.cloudflared is not None:
-            values += [access.cloudflared["service_token_id"], access.cloudflared["service_token_secret"]]
-        secrets: set[str] = set()
-        for value in values:
-            if isinstance(value, str) and value:
-                secrets.add(value)
-                secrets.add(value.strip())
-                if "\n" in value:
-                    secrets.update(line for line in value.splitlines() if len(line) >= 16 and not line.startswith("-----"))
-                    secrets.add("".join(value.split()))
-        secrets.discard("")
-        return secrets
-
-    def _sanitize_addon_error(self, message: str) -> str:
-        """Die Supervisor-Meldung nennt oft den abgelehnten Options-Schluessel; Zugangsdaten
-        werden vor der Anzeige geschwaerzt (laengste zuerst) und der Text gekuerzt."""
-        for secret in sorted(self._secrets(), key=len, reverse=True):
-            message = message.replace(secret, "***")
-        return message[:300]
-
-    async def async_step_setup_failed(self, user_input: dict | None = None):
-        # "Zurueck zur Auswahl" fuehrt zu rooms ohne erneutes provision(): die Zugangsdaten bleiben
-        # in self._access. Im Reauth gibt es keine Auswahl.
-        menu = ["cancel"] if self._reauth else ["rooms", "cancel"]
-        return self.async_show_menu(
-            step_id="setup_failed", menu_options=menu, description_placeholders={"grund": self._setup_error},
-        )
-
-    async def async_step_setup_timeout(self, user_input: dict | None = None):
-        return self.async_show_menu(step_id="setup_timeout", menu_options=["wait_status", "cancel"])
-
-    async def async_step_cancel(self, user_input: dict | None = None):
-        await self._async_rollback_then_logout()
-        return self.async_abort(reason="setup_cancelled")
-
-    def _entry_data(self) -> dict:
-        profile = self._profile
-        integration = self._integration
-        circuit = self._circuit
-        # _entry_data() laeuft nur am Ende des Wizards (async_step_finish), wenn System/Raeume/
-        # Anlagenwerte bereits durchlaufen sind und alle drei gesetzt haben.
-        assert profile is not None
-        assert integration is not None
-        assert circuit is not None
-        return {
-            "tenant_id": self._tenant_id,
-            "profile_id": profile["profile_id"],
-            "integration_domain": integration.domain,
-            "circuit": {
-                "config_entry_id": circuit.config_entry_id, "system_key": circuit.system_key, "circuit": circuit.circuit,
-            },
-            "entities": {**self._plant, **self._kpi},
-            OPTION_LEVER_SET: self._lever_set,
-            "shift_lever": profile_shift_lever(profile),
-        }
-
-    def _entry_options(self) -> dict:
-        notify_services = self._notify_services
-        assert notify_services is not None  # siehe _entry_data(): laeuft nur nach Benachrichtigungen
-        return {
-            OPTION_ROOM_SENSORS: list(self._room_sensors),
-            OPTION_ENTITY_ROOM_TARGET: self._room_target,
-            OPTION_NOTIFY_SERVICES: list(notify_services),
-            OPTION_BATTERY_ENTITIES: list(self._battery_entities),
-            OPTION_NOTIFY_HINTS_OFF: list(self._hints_off),
-        }
-
-    async def _notes(self) -> str:
-        """Hinweise zum Abschluss: Warnzustand des Add-ons und/oder nicht gesetzter Watchdog."""
-        lines = []
-        if self._final_status not in (None, STATUS_REGELT):
-            lines.append(await self._hint(f"done_status_{self._final_status}", grund=self._final_grund or "-"))
-        if self._supervision_failed:
-            lines.append(await self._hint("done_supervision"))
-        return "\n\n".join(lines)
-
-    async def async_step_finish(self, user_input: dict | None = None):
-        self._finished = True
-        tenant_id = self._tenant_id
-        assert tenant_id is not None  # spaetestens aus Tenant-Auswahl/Eintrag gesetzt
-        # Die Rueckbau-Meldung eines frueher abgebrochenen Laufs ist mit diesem Abschluss erledigt.
-        persistent_notification.async_dismiss(self.hass, setup_notification_id(tenant_id))
-        await self._logout()
-        notes = await self._notes()
-        entry = self._entry
-        if entry is not None:
-            if self._reauth:
-                reason = "reauth_successful"
-            else:
-                # Nach dem provision()-Rueckfall (Add-on ohne Zugangsdaten) nicht "gleich geblieben" melden.
-                reason = "reconfigure_successful_new_credentials" if self._new_credentials else "reconfigure_successful"
-                self.hass.config_entries.async_update_entry(entry, data=self._entry_data(), options=self._entry_options())
-            # Wie async_update_reload_and_abort, aber mit Platzhaltern fuer die Hinweise.
-            self.hass.config_entries.async_schedule_reload(entry.entry_id)
-            return self.async_abort(reason=reason, description_placeholders={"notes": f"\n\n{notes}" if notes else ""})
-        return self.async_create_entry(
-            title=tenant_id, data=self._entry_data(), options=self._entry_options(),
-            description="setup_notes" if notes else None,
-            description_placeholders={"notes": notes} if notes else None,
-        )
-
-
-def _classify_addon_error(error: Exception) -> tuple[str, dict[str, str]]:
-    if isinstance(error, AddonNotFoundError):
-        return "addon_missing", {"addon": error.config_slug}
-    if isinstance(error, AmbiguousAddonMatchError):
-        return "addon_ambiguous", {"addon": error.config_slug}
-    if isinstance(error, AddonOutdatedError):
-        return "addon_outdated", {"addon": error.config_slug, "installed": error.installed, "required": error.required}
-    return "supervisor_unavailable", {}
-
-
-def _erzeuger_typen(catalog: dict) -> list[str]:
-    """Erzeugertypen aus allen Katalog-Profilen (kleingeschrieben = Uebersetzungsschluessel).
-    Eine Kombination ohne verifiziertes Profil wird nicht versteckt, sondern am Schritt als
-    profile_combination_unsupported gemeldet."""
-    return sorted({
-        profile["erzeuger_typ"].lower() for profile in catalog.get("profiles") or []
-        if isinstance(profile, dict) and isinstance(profile.get("erzeuger_typ"), str)
-    })
-
-
-def _match_profile(profiles: list[dict], erzeuger_typ: str, verteilsystem: str) -> dict | None:
-    """Select-Werte sind die kleingeschriebenen Serverwerte. Nicht jede Kombination hat ein
-    Profil; dann None statt eines geratenen Profils."""
-    for profile in profiles:
-        if profile["erzeuger_typ"].lower() == erzeuger_typ and profile["verteilsystem"].lower() == verteilsystem:
-            return profile
-    return None
-
-
-def _select(values: list[str], translation_key: str | None = None,
-            mode: selector.SelectSelectorMode = selector.SelectSelectorMode.DROPDOWN) -> selector.SelectSelector:
-    config = selector.SelectSelectorConfig(options=list(values), mode=mode)
-    if translation_key:
+def _auswahl(options: list, *, multiple: bool = False, translation_key: str | None = None) -> selector.SelectSelector:
+    config = selector.SelectSelectorConfig(options=options, multiple=multiple, mode=selector.SelectSelectorMode.DROPDOWN)
+    if translation_key is not None:
         config["translation_key"] = translation_key
     return selector.SelectSelector(config)
 
 
-_WARNED_UNKNOWN_CHANNELS: set[str] = set()
+def _vorbelegt(key: str, default: Any, *, required: bool = True) -> vol.Marker:
+    """Feld mit Vorbelegung, ohne Vorbelegung ohne `default` (voluptuous kennt kein "leer")."""
+    if required:
+        return vol.Required(key, default=default) if default not in (None, "", []) else vol.Required(key)
+    return vol.Optional(key, description={"suggested_value": default})
 
 
-def _kpi_fields(telemetry_capabilities: dict | None) -> list[str]:
-    """KPI-Rollen, die das Profil ausweist (Sektion advanced)."""
-    if not telemetry_capabilities:
-        return []
-    fields = [role for flag, role in KPI_SCALAR_ROLE_BY_CAPABILITY.items() if telemetry_capabilities.get(flag)]
-    for channel in telemetry_capabilities.get("energy_channels") or []:
-        if channel not in KPI_ENERGY_CHANNELS:
-            if channel not in _WARNED_UNKNOWN_CHANNELS:
-                _WARNED_UNKNOWN_CHANNELS.add(channel)
-                _LOGGER.warning("Ignoring unknown energy channel %r from server profile", channel)
-            continue
-        fields.append(kpi_energy_role(channel))
-    return fields
+class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
+    # 3 = Eintrag ab 1.0.0 (Geraete-ID); 2 = Eintrag bis 0.16 (Umzug in 5d).
+    VERSION = 3
 
+    def __init__(self) -> None:
+        self._client: EinrichtungClient | None = None
+        self._discovery: dict[str, str] = {}
+        self._geraet: dict = {}
+        self._vorschlag: dict = {}
+        self._integration: dict = {}
+        self._auswahl: dict = {}
+        self._zuordnung: dict = {}
+        self._eingaben: dict = {}
+        self._tenant: str | None = None
+        self._ersetzen = False
+        self._reconfigure = False
+        self._fehler: dict[str, str] = {}
+        self._offen: _Unterbrechung | None = None
 
-def _resolve_kpi_entities(hass, user_input: dict, fields: list[str]) -> tuple[dict[str, str], dict[str, str]]:
-    """state_class-Pruefung der KPI-Rollen: Energie nur total_increasing (KPI-Entscheidung a);
-    Text-Zustaende und Liefer-Zaehler ohne state_class-Pruefung."""
-    resolved: dict[str, str] = {}
-    errors: dict[str, str] = {}
-    for field in fields:
-        entity_id = user_input.get(field)
-        if not entity_id:
-            continue
-        state = hass.states.get(entity_id)
-        if state is None:
-            errors[field] = "entity_not_found"
-            continue
-        if error := validation.check_domain(entity_id, field):
-            errors[field] = error
-            continue
-        if field not in KPI_ROLES_WITHOUT_STATE_CLASS:
-            expected = KPI_ROLE_STATE_CLASS_EXPECTATIONS.get(field, "total_increasing")
-            if state.attributes.get("state_class") != expected:
-                errors[field] = f"state_class_expected_{expected}"
-                continue
-        resolved[field] = entity_id
-    return resolved, errors
+    # --- Ende: das Token immer beenden ---
+
+    @callback
+    def async_remove(self) -> None:
+        """Dialog geschlossen: das Token beim Server beenden (best effort)."""
+        if self._client is not None and self._client.token:
+            self.hass.async_create_task(self._client.abmelden(), "smartheat_einrichtung_abmelden")
+
+    async def _abmelden(self) -> None:
+        if self._client is not None:
+            await self._client.abmelden()
+
+    async def _abbrechen(self, reason: str, **placeholders: str) -> ConfigFlowResult:
+        await self._abmelden()
+        return self.async_abort(reason=reason, description_placeholders=placeholders or None)
+
+    async def _api(self, call: Callable[..., Awaitable[Any]], *args: Any, konflikt: str = "abgelehnt",
+                   **kwargs: Any) -> Any:
+        """Aufruf mit festem Token; Fehler werden zur passenden Unterbrechung (siehe Modul-Doku)."""
+        try:
+            return await call(*args, **kwargs)
+        except TokenUngueltig:
+            raise _NeuAnmelden() from None
+        except (CannotConnect, ServerError) as error:
+            _LOGGER.info("Einrichtung: Server nicht erreichbar (%s)", type(error).__name__)
+            raise _Abbruch("cannot_connect") from None
+        except Rejected as error:
+            if error.fehler:
+                raise _Feldfehler(error.fehler, error.text) from None
+            raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
+        except NotFound as error:
+            raise _Abbruch("geraet_unbekannt", grund=_text(error.text)) from None
+        except Conflict as error:
+            raise _Abbruch(konflikt, grund=_text(error.text)) from None
+        except InvalidResponse:
+            # Text ist eine interne Diagnose, kein Text des Servers
+            _LOGGER.warning("Einrichtung: unbrauchbare Antwort des Servers")
+            raise _Abbruch("unknown") from None
+        except ApiError as error:
+            raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
+
+    def _merken(self, unterbrechung: _Unterbrechung) -> str:
+        """Unterbrechung aus einem Fortschritts-Job: im naechsten Schritt `unterbrechung` behandeln."""
+        self._offen = unterbrechung
+        return "unterbrechung"
+
+    async def async_step_unterbrechung(self, user_input: dict | None = None) -> ConfigFlowResult:
+        offen, self._offen = self._offen, None
+        return await self._unterbrechung(offen or _Abbruch("unknown"))
+
+    async def _unterbrechung(self, unterbrechung: _Unterbrechung) -> ConfigFlowResult:
+        if isinstance(unterbrechung, _NeuAnmelden):
+            await self._abmelden()
+            return self._anmelden_formular({"base": "sitzung_abgelaufen"})
+        if isinstance(unterbrechung, _Feldfehler):
+            self._fehler = dict(unterbrechung.fehler)
+            if self._fehler_ohne_feld():
+                # Kein Formular zeigt das Feld (z. B. kreis, tenant_id): Zurueckschicken liefe im Kreis.
+                grund = unterbrechung.text or ", ".join(f"{k}: {v}" for k, v in self._fehler.items())
+                return await self._abbrechen("abgelehnt", grund=grund)
+            return await self._formular_mit_fehlern()
+        assert isinstance(unterbrechung, _Abbruch)
+        return await self._abbrechen(unterbrechung.reason, **unterbrechung.placeholders)
+
+    async def _progress_error_step(self) -> str:
+        return self._merken(_Abbruch("unknown"))
+
+    # --- Start ---
+
+    async def async_step_hassio(self, discovery_info: HassioServiceInfo) -> ConfigFlowResult:
+        """Nur die Discovery der Heizungsbruecke aus dem SmartHeat-Repository: jedes Add-on mit `discovery: [smartheat]`
+        kann eine schicken, und eine fremde Geraete-ID liesse den Nutzer ein fremdes Geraet uebernehmen."""
+        config = _discovery(discovery_info.config)
+        if "geraet_id" not in config or not await self._von_der_heizungsbruecke(discovery_info.slug):
+            return self.async_abort(reason="discovery_ungueltig")
+        await self.async_set_unique_id(config["geraet_id"])
+        self._abort_if_unique_id_configured()
+        self._discovery = config
+        self.context["title_placeholders"] = {"geraet": config["geraet_id"]}
+        return await self.async_step_bestaetigen()
+
+    async def _von_der_heizungsbruecke(self, slug: str) -> bool:
+        try:
+            eigener = await addon_control.async_bridge_slug(self.hass)
+        except (AddonError, KeyError) as error:
+            _LOGGER.warning("Einrichtung: Herkunft der Discovery nicht pruefbar (%s)", type(error).__name__)
+            return False
+        if eigener is None or slug != eigener:
+            _LOGGER.warning("Einrichtung: Discovery eines anderen Add-ons verworfen")
+            return False
+        return True
+
+    async def async_step_bestaetigen(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is None:
+            return self.async_show_form(step_id="bestaetigen",
+                                        description_placeholders={"geraet": self._discovery["geraet_id"]})
+        if (reason := await self._addon_version_fehler()) is not None:
+            return self.async_abort(reason=reason)
+        return await self.async_step_anmelden()
+
+    async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if not is_hassio(self.hass):
+            return self.async_abort(reason="kein_supervisor")
+        return await self.async_step_addon_starten()
+
+    async def async_step_addon_starten(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._run_progress("addon_starten", "addon_starten", self._addon_starten)
+
+    async def _addon_starten(self) -> str:
+        try:
+            await addon_control.async_install_and_start(self.hass)
+        except AddonError as error:
+            _LOGGER.warning("Einrichtung: Add-on nicht installiert oder gestartet (%s)", type(error).__name__)
+            return self._merken(_Abbruch("addon_fehler"))
+        if (reason := await self._addon_version_fehler()) is not None:
+            return self._merken(_Abbruch(reason))
+        if await addon_control.async_bootstrap_url(self.hass) is None:
+            return self._merken(_Abbruch("bootstrap_url_ungueltig"))
+        deadline = time.monotonic() + DISCOVERY_WAIT_SECONDS
+        while True:
+            found = _discovery(await addon_control.async_discovery(self.hass))
+            if "geraet_id" in found:
+                self._discovery = found
+                return "nach_discovery"
+            if time.monotonic() >= deadline:
+                return self._merken(_Abbruch("keine_discovery"))
+            await asyncio.sleep(POLL_SECONDS)
+
+    async def _addon_version_fehler(self) -> str | None:
+        """Mindestversion der Heizungsbruecke (aelter meldet sich nie per Discovery); None = in Ordnung."""
+        try:
+            await supervisor_client.async_resolve_addons(self.hass, ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS)
+        except supervisor_client.AddonOutdatedError:
+            return "addon_veraltet"
+        except supervisor_client.AmbiguousAddonMatchError:
+            return "addon_mehrdeutig"
+        except (supervisor_client.AddonNotFoundError, AddonError, KeyError) as error:
+            # KeyError: hassio nicht geladen (get_supervisor_client)
+            _LOGGER.warning("Einrichtung: Add-on-Version nicht pruefbar (%s)", type(error).__name__)
+            return "addon_fehler"
+        return None
+
+    async def async_step_nach_discovery(self, user_input: dict | None = None) -> ConfigFlowResult:
+        await self.async_set_unique_id(self._discovery["geraet_id"], raise_on_progress=False)
+        self._abort_if_unique_id_configured()
+        self.context["title_placeholders"] = {"geraet": self._discovery["geraet_id"]}
+        return await self.async_step_anmelden()
+
+    # --- Anmelden und Uebernehmen ---
+
+    def _anmelden_formular(self, errors: dict[str, str], grund: str = "-") -> ConfigFlowResult:
+        schema = vol.Schema({
+            vol.Required("email"): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.EMAIL)),
+            vol.Required("password"): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+        })
+        return self.async_show_form(step_id="anmelden", data_schema=schema, errors=errors,
+                                    description_placeholders={"grund": grund})
+
+    async def async_step_anmelden(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if self._client is None:
+            base_url = await addon_control.async_bootstrap_url(self.hass)
+            if base_url is None:
+                return self.async_abort(reason="bootstrap_url_ungueltig")
+            self._client = EinrichtungClient(async_get_clientsession(self.hass), base_url)
+        if user_input is None:
+            return self._anmelden_formular({})
+        try:
+            fehler = await self._anmelden(user_input["email"], user_input["password"])
+        except _Abbruch as abbruch:
+            return await self._unterbrechung(abbruch)
+        if fehler is not None:
+            await self._abmelden()
+            return self._anmelden_formular({"base": fehler[0]}, fehler[1])
+        return await self.async_step_geraet()
+
+    async def _anmelden(self, email: str, password: str) -> tuple[str, str] | None:
+        """Anmelden und das Geraet uebernehmen (ein eigenes, schon uebernommenes Geraet: ohne Fehler erneut);
+        (Fehlerschluessel des Formulars, Text des Servers) oder None. _Abbruch, wenn das Add-on das Geraet nicht
+        (mehr) meldet."""
+        assert self._client is not None
+        try:
+            await self._client.anmelden(email, password)
+        except InvalidAuth:
+            return "invalid_auth", "-"
+        except TooMany:
+            return "too_many", "-"
+        except (CannotConnect, ServerError):
+            return "cannot_connect", "-"
+        except ApiError as error:
+            _LOGGER.warning("Einrichtung: Anmelden fehlgeschlagen (%s)", type(error).__name__)
+            if error.status in (404, 405):
+                # Die Adresse antwortet, kennt /einrichtung/v1 aber nicht: Server ohne Einrichtungs-API.
+                return "server_veraltet", "-"
+            return "unknown", "-"
+        code = await self._uebernahme_code()
+        try:
+            await self._client.uebernehmen(self._discovery["geraet_id"], code)
+        except TokenUngueltig:
+            return "sitzung_abgelaufen", "-"
+        except TooMany as error:
+            return "uebernahme_gesperrt", _text(error.text)
+        except Conflict as error:
+            return "anmeldung_gebunden", _text(error.text)
+        except (CannotConnect, ServerError):
+            return "cannot_connect", "-"
+        except InvalidResponse:
+            return "unknown", "-"
+        except ApiError as error:
+            return "uebernahme_fehlgeschlagen", _text(error.text)
+        return None
+
+    async def _uebernahme_code(self) -> str | None:
+        """Code nur aus der aktuellen Discovery der Heizungsbruecke (async_discovery liest nur deren Nachrichten),
+        nie aus der ersten Meldung, die den Flow gestartet hat. Meldet das Add-on kein oder ein anderes Geraet:
+        Abbruch. Neu konfigurieren uebernimmt ein eigenes Geraet ohne Code."""
+        if self._reconfigure:
+            return None
+        frisch = _discovery(await addon_control.async_discovery(self.hass))
+        if frisch.get("geraet_id") != self._discovery["geraet_id"]:
+            _LOGGER.warning("Einrichtung: das Add-on meldet dieses Geraet nicht (mehr)")
+            raise _Abbruch("geraet_nicht_gemeldet")
+        return frisch.get("claim_code")
+
+    async def async_step_geraet(self, user_input: dict | None = None) -> ConfigFlowResult:
+        assert self._client is not None
+        try:
+            self._geraet = await self._api(self._client.geraet)
+        except _Unterbrechung as unterbrechung:
+            return await self._unterbrechung(unterbrechung)
+        if self._reconfigure:
+            return await self.async_step_menue()
+        if self._geraet.get("eingerichtet"):
+            return await self.async_step_schon_eingerichtet()
+        return await self.async_step_anlage()
+
+    async def async_step_schon_eingerichtet(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is None:
+            return self.async_show_form(step_id="schon_eingerichtet",
+                                        description_placeholders={"anlage": _text(self._geraet.get("tenant_id"))})
+        return await self._eintrag()
+
+    # --- Anlage ---
+
+    def _anlagen(self) -> list[dict]:
+        """Anlagen, die dieses Geraet bekommen kann: aktiv, nicht am bisherigen Zugang (Umzug in 5d), frei oder
+        ersetzbar."""
+        return [a for a in self._geraet.get("anlagen") or []
+                if isinstance(a, dict) and isinstance(a.get("tenant_id"), str) and a.get("aktiv")
+                and not a.get("altpfad") and (not a.get("belegt") or a.get("ersetzbar"))]
+
+    async def async_step_anlage(self, user_input: dict | None = None) -> ConfigFlowResult:
+        anlagen = self._anlagen()
+        if not anlagen:
+            return await self._abbrechen("keine_anlage")
+        if user_input is not None:
+            self._tenant = user_input["anlage"]
+            self._ersetzen = any(a["tenant_id"] == self._tenant and a.get("belegt") for a in anlagen)
+            return await (self.async_step_ersetzen() if self._ersetzen else self.async_step_inventur())
+        options = [{"value": a["tenant_id"], "label": a["tenant_id"]} for a in anlagen]
+        return self.async_show_form(step_id="anlage", data_schema=vol.Schema({
+            vol.Required("anlage", default=anlagen[0]["tenant_id"]): _auswahl(options)}))
+
+    async def async_step_ersetzen(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is None:
+            return self.async_show_form(step_id="ersetzen", description_placeholders={"anlage": _text(self._tenant)})
+        return await self.async_step_inventur()
+
+    # --- Inventur und Vorschlag ---
+
+    async def async_step_inventur(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._run_progress("inventur", "inventur", self._inventur)
+
+    async def _inventur(self) -> str:
+        """Inventur anfordern (ein noch offener Befehl wird weiter benutzt) und auf das Ergebnis warten."""
+        assert self._client is not None
+        try:
+            await self._api(self._client.inventur)
+            deadline = time.monotonic() + INVENTUR_WAIT_SECONDS
+            while True:
+                stand = (await self._api(self._client.geraet)).get("inventur") or {}
+                if stand.get("zustand") == _INVENTUR_FERTIG:
+                    self._vorschlag = await self._api(self._client.vorschlag, konflikt="keine_integration")
+                    return "integration"
+                if stand.get("zustand") == _INVENTUR_FEHLGESCHLAGEN:
+                    raise _Abbruch("inventur_fehler", grund=_text(stand.get("fehler")))
+                if time.monotonic() >= deadline:
+                    return "inventur_zeit"
+                await asyncio.sleep(POLL_SECONDS)
+        except _Unterbrechung as unterbrechung:
+            return self._merken(unterbrechung)
+
+    async def async_step_inventur_zeit(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is None:
+            return self.async_show_form(step_id="inventur_zeit")
+        return await self.async_step_inventur()
+
+    async def async_step_integration(self, user_input: dict | None = None) -> ConfigFlowResult:
+        integrationen = [i for i in self._vorschlag.get("integrationen") or []
+                         if isinstance(i, dict) and isinstance(i.get("plattform"), str)]
+        if not integrationen:
+            return await self._abbrechen("keine_integration", grund="-")
+        if user_input is None and len(integrationen) == 1:
+            user_input = {"integration": integrationen[0]["plattform"]}
+        if user_input is not None:
+            self._integration = next(i for i in integrationen if i["plattform"] == user_input["integration"])
+            return await self.async_step_system()
+        options = [{"value": i["plattform"], "label": _text(i.get("label"))} for i in integrationen]
+        return self.async_show_form(step_id="integration",
+                                    data_schema=vol.Schema({vol.Required("integration"): _auswahl(options)}))
+
+    async def async_step_system(self, user_input: dict | None = None) -> ConfigFlowResult:
+        integration = self._integration
+        kreise = [k for k in integration.get("kreise") or [] if isinstance(k, dict)]
+        profile = [p for p in integration.get("profile") or [] if isinstance(p, dict) and p.get("hebelsaetze")]
+        if not kreise or not profile:
+            return await self._abbrechen("nicht_unterstuetzt", integration=_text(integration.get("label")))
+        if user_input is not None:
+            profil = next(p for p in profile if p["profile_id"] == user_input["profil"])
+            self._auswahl = {"kreis": user_input["kreis"], "profil": profil["profile_id"]}
+            hebelsaetze = profil["hebelsaetze"]
+            if len(hebelsaetze) == 1:
+                return await self.async_step_hebelsatz({"hebelsatz": hebelsaetze[0]["id"]})
+            return await self.async_step_hebelsatz()
+        vorschlag = integration.get("vorschlag") or {}
+        schema = vol.Schema({
+            _vorbelegt("kreis", self._auswahl.get("kreis") or vorschlag.get("kreis")): _auswahl(
+                [{"value": k["schluessel"], "label": _text(k.get("label"))} for k in kreise]),
+            _vorbelegt("profil", self._auswahl.get("profil") or vorschlag.get("profil")): _auswahl(
+                [{"value": p["profile_id"], "label": _text(p.get("label"))} for p in profile]),
+        })
+        return self.async_show_form(step_id="system", data_schema=schema, description_placeholders={
+            "integration": _text(integration.get("label")), "hinweis": integration.get("hinweis") or ""})
+
+    async def async_step_hebelsatz(self, user_input: dict | None = None) -> ConfigFlowResult:
+        assert self._client is not None
+        profil = next(p for p in self._integration["profile"] if p["profile_id"] == self._auswahl["profil"])
+        if user_input is None:
+            return self.async_show_form(step_id="hebelsatz", data_schema=vol.Schema({vol.Required("hebelsatz"): _auswahl(
+                [h["id"] for h in profil["hebelsaetze"]], translation_key="lever_set")}))
+        self._auswahl["hebelsatz"] = user_input["hebelsatz"]
+        try:
+            # Beim Ersetzen schlaegt der Server die Zuordnung des alten Geraets vor.
+            self._zuordnung = await self._api(
+                self._client.zuordnung, self._auswahl["kreis"], self._auswahl["profil"], self._auswahl["hebelsatz"],
+                tenant_id=self._tenant if self._ersetzen else None)
+        except _Unterbrechung as unterbrechung:
+            return await self._unterbrechung(unterbrechung)
+        for rolle in self._zuordnung.get("rollen") or []:
+            if rolle.get("pflicht") and not rolle.get("kandidaten"):
+                bezeichnung = await async_role_label(self.hass, _text(rolle.get("rolle")))
+                return await self._abbrechen("rolle_ohne_kandidaten", rolle=bezeichnung)
+        return await self.async_step_raeume()
+
+    # --- Zuordnung ---
+
+    async def async_step_raeume(self, user_input: dict | None = None) -> ConfigFlowResult:
+        z = self._zuordnung
+        if user_input is not None:
+            self._eingaben.update({key: user_input[key] for key in _RAEUME if key in user_input})
+            return await self.async_step_anlagenwerte()
+        schema = vol.Schema({
+            _vorbelegt("raumfuehler", self._eingaben.get("raumfuehler") or z["raumfuehler"]["vorschlag"]): _entities(
+                z["raumfuehler"]["kandidaten"], multiple=True),
+            _vorbelegt("room_target", self._eingaben.get("room_target") or z["room_target"]["vorschlag"]): _entities(
+                z["room_target"]["kandidaten"]),
+        })
+        return self.async_show_form(step_id="raeume", data_schema=schema, errors=self._fehler_fuer(_RAEUME))
+
+    def _rollen(self) -> list[dict]:
+        """Angezeigte Rollen: Pflicht immer (Kandidaten geprueft), optionale nur mit Kandidaten."""
+        return [r for r in self._zuordnung.get("rollen") or [] if r.get("kandidaten")]
+
+    async def async_step_anlagenwerte(self, user_input: dict | None = None) -> ConfigFlowResult:
+        rollen = self._rollen()
+        if user_input is not None:
+            self._eingaben["rollen"] = {key: value for key, value in user_input.items() if value}
+            return await self.async_step_benachrichtigung()
+        alt = self._eingaben.get("rollen", {})
+        felder = {
+            _vorbelegt(r["rolle"], alt.get(r["rolle"]) or r.get("vorschlag"), required=bool(r.get("pflicht"))):
+                _entities(r["kandidaten"])
+            for r in rollen
+        }
+        return self.async_show_form(step_id="anlagenwerte", data_schema=vol.Schema(felder),
+                                    errors=self._fehler_fuer(tuple(r["rolle"] for r in rollen)))
+
+    async def async_step_benachrichtigung(self, user_input: dict | None = None) -> ConfigFlowResult:
+        z = self._zuordnung
+        if user_input is not None:
+            self._eingaben.update({key: user_input.get(key) for key in _BENACHRICHTIGUNG})
+            return await self.async_step_zusammenfassung()
+        je_entity = z.get("batterie_je_entity") or {}
+        gewaehlt = [*(self._eingaben.get("raumfuehler") or []), self._eingaben.get("room_target")]
+        batterien = list(dict.fromkeys(je_entity[e] for e in gewaehlt if e in je_entity))
+        bisher = self._bisherige_bindung()
+        # Neu konfigurieren: der Server liefert nur die Auswahlmoeglichkeiten, die bisherige Wahl steht in der
+        # Konfiguration des Geraets; sie bleibt erhalten, soweit sie noch angeboten wird.
+        if "batterien" in bisher:
+            batterien = self._noch_angeboten(bisher["batterien"], set(je_entity.values()))
+        handys = self._noch_angeboten(bisher.get("benachrichtigung"), set(z.get("benachrichtigung") or []))
+        hinweise = self._noch_angeboten(bisher.get("hinweise_aus"), set(z.get("hinweise") or []))
+        felder: dict = {}
+        if z.get("benachrichtigung"):
+            felder[vol.Optional("benachrichtigung", default=self._vorgabe("benachrichtigung", handys))] = _auswahl(
+                list(z["benachrichtigung"]), multiple=True)
+        felder[vol.Optional("hinweise_aus", default=self._vorgabe("hinweise_aus", hinweise))] = _auswahl(
+            list(z.get("hinweise") or []), multiple=True, translation_key="hinweise")
+        if je_entity:
+            felder[vol.Optional("batterien", default=self._vorgabe("batterien", batterien))] = _entities(
+                sorted(set(je_entity.values())), multiple=True)
+        felder[_vorbelegt("raum_soll", self._eingaben.get("raum_soll") or z.get("raum_soll"))] = \
+            selector.NumberSelector(selector.NumberSelectorConfig(
+                min=RAUM_SOLL_MIN, max=RAUM_SOLL_MAX, step=RAUM_SOLL_STEP, unit_of_measurement="°C",
+                mode=selector.NumberSelectorMode.BOX))
+        return self.async_show_form(step_id="benachrichtigung", data_schema=vol.Schema(felder),
+                                    errors=self._fehler_fuer(_BENACHRICHTIGUNG))
+
+    def _bisherige_bindung(self) -> dict:
+        """Bindung der aktuellen Konfiguration des Geraets; nur beim Neu konfigurieren (sonst leer)."""
+        konfiguration = self._geraet.get("konfiguration") if self._reconfigure else None
+        bindung = konfiguration.get("bindung") if isinstance(konfiguration, dict) else None
+        return bindung if isinstance(bindung, dict) else {}
+
+    def _vorgabe(self, key: str, sonst: list) -> list:
+        """Schon im Assistenten gewaehlter Wert (auch eine bewusst leere Wahl), sonst `sonst`."""
+        gewaehlt = self._eingaben.get(key)
+        return list(gewaehlt) if gewaehlt is not None else sonst
+
+    @staticmethod
+    def _noch_angeboten(werte: object, angebot: set) -> list:
+        return [w for w in dict.fromkeys(werte if isinstance(werte, list) else []) if w in angebot]
+
+    def _fehler_fuer(self, felder: tuple[str, ...]) -> dict[str, str]:
+        return {key: value for key, value in self._fehler.items() if key in felder}
+
+    def _fehler_ohne_feld(self) -> bool:
+        """Feldfehler eines Felds, das kein Formular zeigt (z. B. kreis, tenant_id, eine Rolle ohne Kandidaten)."""
+        bekannt = {*_RAEUME, *_BENACHRICHTIGUNG, *(r["rolle"] for r in self._rollen())}
+        return any(key not in bekannt for key in self._fehler)
+
+    async def _formular_mit_fehlern(self) -> ConfigFlowResult:
+        if self._fehler_fuer(_RAEUME):
+            return await self.async_step_raeume()
+        if self._fehler_fuer(_BENACHRICHTIGUNG) and not set(self._fehler) - set(_BENACHRICHTIGUNG):
+            return await self.async_step_benachrichtigung()
+        return await self.async_step_anlagenwerte()
+
+    def _anfrage(self) -> dict:
+        e = self._eingaben
+        anfrage = {
+            "kreis": self._auswahl["kreis"], "profil": self._auswahl["profil"], "hebelsatz": self._auswahl["hebelsatz"],
+            "rollen": {**e.get("rollen", {}), "room_target": e.get("room_target")},
+            "raumfuehler": list(e.get("raumfuehler") or []), "batterien": list(e.get("batterien") or []),
+            "benachrichtigung": list(e.get("benachrichtigung") or []), "hinweise_aus": list(e.get("hinweise_aus") or []),
+            "raum_soll": e.get("raum_soll"),
+        }
+        if not self._reconfigure:
+            anfrage["tenant_id"] = self._tenant
+            if self._ersetzen:
+                anfrage["ersetzen"] = True
+        return anfrage
+
+    async def _warnungen(self, warnungen: dict) -> str:
+        """Warnungen der Pruefung als Text der UI-Sprache; unbekannte Arten mit ihrem Schluessel."""
+        zeilen = []
+        for art, werte in warnungen.items():
+            entities = ", ".join(str(w) for w in werte) if isinstance(werte, list) else str(werte)
+            key = f"warning_{art}"
+            text = await async_hint(self.hass, key)
+            zeilen.append(f"- {text.format(entities=entities) if text != key else f'{art}: {entities}'}")
+        return "\n".join(zeilen) or "-"
+
+    async def async_step_zusammenfassung(self, user_input: dict | None = None) -> ConfigFlowResult:
+        assert self._client is not None
+        if user_input is not None:
+            return await self.async_step_einrichten()
+        try:
+            ergebnis = await self._api(self._client.pruefen, self._anfrage())
+            fehler = ergebnis.get("fehler") or {}
+            if fehler:
+                raise _Feldfehler({str(k): str(v) for k, v in fehler.items()})
+        except _Unterbrechung as unterbrechung:
+            return await self._unterbrechung(unterbrechung)
+        self._fehler = {}
+        return self.async_show_form(step_id="zusammenfassung", description_placeholders={
+            "anlage": _text(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {})})
+
+    # --- Auftrag ---
+
+    async def async_step_einrichten(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._run_progress("einrichten", "einrichten", self._einrichten)
+
+    async def _einrichten(self) -> str:
+        assert self._client is not None
+        try:
+            if self._reconfigure:
+                job_id = await self._api(self._client.neu_konfigurieren, self._anfrage())
+            else:
+                job_id = await self._api(self._client.einrichten, self._anfrage())
+            deadline = time.monotonic() + AUFTRAG_WAIT_SECONDS
+            while True:
+                auftrag = await self._api(self._client.auftrag, job_id)
+                if auftrag.get("zustand") == AUFTRAG_FERTIG:
+                    self._geraet = await self._api(self._client.geraet)
+                    return "fertig"
+                if auftrag.get("zustand") == AUFTRAG_FEHLGESCHLAGEN:
+                    raise _Abbruch("einrichten_fehler", grund=_text(auftrag.get("fehler")))
+                if time.monotonic() >= deadline:
+                    raise _Abbruch("einrichten_zeit")
+                await asyncio.sleep(POLL_SECONDS)
+        except _Unterbrechung as unterbrechung:
+            return self._merken(unterbrechung)
+
+    async def async_step_fertig(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._eintrag()
+
+    async def _eintrag(self) -> ConfigFlowResult:
+        """Eintrag aus der Konfiguration, die das Geraet uebernommen hat; nie ein Token."""
+        konfiguration = self._geraet.get("konfiguration")
+        tenant_id = self._geraet.get("tenant_id")
+        if not isinstance(konfiguration, dict) or not isinstance(tenant_id, str):
+            return await self._abbrechen("keine_konfiguration")
+        data = {"geraet_id": self._discovery["geraet_id"], "tenant_id": tenant_id,
+                "profile_id": konfiguration.get("profil"), "lever_set": konfiguration.get("hebelsatz"),
+                "hebel": list(konfiguration.get("hebel") or []), "shift_lever": konfiguration.get("shift_lever")}
+        await self._abmelden()
+        if self._reconfigure:
+            return self.async_update_reload_and_abort(self._get_reconfigure_entry(), data=data)
+        return self.async_create_entry(title=tenant_id, data=data)
+
+    # --- Neu konfigurieren ---
+
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
+        geraet_id = self._get_reconfigure_entry().data.get("geraet_id")
+        if not isinstance(geraet_id, str) or not geraet_id:
+            return self.async_abort(reason="alter_eintrag")
+        self._reconfigure = True
+        self._discovery = {"geraet_id": geraet_id}
+        return await self.async_step_anmelden()
+
+    async def async_step_menue(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="menue", menu_options=["zuordnung_aendern", "geraet_entfernen"],
+                                    description_placeholders={"anlage": _text(self._geraet.get("tenant_id"))})
+
+    async def async_step_zuordnung_aendern(self, user_input: dict | None = None) -> ConfigFlowResult:
+        self._tenant = self._geraet.get("tenant_id")
+        return await self.async_step_inventur()
+
+    async def async_step_geraet_entfernen(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is None:
+            return self.async_show_form(step_id="geraet_entfernen",
+                                        description_placeholders={"anlage": _text(self._geraet.get("tenant_id"))})
+        return await self.async_step_entfernen()
+
+    async def async_step_entfernen(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._run_progress("entfernen", "entfernen", self._entfernen)
+
+    async def _entfernen(self) -> str:
+        """Nach einem angenommenen Entfernen widerruft die Freigabe das Token: 401/404 auf `auftrag` heisst dann
+        "entfernt" (Server einrichtung_api.auftrag)."""
+        assert self._client is not None
+        try:
+            ergebnis = await self._api(self._client.entfernen, konflikt="entfernen_fehler")
+        except _Unterbrechung as unterbrechung:
+            return self._merken(unterbrechung)
+        if ergebnis.get("freigegeben"):
+            return "entfernt"
+        job_id = ergebnis.get("job_id")
+        if not isinstance(job_id, str) or not job_id:
+            return self._merken(_Abbruch("entfernen_fehler", grund="-"))
+        deadline = time.monotonic() + ENTFERNEN_WAIT_SECONDS
+        while True:
+            try:
+                auftrag = await self._client.auftrag(job_id)
+            except (InvalidAuth, NotFound):
+                # Die Freigabe hat das Token widerrufen. Unschaerfe (selten): laeuft das Token genau jetzt ab (1 h,
+                # bei Nutzung verlaengert), sieht das gleich aus und meldet "entfernt", obwohl der Auftrag noch
+                # laeuft; das Geraet fuehrt ihn trotzdem aus, nur der Eintrag verschwindet frueher.
+                return "entfernt"
+            except (CannotConnect, ServerError) as error:
+                _LOGGER.info("Einrichtung: Stand des Entfernens nicht lesbar (%s)", type(error).__name__)
+                return "entfernen_laeuft"
+            except ApiError as error:
+                return self._merken(_Abbruch("entfernen_fehler", grund=_text(error.text)))
+            if auftrag.get("zustand") == AUFTRAG_FERTIG:
+                return "entfernt"
+            if auftrag.get("zustand") == AUFTRAG_FEHLGESCHLAGEN:
+                return self._merken(_Abbruch("entfernen_fehler", grund=_text(auftrag.get("fehler"))))
+            if time.monotonic() >= deadline:
+                return "entfernen_laeuft"
+            await asyncio.sleep(POLL_SECONDS)
+
+    async def async_step_entfernt(self, user_input: dict | None = None) -> ConfigFlowResult:
+        await self._abmelden()
+        entry = self._get_reconfigure_entry()
+        # Nicht eager: der Eintrag verschwindet erst, wenn dieser Flow beendet ist.
+        self.hass.async_create_task(self.hass.config_entries.async_remove(entry.entry_id),
+                                    "smartheat_eintrag_entfernen", eager_start=False)
+        return self.async_abort(reason="entfernt")
+
+    async def async_step_entfernen_laeuft(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._abbrechen("entfernen_laeuft")

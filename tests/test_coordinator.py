@@ -1,23 +1,22 @@
-"""Coordinator, Entities und zweiter Waechter (Spec TP7 1.2, 1.3)."""
-import json
+"""Coordinator, Entities und zweiter Waechter (Spec TP7 1.2, 1.3; Spec 5c 2.2: Schema 3, Zuordnung ueber die
+Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur per persistent_notification)."""
 from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.components.hassio import AddonError, AddonState
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import State
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from pytest_homeassistant_custom_component.common import async_mock_service, mock_restore_cache
 
-from custom_components.smartheat.const import WATCHDOG_ALL_CLEAR_MESSAGE, WATCHDOG_MESSAGES
+from custom_components.smartheat.const import ADDON_SPECS, STATUS_EVENT, WATCHDOG_MESSAGES
 from custom_components.smartheat.coordinator import Watchdog
 
-from .addon_fakes import FakeAddon, make_entry, status_event
+from .addon_fakes import FakeAddon, make_device_entry, status_event
 
 CO = "custom_components.smartheat.coordinator"
 TENANT = "wohnung1"
 STATUS = "sensor.smartheat_wohnung1_status"
-RUNNING = {"heizungsbruecke": True, "cloudflared_access_mqtt": True}
+RUNNING = {"heizungsbruecke": True}
 
 
 # --- reine Waechter-Logik ---
@@ -25,10 +24,10 @@ RUNNING = {"heizungsbruecke": True, "cloudflared_access_mqtt": True}
 def test_watchdog_needs_two_checks_before_an_addon_counts_as_stopped():
     watchdog = Watchdog(started_at=0)
     watchdog.event_received(0)
-    stopped = {**RUNNING, "cloudflared_access_mqtt": False}
+    stopped = {"heizungsbruecke": False}
 
     assert watchdog.check(300, stopped) == (None, [])
-    assert watchdog.check(600, stopped) == ("addon_gestoppt", ["cloudflared_access_mqtt"])
+    assert watchdog.check(600, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
 
 
 def test_watchdog_running_again_resets_the_count():
@@ -156,16 +155,16 @@ def notes(monkeypatch):
     return created, dismissed
 
 
-async def _setup(hass, monkeypatch, addons):
+async def _setup(hass, monkeypatch, addons, **entry_kwargs):
     monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(return_value=addons))
-    entry = make_entry(hass)
+    entry = make_device_entry(hass, **entry_kwargs)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
 
 
 def _fire(hass, event):
-    hass.bus.async_fire("smartheat_status", event)
+    hass.bus.async_fire(STATUS_EVENT, event)
 
 
 async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
@@ -205,17 +204,48 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
 
 
 @pytest.mark.parametrize("event", [
-    status_event("andere", "regelt"),
+    status_event(TENANT, "regelt", geraet_id="shg-b"),
+    {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"},
+    {**status_event(TENANT, "regelt"), "schema": 2},
     {**status_event(TENANT, "regelt"), "schema": 1},
     status_event(TENANT, "bereit"),
 ])
 async def test_foreign_or_unknown_events_are_ignored(hass, monkeypatch, clock, event):
-    await _setup(hass, monkeypatch, {})
+    entry = await _setup(hass, monkeypatch, {})
 
     _fire(hass, event)
     await hass.async_block_till_done()
 
     assert hass.states.get(STATUS).state == "unknown"
+    assert entry.runtime_data.data is None
+
+
+async def test_event_of_another_device_is_ignored(hass, monkeypatch, clock):
+    """Spec 5c 2.2 (Brief-Test): Zuordnung ueber die Geraete-ID, nicht den Tenant; nur Schema 3."""
+    entry = await _setup(hass, monkeypatch, {})
+    event = status_event(TENANT, "regelt", raum_soll=21.0)
+
+    _fire(hass, {**event, "geraet_id": "shg-b", "status": "notbetrieb"})
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data is None
+    _fire(hass, {**event, "schema": 2})
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data is None
+    _fire(hass, event)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["status"] == "regelt"
+
+
+async def test_event_of_an_unconfigured_device_is_taken_by_its_id(hass, monkeypatch, clock):
+    """Vor der Einrichtung kennt das Add-on keinen Tenant (Laufzeit-Teil leer, status startet): die Geraete-ID
+    reicht; den Geraetezustand traegt geraet_zustand."""
+    entry = await _setup(hass, monkeypatch, {})
+
+    _fire(hass, status_event(None, "startet", geraet_zustand="wartet_auf_einrichtung"))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(STATUS).state == "startet"
+    assert entry.runtime_data.data["geraet_zustand"] == "wartet_auf_einrichtung"
 
 
 async def test_entities_restore_the_last_state_after_a_restart(hass, monkeypatch, clock):
@@ -239,13 +269,15 @@ async def test_entities_restore_the_last_state_after_a_restart(hass, monkeypatch
 
 
 async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(hass, monkeypatch, clock, notes):
-    """Review Focus 2."""
+    """Review Focus 2; Spec 5c (Nutzer-Entscheidung 2026-10-11): Meldung nur per persistent_notification, kein Push
+    an die Handys (das ist Sache des Add-ons)."""
     created, dismissed = notes
     pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
     log = []
     bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING)
-    cloudflared = FakeAddon("a_cloudflared_access_mqtt", log)
-    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge, "cloudflared_access_mqtt": cloudflared})
+    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge})
+    # Eine Push-Liste wie bis 0.16 (Optionen-Flow) bleibt ohne Wirkung.
+    hass.config_entries.async_update_entry(entry, options={"notify_services": ["notify.mobile_app_pixel"]})
     coordinator = entry.runtime_data
 
     await coordinator.async_check()
@@ -256,32 +288,39 @@ async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(
     assert hass.states.get(STATUS).state == "addon_gestoppt"
     assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
     assert log == [("start", "a_heizungsbruecke")]
-    assert [call.data["message"] for call in pushes] == [WATCHDOG_MESSAGES["addon_gestoppt"]]
     assert created == [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])]
 
     clock["t"] += 300
     await coordinator.async_check()  # weiter gestoppt: neuer Startversuch, keine zweite Meldung
     await hass.async_block_till_done()
     assert log == [("start", "a_heizungsbruecke"), ("start", "a_heizungsbruecke")]
-    assert len(pushes) == 1
+    assert len(created) == 1
 
     bridge.state = AddonState.RUNNING
     _fire(hass, status_event(TENANT, "regelt"))
     await hass.async_block_till_done()
 
     assert hass.states.get(STATUS).state == "regelt"
-    assert pushes[-1].data["message"] == WATCHDOG_ALL_CLEAR_MESSAGE
     assert dismissed == ["smartheat_wohnung1_addon"]
+    assert pushes == []
+
+
+async def test_watchdog_looks_only_for_the_bridge(hass, monkeypatch, clock):
+    """Spec 5c 2.2: cloudflared_access_mqtt gehoert nicht mehr zu einer Installation ab 1.0.0."""
+    entry = await _setup(hass, monkeypatch, {})
+    find = AsyncMock(return_value={})
+    monkeypatch.setattr(f"{CO}.async_find_addon_managers", find)
+
+    await entry.runtime_data.async_check()
+
+    find.assert_awaited_once_with(hass, ADDON_SPECS)
+    assert [config_slug for _name, config_slug in ADDON_SPECS] == ["heizungsbruecke"]
 
 
 async def test_silent_bridge_is_restarted_and_reported(hass, monkeypatch, clock, notes):
     pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
     log = []
-    addons = {
-        "heizungsbruecke": FakeAddon("a_heizungsbruecke", log),
-        "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log),
-    }
-    entry = await _setup(hass, monkeypatch, addons)
+    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": FakeAddon("a_heizungsbruecke", log)})
 
     clock["t"] += 900
     await entry.runtime_data.async_check()
@@ -289,7 +328,8 @@ async def test_silent_bridge_is_restarted_and_reported(hass, monkeypatch, clock,
 
     assert hass.states.get(STATUS).state == "reagiert_nicht"
     assert log == [("restart", "a_heizungsbruecke")]
-    assert [call.data["message"] for call in pushes] == [WATCHDOG_MESSAGES["reagiert_nicht"]]
+    assert notes[0] == [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["reagiert_nicht"])]
+    assert pushes == []
 
 
 async def test_unreachable_supervisor_skips_the_check(hass, monkeypatch, clock, notes):
@@ -304,26 +344,22 @@ async def test_unreachable_supervisor_skips_the_check(hass, monkeypatch, clock, 
     assert notes[0] == []
 
 
-async def test_zugang_abgelehnt_starts_reauth_once_per_change(hass, monkeypatch, clock):
-    started = []
-    monkeypatch.setattr(ConfigEntry, "async_start_reauth", lambda self, hass, *args, **kwargs: started.append(self.entry_id))
+async def test_zugang_abgelehnt_starts_no_reauth(hass, monkeypatch, clock):
+    """Spec 5c 2.2: kein Reauth mehr (das Geraet meldet sich mit Zertifikat an); der Status zeigt es nur an."""
     entry = await _setup(hass, monkeypatch, {})
 
-    for status in ("zugang_abgelehnt", "zugang_abgelehnt", "regelt", "zugang_abgelehnt"):
-        _fire(hass, status_event(TENANT, status))
+    _fire(hass, status_event(TENANT, "zugang_abgelehnt"))
     await hass.async_block_till_done()
 
-    assert started == [entry.entry_id, entry.entry_id]
+    assert hass.states.get(STATUS).state == "zugang_abgelehnt"
+    assert not list(entry.async_get_active_flows(hass, {"reauth"}))
 
 
-async def test_check_is_skipped_when_one_addons_info_cannot_be_read(hass, monkeypatch, clock, notes):
-    """M4: eine einzelne fehlschlagende async_get_addon_info() darf die gesamte Pruefung nur
+async def test_check_is_skipped_when_the_addon_info_cannot_be_read(hass, monkeypatch, clock, notes):
+    """M4: eine fehlschlagende async_get_addon_info() darf die gesamte Pruefung nur
     ueberspringen (kein Zaehler, kein Alarm), nicht abbrechen mit einer Ausnahme."""
     log = []
-    addons = {
-        "heizungsbruecke": FakeAddon("a_heizungsbruecke", log),
-        "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log, error=AddonError("kaputt")),
-    }
+    addons = {"heizungsbruecke": FakeAddon("a_heizungsbruecke", log, error=AddonError("kaputt"))}
     entry = await _setup(hass, monkeypatch, addons)
 
     clock["t"] += 300
@@ -338,7 +374,7 @@ async def test_supervisor_outage_between_stopped_checks_does_not_reset_the_count
     zuruecksetzen -- die uebersprungene Pruefung zaehlt einfach nicht mit."""
     log = []
     bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING)
-    addons = {"heizungsbruecke": bridge, "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log)}
+    addons = {"heizungsbruecke": bridge}
     entry = await _setup(hass, monkeypatch, addons)
     coordinator = entry.runtime_data
 
@@ -357,22 +393,19 @@ async def test_supervisor_outage_between_stopped_checks_does_not_reset_the_count
     assert hass.states.get(STATUS).state == "addon_gestoppt"
 
 
-async def test_escalation_within_an_incident_sends_no_second_push(hass, monkeypatch, clock, notes):
+async def test_escalation_within_an_incident_keeps_one_notification(hass, monkeypatch, clock, notes):
     """Review-Fund 1: eskaliert ein Vorfall (hier reagiert_nicht -> addon_gestoppt, weil der
-    Neustart die Bruecke nicht wieder zum Laufen bringt), gibt es nur die eine kritische
-    Push-Meldung vom Vorfallsbeginn -- nicht eine zweite fuer die Eskalation."""
-    created, _dismissed = notes
-    pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
+    Neustart die Bruecke nicht wieder zum Laufen bringt), bleibt es ein Vorfall: derselbe Eintrag
+    mit neuem Text, keine Entwarnung dazwischen."""
+    created, dismissed = notes
     log = []
     bridge = FakeAddon("a_heizungsbruecke", log)
-    addons = {"heizungsbruecke": bridge, "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log)}
-    entry = await _setup(hass, monkeypatch, addons)
+    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge})
     coordinator = entry.runtime_data
 
     clock["t"] += 900
     await coordinator.async_check()  # reagiert_nicht: Neustart versucht
     assert hass.states.get(STATUS).state == "reagiert_nicht"
-    assert len(pushes) == 1
 
     bridge.state = AddonState.NOT_RUNNING  # der Neustart hat nicht geholfen
     clock["t"] += 300
@@ -381,7 +414,7 @@ async def test_escalation_within_an_incident_sends_no_second_push(hass, monkeypa
     await coordinator.async_check()  # 2/2 -> Eskalation auf addon_gestoppt
 
     assert hass.states.get(STATUS).state == "addon_gestoppt"
-    assert len(pushes) == 1  # weiterhin nur die eine kritische Push-Meldung
+    assert dismissed == []
     # Die persistent_notification wird bei der Eskalation neu geschrieben (aktualisierter Text),
     # aber mit derselben notification_id -- in HA selbst ueberschreibt das den bestehenden Eintrag
     # statt einen zweiten anzulegen.
@@ -496,19 +529,8 @@ async def test_parallel_shift_and_min_flow_sensors(hass, monkeypatch, clock):
 
 
 async def test_viessmann_entry_shows_level_and_room_setpoint(hass, monkeypatch, clock):
-    monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(return_value={}))
-    entry = make_entry(hass, data={
-        "tenant_id": TENANT, "profile_id": "viessmann_vicare", "integration_domain": "vicare",
-        "circuit": {"config_entry_id": "vicare-entry", "system_key": "SYSTEM", "circuit": "0"},
-        "entities": {
-            "entity_curve_current": "number.slope", "entity_level_current": "number.level",
-            "entity_shift_current": "number.comfort", "entity_mode_select": "climate.vicare",
-            "entity_outdoor_temp": "sensor.aussen",
-        },
-        "lever_set": "viessmann_vicare", "shift_lever": "level",
-    })
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await _setup(hass, monkeypatch, {}, profile_id="viessmann_vicare", lever_set="viessmann_vicare",
+                 hebel=["curve", "level", "room_setpoint"], shift_lever="level")
 
     _fire(hass, status_event(
         TENANT, "regelt", hebelsatz="viessmann_vicare", hebel={"curve": 1.2, "level": 3.0, "room_setpoint": 21.0},
@@ -531,8 +553,7 @@ async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, mon
     Aktualisierung ausloesen."""
     log = []
     bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING)
-    addons = {"heizungsbruecke": bridge, "cloudflared_access_mqtt": FakeAddon("a_cloudflared_access_mqtt", log)}
-    entry = await _setup(hass, monkeypatch, addons)
+    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge})
     coordinator = entry.runtime_data
 
     await coordinator.async_check()  # 1/2 gestoppt gezaehlt
@@ -550,68 +571,3 @@ async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, mon
     assert hass.states.get(STATUS).state == "addon_gestoppt"
     assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
     assert signals == []  # unveraenderter Status/Grund: kein Update
-
-
-# --- Waechter und Transportart (Plan AWS-2, Praezisierung 1) ---
-
-IOT_CORE_TRANSPORT = json.dumps({
-    "alpn": "x-amzn-mqtt-ca", "ca_pem": "CA", "client_id": TENANT, "host": "iot.example.test", "kind": "iot_core", "port": 443,
-}, sort_keys=True)
-MOSQUITTO_TRANSPORT = json.dumps({"host": "127.0.0.1", "kind": "mosquitto_cloudflared", "port": 18830}, sort_keys=True)
-
-
-async def _stopped_cloudflared_setup(hass, monkeypatch, transport):
-    log = []
-    bridge = FakeAddon("a_heizungsbruecke", log, options={"tenant_id": TENANT, "transport": transport})
-    cloudflared = FakeAddon("a_cloudflared_access_mqtt", log, state=AddonState.NOT_RUNNING)
-    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge, "cloudflared_access_mqtt": cloudflared})
-    return entry.runtime_data, log
-
-
-async def test_watchdog_ignores_a_stopped_cloudflared_on_iot_core(hass, monkeypatch, clock, notes):
-    coordinator, log = await _stopped_cloudflared_setup(hass, monkeypatch, IOT_CORE_TRANSPORT)
-
-    for _ in range(3):
-        clock["t"] += 100
-        await coordinator.async_check()
-
-    assert coordinator.watchdog_status is None
-    assert log == []  # cloudflared weder gestartet noch neu gestartet
-    assert notes[0] == []
-
-
-async def test_watchdog_still_revives_cloudflared_on_mosquitto(hass, monkeypatch, clock, notes):
-    coordinator, log = await _stopped_cloudflared_setup(hass, monkeypatch, MOSQUITTO_TRANSPORT)
-
-    for _ in range(2):
-        clock["t"] += 100
-        await coordinator.async_check()
-
-    assert coordinator.watchdog_status == "addon_gestoppt"
-    assert log == [("start", "a_cloudflared_access_mqtt")]
-
-
-async def test_watchdog_still_revives_a_stopped_bridge_on_iot_core(hass, monkeypatch, clock, notes):
-    log = []
-    bridge = FakeAddon("a_heizungsbruecke", log, state=AddonState.NOT_RUNNING,
-                       options={"tenant_id": TENANT, "transport": IOT_CORE_TRANSPORT})
-    cloudflared = FakeAddon("a_cloudflared_access_mqtt", log, state=AddonState.NOT_RUNNING)
-    entry = await _setup(hass, monkeypatch, {"heizungsbruecke": bridge, "cloudflared_access_mqtt": cloudflared})
-
-    for _ in range(2):
-        clock["t"] += 100
-        await entry.runtime_data.async_check()
-
-    assert entry.runtime_data.watchdog_status == "addon_gestoppt"
-    assert log == [("start", "a_heizungsbruecke")]
-
-
-async def test_watchdog_without_a_readable_transport_watches_both_addons(hass, monkeypatch, clock, notes):
-    coordinator, log = await _stopped_cloudflared_setup(hass, monkeypatch, "")
-
-    for _ in range(2):
-        clock["t"] += 100
-        await coordinator.async_check()
-
-    assert coordinator.watchdog_status == "addon_gestoppt"
-    assert log == [("start", "a_cloudflared_access_mqtt")]

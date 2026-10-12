@@ -1,154 +1,64 @@
-import pytest
-
+"""Spec 5c: Konstanten der schlanken Integration (Ereignis Schema 3, Discovery, Routen, Bedienbereich)."""
 from custom_components.smartheat import const
 
 
-def test_entity_and_notification_ids_use_the_tenant_slug():
+def test_status_event_schema_3_keeps_the_runtime_fields():
+    assert const.STATUS_EVENT_SCHEMA == 3
+    assert const.STATUS_EVENT_FIELDS[:16] == (
+        "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
+        "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise")
+    assert const.STATUS_EVENT_FIELDS[16:] == (
+        "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise")
+
+
+def test_device_contract_values():
+    assert (const.DISCOVERY_SERVICE, const.DISCOVERY_FIELDS) == ("smartheat", ("geraet_id", "zustand", "claim_code"))
+    assert const.WUNSCH_EVENT == "smartheat_wunsch"
+    assert (const.RAUM_SOLL_MIN, const.RAUM_SOLL_MAX, const.RAUM_SOLL_STEP) == (15.0, 25.0, 0.5)
+    assert const.MIN_ADDON_VERSIONS == {"heizungsbruecke": "1.0.0"}
+    assert const.EINRICHTUNG_ROUTEN["anmelden"] == ("POST", "/anmelden")
+    assert const.EINRICHTUNG_ROUTEN["auftrag"] == ("GET", "/geraet/auftraege/<job_id>")
+
+
+def test_device_states_and_hint_keys_follow_the_add_on_wire():
+    assert const.HINWEIS_FIELDS == ("key", "stufe", "text")
+    assert const.GERAET_ZUSTAENDE == (
+        "startet", "nicht_uebernommen", "keine_verbindung", "wartet_auf_einrichtung", "regelt", "stoerung", "gesperrt",
+        "update_noetig")
+    assert set(const.HINWEIS_KEYS) == {
+        "wunsch_begrenzt", "soll_quelle_aus", "geraet_doppelt", "update_noetig", "gesperrt", "konfiguration_abgelehnt"}
+    assert const.hinweis_issue_id("Update-Noetig") == "hinweis_update_noetig"
+
+
+def test_setup_api_routes_match_the_server():
+    assert const.EINRICHTUNG_PREFIX == "/einrichtung/v1"
+    assert const.EINRICHTUNG_ROUTEN == {
+        "anmelden": ("POST", "/anmelden"),
+        "abmelden": ("POST", "/abmelden"),
+        "uebernehmen": ("POST", "/geraete/uebernehmen"),
+        "geraet": ("GET", "/geraet"),
+        "inventur": ("POST", "/geraet/inventur"),
+        "vorschlag": ("GET", "/geraet/vorschlag"),
+        "zuordnung": ("POST", "/geraet/zuordnung"),
+        "pruefen": ("POST", "/geraet/pruefen"),
+        "einrichten": ("POST", "/geraet/einrichten"),
+        "neu_konfigurieren": ("POST", "/geraet/neu-konfigurieren"),
+        "entfernen": ("POST", "/geraet/entfernen"),
+        "auftrag": ("GET", "/geraet/auftraege/<job_id>"),
+    }
+
+
+def test_addon_and_wait_constants():
+    assert const.DEFAULT_BASE_URL == "https://accounts.hartfussha.org"
+    assert const.OPTION_BOOTSTRAP_URL == "bootstrap_url"
+    assert const.ADDON_SPECS == [("Heizungsbruecke", "heizungsbruecke")]
+    assert const.ADDON_DISPLAY_NAMES == {"heizungsbruecke": "Heizungsbrücke"}
+    assert (const.DISCOVERY_WAIT_SECONDS, const.INVENTUR_WAIT_SECONDS, const.AUFTRAG_WAIT_SECONDS,
+            const.ENTFERNEN_WAIT_SECONDS, const.POLL_SECONDS) == (300, 120, 900, 300, 2)
+
+
+def test_entity_ids_are_unchanged_for_client1():
     assert const.entity_id("sensor", "client1", "status") == "sensor.smartheat_client1_status"
+    assert const.entity_id("number", "client1", "wunschtemperatur") == "number.smartheat_client1_wunschtemperatur"
     assert const.entity_id("binary_sensor", "Smoke-Test 01", "notbetrieb") == "binary_sensor.smartheat_smoke_test_01_notbetrieb"
     assert const.watchdog_notification_id("client1") == "smartheat_client1_addon"
-
-
-def test_plausible_ranges_are_the_r4_values():
-    assert const.PLAUSIBLE_RANGES == {"room": (5.0, 35.0), "outdoor": (-40.0, 45.0), "heat_limit": (5.0, 25.0)}
-
-
-def test_status_event_contract_and_watchdog_values():
-    # Gleiche Werte wie smartheat_runtime/status.py (Contract-Check 14).
-    assert (const.STATUS_EVENT, const.STATUS_EVENT_SCHEMA) == ("smartheat_status", 2)
-    assert const.ADDON_STATUS_VALUES == (
-        "startet", "regelt", "konfigurationsfehler", "zugang_abgelehnt", "abo_beendet", "abo_inaktiv",
-        "notbetrieb", "datenfehler", "abgemeldet",
-    )
-    assert const.STATUS_SENSOR_VALUES == const.ADDON_STATUS_VALUES + ("addon_gestoppt", "reagiert_nicht")
-    assert const.HINT_CATEGORIES == (
-        "raumfuehler", "batterie", "manueller_eingriff", "quellwechsel", "schreibbudget", "schreibzaehler",
-    )
-    assert const.HINT_FIELDS == ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
-    assert (const.WATCHDOG_INTERVAL_SECONDS, const.STOPPED_AFTER_CHECKS, const.SILENCE_SECONDS) == (300, 2, 900)
-    assert (const.MAX_RESTARTS_PER_WINDOW, const.RESTART_WINDOW_SECONDS) == (3, 3600)
-
-
-def test_role_domains_only_cover_fields_outside_the_lever_sets():
-    assert const.ROLE_DOMAINS == {
-        "entity_room_target": ["sensor", "climate"],
-        "entity_outdoor_temp": ["sensor", "weather"],
-        "entity_flow_setpoint": ["sensor"],
-    }
-
-
-def test_status_event_fields_schema_2():
-    assert const.STATUS_EVENT_FIELDS == (
-        "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-        "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
-    )
-
-
-def test_heat_limit_is_a_writable_number_tp12h():
-    """TP12h: SmartHeat schreibt die Heizgrenze, daher nur number (kein Sensor mehr)."""
-    assert const.LEVER_SET_DOMAINS["vaillant_vrc720"]["entity_heat_limit"] == ["number"]
-    assert const.LEVER_SET_DOMAINS["weishaupt_wwp"]["entity_heat_limit"] == ["number"]
-    assert "entity_heat_limit" not in const.ENTITY_FILTERS
-
-
-def test_min_addon_version():
-    assert const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG] == "0.36.0"
-
-
-def test_wait_seconds_are_the_plan_values():
-    assert (const.SIGN_OFF_WAIT_SECONDS, const.STATUS_WAIT_SECONDS) == (60, 180)
-
-
-def test_addon_display_names_match_the_real_addon_names():
-    # M3: der Kunde muss das Add-on unter diesem Namen in Einstellungen -> Add-ons wiederfinden
-    # (heizungsbruecke/config.yaml: "Heizungsbruecke", cloudflared_access_mqtt/config.yaml:
-    # "Cloudflared Access TCP-Bridge"); Heizungsbruecke bekommt in Kundentexten einen Umlaut (F7).
-    assert const.ADDON_DISPLAY_NAMES == {
-        const.HEIZUNGSBRUECKE_ADDON_SLUG: "Heizungsbrücke",
-        const.CLOUDFLARED_ADDON_SLUG: "Cloudflared Access TCP-Bridge",
-    }
-
-
-def test_lever_options_mirror_the_add_on_roles():
-    assert const.LEVER_OPTIONS == {
-        "curve": "entity_curve_current", "room_setpoint": "entity_shift_current", "level": "entity_level_current",
-        "heat_limit": "entity_heat_limit", "min_flow": "entity_min_flow",
-    }
-    assert const.field_for_role("room_setpoint") == "entity_shift_current"
-    assert const.field_for_role("mode_select") == "entity_mode_select"
-    assert const.field_for_role("energy_electrical_total") == "entity_energy_electrical_total"
-
-
-@pytest.mark.parametrize("lever_set, levers", [
-    ("vaillant_vrc720", ("curve", "room_setpoint", "heat_limit", "min_flow")),
-    ("weishaupt_wwp", ("curve", "room_setpoint", "heat_limit")),
-    ("weishaupt_wwp_basis", ("room_setpoint",)),
-    ("viessmann_vicare", ("curve", "room_setpoint", "level")),
-])
-def test_lever_set_levers(lever_set, levers):
-    assert const.lever_set_levers(lever_set) == levers
-
-
-def test_every_lever_set_field_has_domains():
-    for lever_set in const.LEVER_SETS:
-        for field in const.plant_fields(lever_set):
-            assert const.field_domains(lever_set, field), (lever_set, field)
-    assert const.field_domains("vaillant_vrc720", "entity_shift_current") == ["climate"]
-    assert const.field_domains("weishaupt_wwp", "entity_shift_current") == ["number"]
-    assert const.field_domains("weishaupt_wwp", "entity_mode_select") == ["select"]
-    assert const.field_domains("viessmann_vicare", "entity_mode_select") == ["climate"]
-
-
-def test_write_role_fields_exclude_the_outdoor_source():
-    assert "entity_outdoor_temp" not in const.write_role_fields("weishaupt_wwp")
-    assert "entity_mode_select" in const.write_role_fields("weishaupt_wwp")
-
-
-def _complete(lever_set):
-    return {"profile_id": "p", "lever_set": lever_set, "shift_lever": "level",
-            "entities": {field: "x.y" for field in const.LEVER_SET_FIELDS[lever_set]}}
-
-
-def test_entry_incomplete_per_lever_set():
-    assert not const.entry_incomplete(_complete("viessmann_vicare"))
-    assert const.entry_incomplete({**_complete("viessmann_vicare"), "lever_set": None})
-    assert const.entry_incomplete({**_complete("viessmann_vicare"), "lever_set": "unbekannt"})
-    data = _complete("viessmann_vicare")
-    del data["entities"]["entity_level_current"]
-    assert const.entry_incomplete(data)
-    # client1 vor "Neu konfigurieren": alle Vaillant-Felder, aber kein lever_set
-    assert const.entry_incomplete({**_complete("vaillant_vrc720"), "lever_set": None})
-    # Schluss-Review Plan 3c: ohne gueltigen Verschiebungshebel unvollstaendig (sonst raum_soll statt
-    # parallelverschiebung und die Bereinigung verwaister Entities griffe falsch)
-    for shift_lever in (None, "", 7):
-        assert const.entry_incomplete({**_complete("vaillant_vrc720"), "shift_lever": shift_lever})
-    data = _complete("vaillant_vrc720")
-    del data["shift_lever"]
-    assert const.entry_incomplete(data)
-
-
-def test_versions_and_contracts():
-    assert const.REQUIRED_CATALOG_VERSION == 4
-    assert const.STATUS_EVENT_SCHEMA == 2
-    assert const.MIN_ADDON_VERSIONS["heizungsbruecke"] == "0.36.0"
-    assert const.HINT_CATEGORIES[-2:] == ("schreibbudget", "schreibzaehler")
-    assert const.KPI_ENERGY_CHANNELS[-1] == "electrical_total"
-    assert (const.OPTION_LEVER_SET, const.OPTION_POLL_INTERVAL) == ("lever_set", "poll_interval_seconds")
-    assert const.POLL_INTERVAL_OPTION_RANGE == (10, 3600)
-    assert const.CLIENT_TYPE_HA == "ha"
-    assert const.PROVISION_CLIENT_KEYS == ("client_type", "client_version")
-
-
-def test_the_warmth_hint_and_its_category_are_gone():
-    assert "waerme_fehlt" not in const.HINT_FIELDS
-    assert "therme" not in const.HINT_CATEGORIES
-
-
-def test_delivery_roles_are_kpi_roles_without_state_class_check():
-    assert const.KPI_SCALAR_ROLE_BY_CAPABILITY["has_generator_hours"] == "entity_generator_hours"
-    assert const.KPI_SCALAR_ROLE_BY_CAPABILITY["has_generator_starts"] == "entity_generator_starts"
-    assert const.KPI_SCALAR_ROLE_BY_CAPABILITY["has_generator_state"] == "entity_generator_state"
-    assert {"entity_generator_hours", "entity_generator_starts", "entity_generator_state"} <= set(
-        const.KPI_ROLES_WITHOUT_STATE_CLASS)
-    for role in ("entity_generator_hours", "entity_generator_starts", "entity_generator_state"):
-        assert const.ENTITY_FILTERS[role] == [{"domain": "sensor"}]
