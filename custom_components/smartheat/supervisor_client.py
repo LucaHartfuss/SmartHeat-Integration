@@ -68,21 +68,41 @@ class ResolvedAddon:
     version: str | None
 
 
-def _matching_addons(installed, repository_url: str, config_slug: str) -> list:
-    """Installierte Add-ons mit dieser Repository-URL und diesem Slug-Suffix (gemeinsame
-    Zuordnungslogik fuer async_resolve_addons und async_find_addon_managers)."""
-    return [
-        addon for addon in installed
-        if addon.url == repository_url and addon.slug.endswith(f"_{config_slug}")
-    ]
+def _same_repository(value: object, repository_url: str = ADDON_REPOSITORY_URL) -> bool:
+    """Adresse eines Store-Repositorys gleich `repository_url` (ohne / und .git am Ende)."""
+    return isinstance(value, str) and value.rstrip("/").removesuffix(".git") == repository_url
+
+
+async def async_repository_slug(hass: HomeAssistant, repository_url: str = ADDON_REPOSITORY_URL) -> str | None:
+    """Slug (Hash) unseres Repositorys im Add-on-Store, nur lesend. Erkannt nur an `source`, der Adresse, unter der
+    das Repository eingetragen ist; `url` kommt aus der repository.yaml des Autors und beweist nichts. None, wenn es
+    nicht (oder mehrdeutig) eingetragen ist: dann gehoert kein Add-on zu SmartHeat (fail closed). Wirft AddonError."""
+    try:
+        repositories = await get_supervisor_client(hass).store.repositories_list()
+    except SupervisorError as error:
+        raise AddonError(f"Add-on-Store nicht lesbar: {type(error).__name__}") from None
+    slugs = [repository.slug for repository in repositories if _same_repository(repository.source, repository_url)]
+    return slugs[0] if len(slugs) == 1 else None
+
+
+def _matching_addons(installed, repository_slug: str | None, config_slug: str) -> list:
+    """Installierte Add-ons genau aus unserem Repository (`repository` = dessen Slug, Slug = "<Repo-Slug>_<config_slug>").
+    Weder die `url` eines Add-ons (aus dessen config.yaml, frei waehlbar) noch ein Slug-Suffix (auch
+    local_heizungsbruecke oder ein fremdes Repository) zaehlen. Gemeinsame Zuordnung fuer async_resolve_addons,
+    async_find_addon_managers und addon_control.async_bridge_slug."""
+    if not repository_slug:
+        return []
+    expected = f"{repository_slug}_{config_slug}"
+    return [addon for addon in installed if addon.repository == repository_slug and addon.slug == expected]
 
 
 async def async_resolve_addons(
     hass: HomeAssistant, repository_url: str, min_versions: dict[str, str],
 ) -> dict[str, ResolvedAddon]:
-    """Loest alle `min_versions`-Schluessel (bare config.yaml-Slugs) aus EINEM addons.list()
-    auf und prueft die Mindestversion. Eine rohe SupervisorError wird
+    """Loest alle `min_versions`-Schluessel (bare config.yaml-Slugs) aus EINEM addons.list() auf, nur Add-ons aus dem
+    Repository mit der Store-Adresse `repository_url`, und prueft die Mindestversion. Eine rohe SupervisorError wird
     AddonError."""
+    repository_slug = await async_repository_slug(hass, repository_url)
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
@@ -90,7 +110,7 @@ async def async_resolve_addons(
 
     result: dict[str, ResolvedAddon] = {}
     for config_slug, required in min_versions.items():
-        matches = _matching_addons(installed, repository_url, config_slug)
+        matches = _matching_addons(installed, repository_slug, config_slug)
         if not matches:
             raise AddonNotFoundError(config_slug)
         if len(matches) > 1:
@@ -123,13 +143,14 @@ async def async_find_addon_managers(
     mittendrin abzubrechen. Eine SupervisorError beim eigentlichen Abruf wird ebenfalls AddonError."""
     if not is_hassio(hass):
         raise AddonError("Hass.io ist auf dieser Installation nicht geladen")
+    repository_slug = await async_repository_slug(hass)
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
         raise AddonError(f"Supervisor nicht erreichbar bei der Add-on-Aufloesung: {error}") from error
     managers: dict[str, AddonManager | None] = {}
     for name, config_slug in addon_specs:
-        matches = _matching_addons(installed, ADDON_REPOSITORY_URL, config_slug)
+        matches = _matching_addons(installed, repository_slug, config_slug)
         if len(matches) == 1:
             managers[config_slug] = AddonManager(hass, _LOGGER, name, matches[0].slug)
             continue

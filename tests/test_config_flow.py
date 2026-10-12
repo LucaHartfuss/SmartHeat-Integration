@@ -39,7 +39,7 @@ DISCOVERY = HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "nicht_
                                       "claim_code": CLAIM_CODE},
                               name="Heizungsbruecke", slug="abc_heizungsbruecke", uuid="u1")
 LOGIN = {"email": "a@b.de", "password": PASSWORT}
-BRUECKE = SimpleNamespace(slug="abc_heizungsbruecke", url=ADDON_REPOSITORY_URL, version="1.0.0")
+BRUECKE = SimpleNamespace(slug="abc_heizungsbruecke", repository="abc", url=ADDON_REPOSITORY_URL, version="1.0.0")
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 
 
@@ -68,12 +68,15 @@ def server(monkeypatch):
         return {}
 
     def supervisor(hass):
-        return SimpleNamespace(addons=SimpleNamespace(list=AsyncMock(side_effect=lambda: list(fake.addons))))
+        return SimpleNamespace(addons=SimpleNamespace(list=AsyncMock(side_effect=lambda: list(fake.addons))),
+                               store=SimpleNamespace(repositories_list=AsyncMock(return_value=[SimpleNamespace(
+                                   slug="abc", source=ADDON_REPOSITORY_URL, url=ADDON_REPOSITORY_URL)])))
 
     fake.discovery = {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE}
     fake.addons = [BRUECKE]
     fake.addon_error = None
     monkeypatch.setattr(config_flow.addon_control, "get_supervisor_client", supervisor)
+    monkeypatch.setattr(config_flow.supervisor_client, "get_supervisor_client", supervisor)
     monkeypatch.setattr(config_flow.addon_control, "async_bootstrap_url", bootstrap_url)
     monkeypatch.setattr(config_flow.addon_control, "async_discovery", discovery)
     monkeypatch.setattr(config_flow.supervisor_client, "async_resolve_addons", resolve)
@@ -333,7 +336,10 @@ async def test_invalid_discovery_aborts(hass, server, config):
 
 @pytest.mark.parametrize("addons", [
     [BRUECKE],  # die Discovery stammt von einem anderen Add-on (slug passt nicht)
-    [SimpleNamespace(slug="xyz_heizungsbruecke", url="https://github.com/fremd/addons", version="9.9.9")],
+    [SimpleNamespace(slug="xyz_heizungsbruecke", repository="xyz", url="https://github.com/fremd/addons",
+                     version="9.9.9")],
+    # fremdes Repository, das sich mit unserer url und einem *_heizungsbruecke als Heizungsbruecke ausgibt
+    [SimpleNamespace(slug="xyz_heizungsbruecke", repository="xyz", url=ADDON_REPOSITORY_URL, version="1.0.0")],
     [],
 ])
 async def test_discovery_of_a_foreign_addon_aborts(hass, server, addons):
@@ -341,6 +347,16 @@ async def test_discovery_of_a_foreign_addon_aborts(hass, server, addons):
     foreign = HassioServiceInfo(config=DISCOVERY.config, name="x", slug="xyz_heizungsbruecke", uuid="u5")
 
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=foreign)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
+
+
+async def test_local_addon_imitating_the_bridge_is_rejected(hass, server):
+    server.addons = [SimpleNamespace(slug="local_heizungsbruecke", repository="local", url=ADDON_REPOSITORY_URL,
+                                     version="1.0.0")]
+    local = HassioServiceInfo(config=DISCOVERY.config, name="x", slug="local_heizungsbruecke", uuid="u6")
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=local)
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
 

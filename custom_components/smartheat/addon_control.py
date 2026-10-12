@@ -48,7 +48,7 @@ from .const import (
     removal_notification_id,
     watchdog_notification_id,
 )
-from .supervisor_client import _matching_addons, async_find_addon_managers
+from .supervisor_client import _matching_addons, async_find_addon_managers, async_repository_slug
 from .texts import async_hint
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,14 +61,19 @@ ADDON_NAME = "Heizungsbruecke"
 
 
 async def async_bridge_slug(hass: HomeAssistant) -> str | None:
-    """Echter (praefigierter) Slug der installierten Heizungsbruecke aus dem SmartHeat-Repository (Repository-URL und
-    Slug-Suffix; ein anderes Repository mit einem *_heizungsbruecke zaehlt nicht), None wenn nicht installiert.
-    Mehrfach installiert ist mehrdeutig und wird nicht geraten (AddonError). Wirft AddonError."""
+    """Echter Slug der installierten Heizungsbruecke aus dem SmartHeat-Repository: das Repository erkannt an seiner
+    Store-Adresse (`source`), das Add-on an Repository und exaktem Slug (supervisor_client._matching_addons). None,
+    wenn das Repository nicht eingetragen oder die Heizungsbruecke nicht installiert ist; ein Add-on mit unserer
+    `url` oder einem Slug *_heizungsbruecke aus einem anderen Repository zaehlt nie. Mehrfach installiert ist
+    mehrdeutig und wird nicht geraten. Wirft AddonError."""
+    repository_slug = await async_repository_slug(hass)
+    if repository_slug is None:
+        return None
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
         raise AddonError(f"Supervisor nicht erreichbar: {type(error).__name__}") from None
-    matches = _matching_addons(installed, ADDON_REPOSITORY_URL, HEIZUNGSBRUECKE_ADDON_SLUG)
+    matches = _matching_addons(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG)
     if len(matches) > 1:
         raise AddonError("Die Heizungsbruecke ist mehrfach installiert")
     return matches[0].slug if matches else None
@@ -90,19 +95,14 @@ async def async_bridge_manager(hass: HomeAssistant) -> AddonManager | None:
     return _manager(hass, slug) if slug else None
 
 
-def _same_repository(url: str | None) -> bool:
-    return (url or "").rstrip("/").removesuffix(".git") == ADDON_REPOSITORY_URL
-
-
 async def _repository_hash(hass: HomeAssistant) -> str:
-    """Slug-Praefix des SmartHeat-Repositorys im Add-on-Store (der Supervisor praefigiert damit die Slugs). Fehlt das
-    Repository im Store, wird es hinzugefuegt (aiohasupervisor kennt store.add_repository)."""
+    """Slug-Praefix des SmartHeat-Repositorys im Add-on-Store (der Supervisor praefigiert damit die Slugs), erkannt
+    nur an `source`. Fehlt das Repository im Store, wird es hinzugefuegt (nur auf dem Installationsweg)."""
     store = get_supervisor_client(hass).store
     try:
         for attempt in (0, 1):
-            for repository in await store.repositories_list():
-                if _same_repository(repository.source) or _same_repository(repository.url):
-                    return repository.slug
+            if (repository_slug := await async_repository_slug(hass)) is not None:
+                return repository_slug
             if attempt == 0:
                 await store.add_repository(StoreAddRepository(repository=ADDON_REPOSITORY_URL))
     except SupervisorError as error:

@@ -491,17 +491,20 @@ def _message(config, *, service="smartheat", addon=SLUG):
 def _supervisor(discovery=None, options=None, installed=True, repositories=None, installed_addons=None):
     client = MagicMock()
     client.discovery.list = AsyncMock(return_value=discovery or [])
-    addon = SimpleNamespace(slug=SLUG, url=ADDON_REPOSITORY_URL, version="1.0.0")
+    addon = SimpleNamespace(slug=SLUG, repository="abc", url=ADDON_REPOSITORY_URL, version="1.0.0")
     client.addons.list = AsyncMock(return_value=installed_addons if installed_addons is not None
                                    else ([addon] if installed else []))
     client.addons.addon_info = AsyncMock(return_value=SimpleNamespace(options=options or {}, state="started"))
-    client.store.repositories_list = AsyncMock(side_effect=repositories or [[]])
+    client.store.repositories_list = (AsyncMock(side_effect=repositories) if repositories is not None
+                                      else AsyncMock(return_value=[_repository("abc")]))
     client.store.add_repository = AsyncMock()
     return client
 
 
 def _patch(monkeypatch, client, *, hassio=True):
     monkeypatch.setattr(addon_control, "get_supervisor_client", lambda hass: client)
+    # Das Store-Repository liest supervisor_client.async_repository_slug ueber den eigenen Import.
+    monkeypatch.setattr("custom_components.smartheat.supervisor_client.get_supervisor_client", lambda hass: client)
     monkeypatch.setattr(addon_control, "is_hassio", lambda hass: hassio)
 
 
@@ -576,8 +579,7 @@ async def test_bridge_manager_is_none_when_not_installed_or_ambiguous(hass, monk
     assert (await addon_control.async_bridge_manager(hass)).addon_slug == SLUG
     _patch(monkeypatch, _supervisor(installed=False))
     assert await addon_control.async_bridge_manager(hass) is None
-    twice = [SimpleNamespace(slug=f"{prefix}_heizungsbruecke", url=ADDON_REPOSITORY_URL, version="1.0.0")
-             for prefix in ("abc", "def")]
+    twice = [SimpleNamespace(slug=SLUG, repository="abc", url=ADDON_REPOSITORY_URL, version="1.0.0")] * 2
     _patch(monkeypatch, _supervisor(installed_addons=twice))
     assert await addon_control.async_bridge_manager(hass) is None
     _patch(monkeypatch, _supervisor(), hassio=False)
@@ -625,8 +627,63 @@ async def test_install_and_start_needs_the_supervisor(hass, monkeypatch):
         await addon_control.async_install_and_start(hass)
 
 
-def _repository(slug, url=ADDON_REPOSITORY_URL):
-    return SimpleNamespace(slug=slug, source=url, url=url, name="SmartHeat", maintainer="x")
+def _repository(slug, url=ADDON_REPOSITORY_URL, source=None):
+    return SimpleNamespace(slug=slug, source=source or url, url=url, name="SmartHeat", maintainer="x")
+
+
+async def test_repository_hash_ignores_a_repository_that_only_claims_our_url(hass, monkeypatch):
+    """`url` stammt aus der repository.yaml des Autors; nur `source` (die eingetragene Adresse) zaehlt."""
+    fake = _repository("0badc0de", source="https://github.com/fremd/addons")
+    client = _supervisor(repositories=[[fake], [fake, _repository("f5f6325b")]])
+    _patch(monkeypatch, client)
+    assert await addon_control._repository_hash(hass) == "f5f6325b"
+    client.store.add_repository.assert_awaited_once()
+
+
+_FAKES = [
+    SimpleNamespace(slug="local_heizungsbruecke", repository="local", url=ADDON_REPOSITORY_URL, version="1.0.0"),
+    SimpleNamespace(slug="0badc0de_heizungsbruecke", repository="0badc0de", url=ADDON_REPOSITORY_URL, version="1.0.0"),
+]
+
+
+@pytest.mark.parametrize("fake", _FAKES)
+async def test_an_addon_imitating_the_bridge_is_never_used(hass, monkeypatch, fake):
+    """Lokales oder fremdes Add-on mit unserer url und Slug *_heizungsbruecke: weder Slug noch Discovery noch seine
+    Option bootstrap_url (sonst gingen die Zugangsdaten an eine fremde Adresse)."""
+    message = SimpleNamespace(service="smartheat", addon=fake.slug,
+                              config={"geraet_id": "shg-aaaaaaaaaaaaaaaa", "claim_code": "C"})
+    client = _supervisor(discovery=[message], options={"bootstrap_url": "https://angreifer.example"},
+                         installed_addons=[fake],
+                         repositories=None)
+    client.store.repositories_list = AsyncMock(return_value=[
+        _repository("abc"), _repository("0badc0de", source="https://github.com/fremd/addons")])
+    _patch(monkeypatch, client)
+
+    assert await addon_control.async_bridge_slug(hass) is None
+    assert await addon_control.async_discovery(hass) is None
+    assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
+    client.addons.addon_info.assert_not_called()
+
+
+async def test_without_our_repository_no_addon_is_the_bridge(hass, monkeypatch):
+    client = _supervisor(options={"bootstrap_url": "https://angreifer.example"})
+    client.store.repositories_list = AsyncMock(return_value=[])
+    _patch(monkeypatch, client)
+
+    assert await addon_control.async_bridge_slug(hass) is None
+    assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
+    client.addons.addon_info.assert_not_called()
+
+
+async def test_the_genuine_bridge_is_found_next_to_an_imitation(hass, monkeypatch):
+    genuine = SimpleNamespace(slug=SLUG, repository="abc", url=ADDON_REPOSITORY_URL, version="1.0.0")
+    client = _supervisor(options={"bootstrap_url": "https://labor.example.test"},
+                         installed_addons=[*_FAKES, genuine])
+    _patch(monkeypatch, client)
+
+    assert await addon_control.async_bridge_slug(hass) == SLUG
+    assert await addon_control.async_bootstrap_url(hass) == "https://labor.example.test"
+    client.addons.addon_info.assert_awaited_once_with(SLUG)
 
 
 async def test_repository_hash_uses_the_repository_already_in_the_store(hass, monkeypatch):
