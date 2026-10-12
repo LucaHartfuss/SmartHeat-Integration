@@ -13,6 +13,8 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   und das zweite Add-on `cloudflared_access_mqtt` im Assistenten. „Neu konfigurieren“ bietet stattdessen
   „Zuordnung ändern“ und „Gerät entfernen“.
 - Die Entity-IDs von `client1` (13 aus 0.16.1) bleiben, dazu kommt `number.smartheat_<anlage>_wunschtemperatur`.
+- Die Wunschtemperatur lehnt eine Eingabe ab, solange das Thermostat ausgeschaltet ist (mit Hinweis).
+- Die Server-Adresse aus der Add-on-Option `bootstrap_url` gilt nur noch mit `https` (wie im Add-on).
 
 ## 0.16.1
 
