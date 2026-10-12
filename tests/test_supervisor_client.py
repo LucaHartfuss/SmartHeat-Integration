@@ -11,7 +11,6 @@ from custom_components.smartheat.supervisor_client import (
     AmbiguousAddonMatchError,
     ResolvedAddon,
     async_find_addon_managers,
-    async_get_addon_managers,
     async_resolve_addons,
 )
 
@@ -108,27 +107,10 @@ async def test_newer_addon_is_accepted(monkeypatch):
 async def test_supervisor_error_becomes_addon_error(monkeypatch):
     _patch_supervisor_client(monkeypatch, error=SupervisorError("weg"))
 
-    with pytest.raises(AddonError):
+    with pytest.raises(AddonError) as error:
         await async_resolve_addons(None, REPO_URL, MIN)
-
-
-async def test_get_addon_managers_keeps_order_and_uses_resolved_slugs(monkeypatch):
-    # Reale Mindestversion aus const.MIN_ADDON_VERSIONS (0.36.0); dieser Test
-    # prueft nur die Reihenfolge/Aufloesung, nicht die Versionsgrenze selbst.
-    _patch_supervisor_client(monkeypatch, _both(hb_version="0.36.0"))
-
-    managers = await async_get_addon_managers(
-        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
-    )
-
-    assert [m.addon_slug for m in managers] == ["f5f6325b_heizungsbruecke", "f5f6325b_cloudflared_access_mqtt"]
-
-
-async def test_get_addon_managers_refuses_outdated_addons(monkeypatch):
-    _patch_supervisor_client(monkeypatch, _both(hb_version="0.18.0"))
-
-    with pytest.raises(AddonOutdatedError):
-        await async_get_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])
+    assert "weg" not in str(error.value)
+    assert "SupervisorError" in str(error.value)
 
 
 async def test_find_addon_managers_resolves_each_slug_without_a_minimum_version(monkeypatch):
@@ -158,8 +140,10 @@ async def test_find_addon_managers_gives_none_for_missing_or_ambiguous(monkeypat
 async def test_find_addon_managers_turns_a_supervisor_error_into_addon_error(monkeypatch):
     _patch_supervisor_client(monkeypatch, error=SupervisorError("weg"))
 
-    with pytest.raises(AddonError):
+    with pytest.raises(AddonError) as error:
         await async_find_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])
+    assert "weg" not in str(error.value)
+    assert "SupervisorError" in str(error.value)
 
 
 async def test_find_addon_managers_logs_missing_and_ambiguous_reasons_separately(monkeypatch, caplog):
@@ -178,7 +162,7 @@ async def test_find_addon_managers_logs_missing_and_ambiguous_reasons_separately
 async def test_find_addon_managers_without_hassio_raises_addon_error(hass):
     # Fehlt Hass.io ganz (Core/Container-Installation, aus einem Backup wiederhergestellt), bricht
     # der rohe get_supervisor_client() mit einem KeyError ab -- der Aufrufer soll aber eine
-    # reguläre AddonError sehen, um sauber zu degradieren (z.B. addon_control.async_sign_off).
+    # reguläre AddonError sehen, um sauber zu degradieren (z.B. der Waechter).
     with pytest.raises(AddonError):
         await async_find_addon_managers(hass, [("Heizungsbruecke", "heizungsbruecke")])
 
@@ -222,13 +206,25 @@ async def test_without_our_repository_nothing_matches(monkeypatch):
     assert managers == {"heizungsbruecke": None, "cloudflared_access_mqtt": None}
 
 
-@pytest.mark.parametrize("source", [REPO_URL + "/", REPO_URL + ".git"])
+@pytest.mark.parametrize("source", [
+    REPO_URL + "/", REPO_URL + ".git", REPO_URL.lower(), REPO_URL.upper().replace("HTTPS", "https"),
+    REPO_URL.lower() + ".GIT/",
+])
 async def test_repository_source_is_normalised(monkeypatch, source):
     _patch_supervisor_client(monkeypatch, _both(), repositories=[_repository(source=source)])
 
     result = await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
 
     assert result["heizungsbruecke"].slug == "f5f6325b_heizungsbruecke"
+
+
+async def test_a_repository_over_plain_http_is_not_ours(monkeypatch):
+    """Das Schema bleibt unterschieden: http ist nicht https."""
+    _patch_supervisor_client(monkeypatch, _both(),
+                             repositories=[_repository(source=REPO_URL.replace("https://", "http://"))])
+
+    with pytest.raises(AddonNotFoundError):
+        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
 
 
 async def test_store_error_becomes_addon_error(monkeypatch):

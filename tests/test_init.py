@@ -14,7 +14,8 @@ from .addon_fakes import FakeAddon, make_device_entry, make_entry, status_event
 CO = "custom_components.smartheat.coordinator"
 
 # Was 0.16.1 fuer client1 (vaillant_vrc720, shift_lever room_setpoint) erzeugt: 5 feste Felder, Status, 4 Hebel,
-# 2 Lernwerte, Notbetrieb -- dazu neu die Wunschtemperatur.
+# 2 Lernwerte, Notbetrieb -- dazu neu die Wunschtemperatur. Die 13 alten IDs sind aus sensor.entity_keys und
+# binary_sensor.ENTITY_KEYS von v0.16.1 abgeleitet (Plan 5c I Task 7), nicht abgetippt.
 CLIENT1_ENTITIES = {
     "sensor.smartheat_client1_status": "client1_status",
     "sensor.smartheat_client1_datenfehler": "client1_datenfehler",
@@ -89,12 +90,10 @@ async def test_setup_creates_no_repair_issue(hass, monkeypatch):
 
 
 async def test_removing_the_entry_calls_no_server(hass, monkeypatch, aioclient_mock):
-    """Spec 5c 4: das Geraet regelt weiter. Kein HTTP-Aufruf, das Add-on wird weder gestoppt noch abgemeldet oder
+    """Spec 5c 4: das Geraet regelt weiter. Kein HTTP-Aufruf, das Add-on wird weder gestoppt noch
     deinstalliert; nur die eigenen Reparatur-Hinweise verschwinden."""
     log = []
     bridge = FakeAddon("a_heizungsbruecke", log)
-    sign_off = AsyncMock()
-    monkeypatch.setattr("custom_components.smartheat.addon_control.async_sign_off", sign_off)
     uninstall, stop = AsyncMock(), AsyncMock()
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_uninstall_addon", uninstall)
     monkeypatch.setattr("homeassistant.components.hassio.AddonManager.async_stop_addon", stop)
@@ -109,7 +108,6 @@ async def test_removing_the_entry_calls_no_server(hass, monkeypatch, aioclient_m
 
     assert aioclient_mock.call_count == 0
     assert log == []
-    sign_off.assert_not_awaited()
     uninstall.assert_not_awaited()
     stop.assert_not_awaited()
     assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_geraet_doppelt") is None

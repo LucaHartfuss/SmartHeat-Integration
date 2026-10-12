@@ -1,38 +1,13 @@
-"""Aufzeichnende Attrappen fuer Add-ons, Supervisor und Status-Events (Spec TP7)."""
+"""Aufzeichnende Attrappen fuer Add-ons und Status-Events (Spec TP7, 5c)."""
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from types import SimpleNamespace
 
-from homeassistant.components.hassio import AddonError, AddonState
+from homeassistant.components.hassio import AddonState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat.const import DOMAIN, STATUS_EVENT_SCHEMA
-
-from .addon_schema import validate
-
-ADDON_SCHEMAS = json.loads((Path(__file__).parent / "fixtures" / "addon_schema.json").read_text())
-
-
-def _schema_for(slug: str) -> dict | None:
-    """Der Fake-Slug traegt ein Praefix ("a_heizungsbruecke"); der Schluessel der Fixture ist der nackte Slug."""
-    return next((schema for name, schema in ADDON_SCHEMAS.items() if slug.endswith(name)), None)
-
-
-def check_options(slug: str, config: dict, *, require_all: bool = False) -> None:
-    """Wie der Supervisor bei set_options: AddonError bei unbekannten Schluesseln und falschen Typen; mit
-    require_all=True auch bei fehlenden Pflichtfeldern. Wizard-Schreibungen (mock_addons in flow_helpers.py)
-    verlangen require_all=True; nur Fixtures mit Teiloptionen (FakeAddon in Coordinator-/Control-Tests,
-    Rueckbau eines Snapshots) duerfen es weglassen. Der Slug-Abgleich ist tolerant (endswith), damit auch
-    "a_heizungsbruecke" zum Schema "heizungsbruecke" passt; unbekannte Slugs werden nicht geprueft."""
-    schema = _schema_for(slug)
-    if schema is None:
-        return
-    problems = validate(schema, config, require_all=require_all)
-    if problems:
-        raise AddonError("Invalid options: " + "; ".join(problems))
 
 
 class FakeAddon:
@@ -54,12 +29,6 @@ class FakeAddon:
         self._check()
         return SimpleNamespace(options=dict(self.options), state=self.state, version="0.20.0")
 
-    async def async_set_addon_options(self, config):
-        self._check()
-        check_options(self.addon_slug, config)
-        self.log.append(("options", self.addon_slug, dict(config)))
-        self.options = dict(config)
-
     async def async_restart_addon(self):
         self._check()
         self.log.append(("restart", self.addon_slug))
@@ -74,20 +43,6 @@ class FakeAddon:
     async def async_stop_addon(self):
         self._check()
         self.log.append(("stop", self.addon_slug))
-
-
-class FakeSupervisor:
-    """get_supervisor_client(hass)-Ersatz: zeichnet set_addon_options(slug, AddonsOptions) auf."""
-
-    def __init__(self, log, error=None):
-        self.log = log
-        self.error = error
-        self.addons = SimpleNamespace(set_addon_options=self._set_addon_options)
-
-    async def _set_addon_options(self, slug, options):
-        if self.error is not None:
-            raise self.error
-        self.log.append(("supervision", slug, options.to_dict()))
 
 
 GERAET_ID = "shg-a"
@@ -125,7 +80,7 @@ def make_device_entry(hass, *, tenant_id="wohnung1", geraet_id=GERAET_ID, lever_
 
 def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry", options=None, data=None, version=2,
                data_without=()):
-    """Vollstaendiger v2-Eintrag wie nach dem Wizard (Spec TP7 2.1, Plan 3c: mit Hebelsatz). data_without: diese
+    """Vollstaendiger v2-Eintrag, wie ihn 0.16 anlegte (Spec TP7 2.1, Plan 3c: mit Hebelsatz). data_without: diese
     Schluessel fehlen (z. B. lever_set/shift_lever wie bei client1 vor dem Update)."""
     if data is None:
         data = {

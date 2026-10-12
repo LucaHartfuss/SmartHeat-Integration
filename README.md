@@ -1,87 +1,62 @@
 # SmartHeat fuer Home Assistant
 
-Native Config-Flow-Integration fuer die SmartHeat-Add-ons (`heizungsbruecke`,
-`cloudflared_access_mqtt` aus dem Repo
-[SmartHeat-for-HomeAssistant](https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant)).
+HACS-Integration fuer das SmartHeat-Add-on `heizungsbruecke` aus dem Repo
+[SmartHeat-for-HomeAssistant](https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant). Ab 1.0.0 ist das Add-on
+ein Geraet des SmartHeat-Servers; die Integration richtet es ueber die Einrichtungs-API des Servers ein und zeigt seinen
+Status in Home Assistant. Die Regelung selbst laeuft auf dem Server und im Add-on, nicht in der Integration.
 
 ## Voraussetzungen
 
 - Home Assistant mit Supervisor (Hass.io/HAOS).
-- Beide Add-ons aus dem SmartHeat-Add-on-Repository installiert: `heizungsbruecke` ≥ 0.32.0
-  und `cloudflared_access_mqtt` ≥ 1.0.0 (nicht manuell konfigurieren — der Wizard prueft die
-  Mindestversion vor jedem Setup und bricht sonst mit einer Fehlermeldung ab).
 - Eine unterstuetzte Heizungs-Integration in Home Assistant eingerichtet (z. B. myVAILLANT).
-- **Aktualisierungsintervall der Heizungs-Integration:** hoechstens 30 Minuten (myVAILLANT: Standard 30 Minuten). Bei einem laengeren Intervall erkennt SmartHeat eigene Aenderungen womoeglich zu spaet; der Wizard weist darauf hin.
+- Ein SmartHeat-Konto.
+- Das Add-on `heizungsbruecke` ab Version 1.0.0. Eine aeltere Version lehnt der Assistent mit einem Hinweis ab.
 
 ## Installation
 
-1. Add-ons und Heizungs-Integration wie oben installieren.
-2. Dieses Repository als HACS-Custom-Repository hinzufuegen, "SmartHeat" installieren.
-3. Einstellungen → Geraete & Dienste → Integration hinzufuegen → "SmartHeat" → Setup-Wizard
-   ausfuellen (Login → Tenant → Heizungs-Integration → System → Raeume → Anlagenwerte →
-   Benachrichtigungen → Zusammenfassung).
+1. Dieses Repository als HACS-Custom-Repository hinzufuegen und "SmartHeat" installieren, Home Assistant neu starten.
+2. Das Add-on-Repository `https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant` im Add-on-Store eintragen und
+   `heizungsbruecke` installieren und starten. (Fehlt das Add-on, installiert und startet es der Assistent selbst.)
+3. Einstellungen → Geraete & Dienste: "SmartHeat gefunden" bestaetigen (Supervisor-Discovery des Add-ons) und dem
+   Assistenten folgen: Anmelden → Anlage → Heizungs-Integration → System → Raeume → Anlagenwerte →
+   Benachrichtigungen → Zusammenfassung. Alternativ "Integration hinzufuegen" → "SmartHeat".
 
-Die Integration erkennt Heizkreis, Anlagenwerte und Raumfuehler weitgehend automatisch, schreibt
-die Konfiguration nach der Zusammenfassung in beide Add-ons und startet sie neu.
+Inventur, Vorschlag und Pruefung laufen auf dem Server; der Assistent zeigt die Ergebnisse an und nimmt Korrekturen
+entgegen. Die Konfiguration uebernimmt das Add-on selbst, die Integration schreibt keine Add-on-Optionen und haelt
+keinen Server-Token im Betrieb (das Einrichtungs-Token lebt nur im Speicher des Assistenten).
 
-## Nach der Einrichtung
+## Entities
 
-- **Gerät „SmartHeat <Anlage>“:** Status (regelt, Notbetrieb, Datenfehler, Abo, Add-on gestoppt …), Notbetrieb,
-  Datenfehler mit Quelle, Boost, letzte Serverantwort, gelernte Heizkurve, gelernte Parallelverschiebung,
-  Mindestvorlauftemperatur, Abo, Add-on-Version. Ausgefallene Raumfühler, schwache Batterien und manuelle
-  Eingriffe stehen als Attribute am Status.
-- **Optionen** (ohne Anmeldung): Raumfühler, Wunschtemperatur, Handys, Batterien, Hinweise einzeln abschalten.
-- **Neu konfigurieren** (mit Anmeldung): Heizkreis, Verteilsystem, Anlagenwerte (u. a. die Zone für die
-  Parallelverschiebung, Mindestvorlauf-Entity, optional das Vorlauf-Soll). Die Zugangsdaten bleiben
-  (fehlen sie in den Add-ons, werden neue ausgestellt); Batterieauswahl und Handys aus den Optionen bleiben.
-- **Überwachung:** Die Integration schaltet Watchdog und „Start beim Booten“ für beide Add-ons ein (bei
-  AWS-IoT-Anlagen nur für die Heizungsbrücke; `cloudflared_access_mqtt` bleibt dort gestoppt), prüft alle
-  5 Minuten, ob sie laufen und sich melden, meldet Ausfälle und startet sie neu (höchstens dreimal pro Stunde).
-- **Entfernen:** Das Add-on wird abgemeldet (ein laufender Boost wird zurückgesetzt), beide Add-ons werden
-  gestoppt und ihre Zugangsdaten geleert (alle Zugangs-Optionen der Heizungsbrücke, Ziel und Service-Token von
-  cloudflared). Scheitert das Zurücksetzen, läuft die Heizungsbrücke weiter, bis
-  es gelingt, und meldet die Werte, die sonst von Hand einzustellen sind. Ist der Server erreichbar, widerruft er den Zugang dort
-  ebenfalls mit dem Installations-Token aus den Add-on-Optionen (Best Effort — scheitert das, bleibt er bis zur
-  nächsten Einrichtung gültig).
+Geraet "SmartHeat <Anlage>":
 
-## Update auf 0.11.0
+- Status (regelt, Notbetrieb, Datenfehler, Abo, Add-on gestoppt …), Datenfehler mit Quelle, Boost, letzte
+  Serverantwort, Abo, Add-on-Version.
+- Gelernte Heizkurve, Parallelverschiebung (bzw. Niveau), Heizgrenze, Mindestvorlauf (je nach Hebelsatz), gelernte
+  Steigung und gelernte Heizgrenze.
+- Notbetrieb (Binary-Sensor).
+- **Wunschtemperatur** (`number`): wirkt lokal ueber das Add-on, auch ohne Server.
 
-**Reihenfolge: SmartHeat-Server (Provisioning mit CSR), dann Add-on `heizungsbruecke` 0.32.0, dann die
-Integration.** **Jede Installation von vor 0.32.0/0.11.0 regelt nach dem Add-on-Update nicht mehr, bis „Neu
-konfigurieren“ ausgeführt wurde** (auch `client1`): die Heizungsbrücke meldet „Konfiguration veraltet“, die
-Anlage behält ihre letzten Werte. „Neu konfigurieren“ erkennt den alten Zugang (ohne Installations-Token) und
-stellt einen neuen aus. Das Add-on deshalb erst aktualisieren, wenn „Neu konfigurieren“ gleich danach
-möglich ist (und kein Boost aktiv ist).
+Hinweise des Geraets (z. B. Update noetig, Geraet gesperrt, Einstellung abgelehnt) erscheinen als Reparatur-Hinweise.
 
-## Update auf 0.10.0
+## Neu konfigurieren und Entfernen
 
-**Reihenfolge: SmartHeat-Server (TP12h), dann Add-on `heizungsbruecke` 0.27.0, dann die Integration.** Die
-Heizgrenze muss jetzt eine `number`-Entity sein, weil SmartHeat sie schreibt; ein bisher gewählter Sensor
-fordert „Neu konfigurieren“. Neu: Sensor `sensor.smartheat_<anlage>_heizgrenze`.
+- **Neu konfigurieren** (mit Anmeldung): "Zuordnung aendern" fuehrt durch die Zuordnung der Anlagenwerte erneut,
+  "Geraet entfernen" loest das Geraet beim Server.
+- **Eintrag loeschen** loest nichts beim Server und stoppt das Add-on nicht; das Geraet regelt weiter. Das Geraet
+  entfernen geht ueber "Neu konfigurieren" oder das Portal.
+- Es gibt keinen Optionsdialog mehr.
 
-## Update auf 0.9.0
+## Ueberwachung
 
-**Zuerst den SmartHeat-Server aktualisieren** (Katalog v2), danach die Integration; 0.9.0 lehnt einen
-älteren Server-Katalog ab (der Assistent bricht mit einem Hinweis ab). Ein vollständiger Eintrag aus
-0.8.x braucht danach nichts weiter.
+Die Integration schaltet Watchdog und "Start beim Booten" fuer die Heizungsbruecke ein, prueft alle 5 Minuten, ob sie
+laeuft und sich meldet, meldet Ausfaelle und startet sie neu (hoechstens dreimal pro Stunde).
 
-Neu in 0.9.0: Pro Home Assistant gibt es nur noch einen SmartHeat-Eintrag. Der Wizard schlägt die Heizzone
-nur noch vor, wenn ihr Name den gewählten Heizkreis nennt, und die Entities, auf die SmartHeat schreibt,
-müssen zur gewählten Heizungs-Integration und Anlage gehören; Abweichungen von der Erkennung und ein
-Aktualisierungsintervall der Heizungs-Integration über 30 Minuten sind in der Zusammenfassung zu bestätigen.
-Wird die Einrichtung nach dem Schreiben abgebrochen, setzt SmartHeat die Add-ons zurück und meldet offene
-Schritte als Benachrichtigung.
+## Update von 0.16
 
-### Update von 0.7.x oder älter
+Installationen aus 0.16 (Eintrag ohne Geraete-ID) setzen sich mit 1.0.0 nicht ein: Die Integration zeigt "alter Eintrag"
+und einen Reparatur-Hinweis. Der Umzug ist ein eigener Schritt (Plan 5d); bis dahin bleibt 0.16.1 installiert.
 
-Ab 0.8.0/`heizungsbruecke` 0.24.0 ersetzt die Rolle „Parallelverschiebung“ (Zonen-Wunschtemperatur) die
-bisherige Rolle „Offset“; der Sensor `sensor.smartheat_<anlage>_offset` entfällt zugunsten von
-`sensor.smartheat_<anlage>_parallelverschiebung` und `sensor.smartheat_<anlage>_mindestvorlauf` und wird
-ab 0.9.0 automatisch aus der Entity-Registry entfernt. Eine Konfiguration aus einer älteren Version startet
-zwar noch, geht aber ohne Schreibzugriff auf die Anlage in den Ruhezustand „Konfiguration veraltet“ über.
-**Nach dem Update: Neu konfigurieren** ausführen und dabei die neuen Anlagenwerte-Felder ausfüllen.
-
-## Änderungen
+## Aenderungen
 
 Alle Versionen stehen in [CHANGELOG.md](CHANGELOG.md) (HACS zeigt den jeweiligen Abschnitt als
 Release-Notiz).

@@ -1,8 +1,6 @@
-"""Gemeinsame Fortschritts-Mechanik fuer Config- und Options-Flow: ein Hintergrund-Task je
-Fortschritts-Schritt, `async_show_progress`/`async_show_progress_done` je nach Task-Stand.
-Extrahiert aus dem urspruenglich in beiden Flows duplizierten `_progress`; Fehlertext und
-Folgeschritt bei einer unerwarteten Ausnahme bleiben Sache des jeweiligen Flows
-(`_progress_error_step`)."""
+"""Fortschritts-Mechanik des Config-Flows: ein Hintergrund-Task je Fortschritts-Schritt,
+`async_show_progress`/`async_show_progress_done` je nach Task-Stand. Fehlertext und Folgeschritt bei einer
+unerwarteten Ausnahme bleiben Sache des Flows (`_progress_error_step`)."""
 from __future__ import annotations
 
 import asyncio
@@ -17,13 +15,13 @@ _LOGGER = logging.getLogger(__name__)
 
 class ProgressFlowMixin:
     """Erwartet vom Flow `hass` sowie `async_show_progress`/`async_show_progress_done` (beide von
-    HAs `FlowHandler`, Basis von ConfigFlow und OptionsFlow) und implementiert selbst
+    HAs `FlowHandler`, Basis von ConfigFlow) und implementiert selbst
     `_progress_error_step()` -- setzt den flow-eigenen Fehlertext und liefert den Schritt fuer eine
     unerwartete Ausnahme im Job."""
 
     _progress_task: asyncio.Task | None = None
 
-    # Von der jeweiligen Flow-Basisklasse (ConfigFlow/OptionsFlow) bereitgestellt; hier nur als
+    # Von der jeweiligen Flow-Basisklasse (ConfigFlow) bereitgestellt; hier nur als
     # Typ-Deklaration fuer den Checker, da der Mixin selbst keine von beiden erbt -- ohne
     # Zuweisung, also ohne Laufzeitwirkung (echte Werte kommen von der Basisklasse).
     if TYPE_CHECKING:
@@ -34,7 +32,7 @@ class ProgressFlowMixin:
         def async_show_progress_done(self, **kwargs: Any) -> Any: ...
 
     async def _progress_error_step(self) -> str:
-        """Wird von jedem konkreten Flow ueberschrieben (config_flow.py, options_flow.py)."""
+        """Wird vom konkreten Flow ueberschrieben (config_flow.py)."""
         raise NotImplementedError
 
     async def _run_progress(self, step_id: str, progress_action: str, job):

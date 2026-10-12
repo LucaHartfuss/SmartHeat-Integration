@@ -1,10 +1,11 @@
 # SmartHeat-Integration — Repo-Kontext
 
 HACS-Integration `smartheat` (Ordner und GitHub-Repo heißen `SmartHeat-Integration`, ältere Dokumente sagen
-`SmartHeat-HomeAssistant-Integration`): Einrichtungsassistent (Login → Tenant → Heizungs-Integration → System →
-Hebelsatz → Räume → Anlagenwerte → Setup), richtet die Add-ons aus `SmartHeat-for-HomeAssistant` ein, zeigt den Status
-als Entities und überwacht die Add-ons (zweiter Wächter). Assistent, „Neu konfigurieren“, Reauth, Rückbau und Module:
-`../docs/architecture.md` Abschnitt 6.
+`SmartHeat-HomeAssistant-Integration`). Ab 1.0.0 (Spec 5c): Das Add-on `heizungsbruecke` ist ein Gerät des Servers; die
+Integration führt den Nutzer über die Einrichtungs-API des Servers (Anmelden → Anlage → Inventur → Zuordnung → Prüfung →
+Einrichten), zeigt den Status des Add-ons als Entities, macht seine Hinweise zu Reparatur-Hinweisen, bietet die
+Wunschtemperatur an und überwacht das Add-on (zweiter Wächter). Erkennung und Prüfung laufen auf dem Server, die
+Konfiguration setzt das Add-on selbst um. Aufbau: `../docs/architecture.md` Abschnitt 6.
 
 ## Prüfen und Branches
 
@@ -14,10 +15,10 @@ scripts/check.sh          # lint, test, contract (--only <schritt> für einzelne
 Direkter Aufruf bleibt möglich: `python3.14 -m venv .venv && .venv/bin/pip install -r
 requirements_test.txt && .venv/bin/python -m pytest -q` (`pytest-homeassistant-custom-component`
 braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup; `pytest.ini`:
-`asyncio_mode = auto`, `testpaths = tests`). `addon_fakes.py`/`flow_helpers.py` sind gemeinsame
-Test-Doubles (Fake-Supervisor/Add-on-Manager, Fake-HA-Bus). `tests/fixtures/` enthält Kopien von Server-Daten
-(`catalog.json`, `client1_mypyllant_registry.json`); Gleichheit mit den echten
-Server-/Client1-Daten prüft der Contract-Check.
+`asyncio_mode = auto`, `testpaths = tests`). `addon_fakes.py` (Fake-Add-on-Manager, Status-Ereignis, Einträge) und
+`einrichtung_fakes.py` (Fake-Einrichtungs-Server) sind gemeinsame Test-Doubles. `tests/fixtures/` enthält nur noch,
+was `../tools/contract_check.py` liest (`tests/fixtures/README.md`); `catalog.py`, diese Fixtures und der Block am
+Ende von `const.py` bleiben bis Plan 5c W Teil B (Contract-Loader), der Schritt `contract` ist bis dahin rot.
 
 Feature-Branches (`feat/…`/`fix/…`) zweigen von `develop` ab und werden `--no-ff` nach `develop`
 gemergt — nie direkt nach `main`. `main` bewegt sich nur per Release-Tag (`vX.Y.Z`,
@@ -27,14 +28,24 @@ neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbo
 
 ## Regeln und Fallen
 
-- **Status-Event-Vertrag** `smartheat_status` (Add-on `smartheat_runtime/status.py` und `heizungsbruecke/ha_sinks.py` ↔
-  `const.py`, Contract-Check 14): `schema`, Feldliste und erlaubte Werte müssen exakt übereinstimmen.
-- **Hebel-, Rollen- und Optionsnamen** in `const.py` (`LEVER_OPTIONS`, `LEVER_SETS`, `ROLE_DOMAINS`, `OPTION_*`) müssen zu
-  Server und Add-on passen (Checks 4, 25, 26, 42; `architecture.md` §9). `const.py` prüft `python3 ../tools/contract_check.py`.
-- **`entry.data`** = Anlagenwerte, Tenant, Profil-ID (ändern nur Assistent und „Neu konfigurieren“); **`entry.options`** =
-  veränderliche Einstellungen (Optionen-Flow ohne Login). Der Eintrag speichert keine Zugangsdaten; nie Geheimnisse loggen.
-- **Unvollständige Einträge** (`const.entry_incomplete`) bekommen einen nicht-fixbaren Repair-Issue und behalten ihre alten
-  Entities bis „Neu konfigurieren“.
-- Add-on-Slugs tragen einen Repo-Hash-Präfix (z. B. `f5f6325b_heizungsbruecke`): `supervisor_client.async_resolve_addons`.
+- **Status-Ereignis** `smartheat_status`, Schema 3 (Add-on `geraet_status.py`/`smartheat_runtime/status.py` ↔ `const.py`,
+  Contract-Check 14): `schema`, Feldliste und erlaubte Werte müssen exakt übereinstimmen. Den Gerätezustand gibt
+  `geraet_zustand` (nicht `status`: der Laufzeit-Teil sagt „startet“, solange das Add-on nicht konfiguriert ist).
+- **Discovery-Felder** des Add-ons (`DISCOVERY_FIELDS`): `geraet_id`, `zustand` (auch „startet“), `claim_code` (nur
+  solange `nicht_uebernommen`). Der Assistent vertraut nur einer Discovery der Heizungsbrücke aus unserem Store-Repository
+  (Abgleich über `source`, exakter Slug; `url` und Slug-Endung beweisen nichts) und liest sie vor der Übernahme neu.
+- **`EINRICHTUNG_ROUTEN`** (`const.py`) = Routen des Servers (`einrichtung_api.ROUTEN`). Bearer genau als
+  `Authorization: Bearer <token>`; 404/405 können als HTML kommen (nach Statuscode abbilden). Nach angenommenem
+  „entfernen“ sind 401/404 auf der Auftragsroute = „entfernt“.
+- **Keine Optionen, kein Token im Betrieb:** Die Integration schreibt keine Add-on-Optionen (nur Watchdog/Autostart über
+  den Supervisor), hat keinen Optionsdialog und speichert das Einrichtungs-Token nie (nur im Speicher des Flows, nie
+  im Log; wird bei jedem Ende beim Server beendet).
+- **Wunschtemperatur:** Ereignis `smartheat_wunsch` mit `{"raum_soll": Zahl}`, Grenzen 15–25 K in 0,5-Schritten.
+- **`entry.data`** (`VERSION` 3) = `geraet_id`, `tenant_id`, `profile_id`, `lever_set`, `hebel`, `shift_lever`. Einträge
+  aus 0.16 (VERSION 2, ohne `geraet_id`) lehnt das Setup mit Text und Reparatur-Hinweis ab (`alter_eintrag`); den Umzug
+  macht Plan 5d. Die Entity-IDs und `unique_id`s von `client1` (13 aus 0.16.1) bleiben (`tests/test_init.py`).
+- Add-on-Slugs tragen einen Repo-Hash-Präfix (z. B. `f5f6325b_heizungsbruecke`): `supervisor_client.async_resolve_addons`;
+  Mindestversion `MIN_ADDON_VERSIONS` (1.0.0) wird vor dem Warten auf die Discovery geprüft.
+- Vom Supervisor nie einen Fehlertext zeigen oder loggen (er kann Optionswerte zitieren), nur die Fehlerart.
 - `manifest.json`-Repo-URL = Name des GitHub-Repos (`SmartHeat-Integration`), nicht der lokale Ordnername.
 - Ohne Supervisor (`is_hassio`/`SUPERVISOR_TOKEN`) bricht der Assistent früh ab.

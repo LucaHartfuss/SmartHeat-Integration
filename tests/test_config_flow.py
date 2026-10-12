@@ -718,7 +718,7 @@ async def test_reconfigure_of_an_old_entry_aborts_with_a_text(hass, server):
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "alter_eintrag")
 
 
-async def test_options_flow_is_gone(hass, server):
+async def test_there_is_no_options_dialog(hass, server):
     entry = await _eingerichtet(hass, server)
 
     assert not entry.supports_options

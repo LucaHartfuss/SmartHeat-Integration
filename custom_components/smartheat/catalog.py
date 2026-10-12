@@ -1,4 +1,7 @@
-"""Profilkatalog des Servers lesen (GET /catalog, Spec TP6 2.1; Suchregeln verbindlich in
+"""Bleibt bis Plan 5c W Teil B (Contract-Loader): die Integration nutzt diesen Katalog-Parser seit 1.0.0 nicht
+mehr (Erkennung laeuft auf dem Server), tools/contract_check.py laedt ihn aber noch (Checks 36 u. a.).
+
+Profilkatalog des Servers lesen (GET /catalog, Spec TP6 2.1; Suchregeln verbindlich in
 docs/superpowers/specs/2026-09-26-profilkatalog-design.md, 3.1). Der Server liefert nur Daten,
 keine Regex: Suffixe sind Literale mit hoechstens einem Platzhalter {circuit} oder (Katalog v2) {index} samt circuit_in_name.
 Katalog v3 (Plan 3c): Hebel-Matcher, kreisbildende Rollen je Deskriptor, {circuit_opt}, Hebelsaetze je Profil. Eine ungueltige
