@@ -115,7 +115,7 @@ def make_device_entry(hass, *, tenant_id="wohnung1", geraet_id=GERAET_ID, lever_
     """Eintrag ab 1.0.0 wie nach dem neuen Assistenten (Plan 5c I Task 4): Geraete-ID, Anlage, Profil, Hebel des
     Server-Vorschlags; keine Optionen."""
     entry = MockConfigEntry(
-        domain=DOMAIN, version=2, unique_id=geraet_id, title=tenant_id,
+        domain=DOMAIN, version=3, unique_id=geraet_id, title=tenant_id,
         data={"geraet_id": geraet_id, "tenant_id": tenant_id, "profile_id": profile_id, "lever_set": lever_set,
               "hebel": list(VAILLANT_HEBEL if hebel is None else hebel), "shift_lever": shift_lever},
     )

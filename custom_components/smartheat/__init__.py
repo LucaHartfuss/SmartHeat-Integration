@@ -20,6 +20,13 @@ PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
 ALTER_EINTRAG = "alter_eintrag"
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Eintraege bis 0.16 (VERSION 2) zieht erst 5d um. Bis dahin bleiben sie unveraendert (ein zurueckgerolltes 0.16.1
+    richtet sie weiter ein) und laufen bis async_setup_entry, das sie mit Text und Reparatur-Hinweis ablehnt
+    (alter_eintrag) statt mit einem Migrationsfehler ohne Erklaerung."""
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not entry.data.get("geraet_id"):
         ir.async_create_issue(hass, DOMAIN, ALTER_EINTRAG, is_fixable=False, severity=ir.IssueSeverity.ERROR,

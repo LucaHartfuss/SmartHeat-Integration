@@ -55,6 +55,9 @@ from .flow_helpers import (
     weishaupt_catalog,
 )
 
+# Der Optionen-Flow und der alte Assistent sind ersetzt (Spec 5c 2.1); Task 7 loescht diese Datei.
+pytestmark = pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
+
 
 def _prepare(hass, monkeypatch, *, tenants=(TENANT,), server=None, **addons):
     enable_supervisor(hass, monkeypatch)

@@ -73,6 +73,15 @@ EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
 }
 AUFTRAG_FERTIG = "fertig"
 AUFTRAG_FEHLGESCHLAGEN = "fehlgeschlagen"
+# Rollen, die der Server im Schritt Anlagenwerte anbieten kann (device_protocol.HA_ROLLEN ohne room_target, das der
+# Schritt Raeume zeigt); jede braucht einen Text unter config.step.anlagenwerte.data.
+ROLLEN_ANLAGENWERTE = (
+    "curve", "room_setpoint", "level", "heat_limit", "min_flow", "mode_select", "setpoint_comfort", "setpoint_setback",
+    "outdoor_temp", "flow_temperature", "flow_setpoint", "return_temperature", "operating_mode",
+    "system_water_pressure", "efficiency_ratio", "generator_hours", "generator_starts", "generator_state",
+    "energy_electrical_heating", "energy_electrical_dhw", "energy_primary_heating", "energy_primary_dhw",
+    "energy_thermal_heating", "energy_thermal_dhw", "energy_electrical_total",
+)
 
 DISCOVERY_WAIT_SECONDS = 300
 INVENTUR_WAIT_SECONDS = 120

@@ -5,6 +5,7 @@ Verhalten; kein xfail mehr, sie sichern die Behebung ab."""
 import json
 from pathlib import Path
 
+import pytest
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.smartheat.catalog import parse_integrations
@@ -37,6 +38,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 [MYPYLLANT, _WEISHAUPT, _VICARE] = parse_integrations(json.loads((FIXTURES / "catalog.json").read_text()))
 
 
+@pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
 async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entities(hass, monkeypatch):
     enable_supervisor(hass, monkeypatch)
     mock_server(monkeypatch)
@@ -69,6 +71,7 @@ async def test_reconfigure_with_a_circuit_change_suggests_the_new_circuits_entit
     assert written["entity_shift_current"] == "climate.zuhause_zone_1_circuit_1_climate"
 
 
+@pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
 async def test_reconfigure_with_an_integration_change_uses_the_new_detection(hass, monkeypatch):
     """AU-003: Eintrag auf einer anderen Integration -> keine Vorbelegung aus dem Eintrag."""
     enable_supervisor(hass, monkeypatch)
@@ -100,6 +103,7 @@ async def test_reconfigure_with_an_integration_change_uses_the_new_detection(has
     assert suggested(result, "entity_system_water_pressure", section="advanced") == "sensor.zuhause_system_water_pressure"
 
 
+@pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
 async def test_second_entry_on_the_same_home_assistant_is_refused(hass, monkeypatch):
     make_entry(hass, tenant_id=TENANT)
     enable_supervisor(hass, monkeypatch)

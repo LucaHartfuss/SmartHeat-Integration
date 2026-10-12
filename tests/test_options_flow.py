@@ -27,6 +27,9 @@ from .flow_helpers import (
     suggested,
 )
 
+# Der Optionen-Flow und der alte Assistent sind ersetzt (Spec 5c 2.1); Task 7 loescht diese Datei.
+pytestmark = pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
+
 NEW_ROOMS = {
     "room_sensors": ["sensor.wz_temperatur", "sensor.kz_temperatur"], "entity_room_target": "climate.wz",
     "notify_services": ["notify.mobile_app_iphone"], "battery_entities": ["sensor.wz_batterie"],
