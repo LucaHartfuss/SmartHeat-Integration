@@ -1,9 +1,10 @@
-"""Status und zweiter Waechter je Config-Entry (Spec TP7 1.2, 1.3). Die Integration laeuft im
-HA-Kern, unabhaengig vom Zustand der Add-ons: sie haelt den letzten Status-Event des Add-ons,
-prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob beide Add-ons laufen und ob sich die
-Heizungsbruecke meldet, meldet Befunde selbst (Push an die notify_services des Eintrags,
-persistent_notification) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je
-Stunde. Sie schreibt nie auf die Anlage (keine Notbremse, Nutzer-Entscheidung)."""
+"""Status und zweiter Waechter je Config-Entry (Spec TP7 1.2, 1.3; Spec 5c 2.2). Die Integration laeuft im
+HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte Status-Ereignis (Schema 3) ihres Geraets
+(Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
+Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
+meldet, meldet Befunde per persistent_notification (Push an die Handys ist Sache des Add-ons, Nutzer-Entscheidung
+2026-10-11) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Sie schreibt nie auf
+die Anlage (keine Notbremse, Nutzer-Entscheidung) und ruft keinen Server."""
 from __future__ import annotations
 
 import logging
@@ -19,23 +20,20 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import provisioning
+from . import repairs
 from .const import (
     ADDON_DISPLAY_NAMES,
+    ADDON_SPECS,
     ADDON_STATUS_VALUES,
     HEIZUNGSBRUECKE_ADDON_SLUG,
-    LEGACY_ADDON_SPECS,
     MAX_RESTARTS_PER_WINDOW,
-    OPTION_NOTIFY_SERVICES,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
     STATUS_ADDON_GESTOPPT,
     STATUS_EVENT,
     STATUS_EVENT_SCHEMA,
     STATUS_REAGIERT_NICHT,
-    STATUS_ZUGANG_ABGELEHNT,
     STOPPED_AFTER_CHECKS,
-    WATCHDOG_ALL_CLEAR_MESSAGE,
     WATCHDOG_INTERVAL_SECONDS,
     WATCHDOG_MESSAGES,
     WATCHDOG_REASONS,
@@ -155,6 +153,7 @@ class SmartHeatCoordinator:
         self.hass = hass
         self.entry = entry
         self.tenant_id: str = entry.data["tenant_id"]
+        self.geraet_id: str = entry.data["geraet_id"]
         self.data: dict | None = None
         self.watchdog_status: str | None = None
         self._watchdog_reason: str | None = None
@@ -188,23 +187,23 @@ class SmartHeatCoordinator:
 
     @callback
     def async_handle_event(self, event: Event) -> None:
+        """Nur Ereignisse des eigenen Geraets (geraet_id) im Schema 3. Vor der Einrichtung ist der Laufzeit-Teil leer
+        (status startet, tenant_id None); den Zustand des Geraets traegt dann geraet_zustand."""
         data = event.data
-        if data.get("tenant_id") != self.tenant_id:
+        if data.get("geraet_id") != self.geraet_id:
             return
         if data.get("schema") != STATUS_EVENT_SCHEMA or data.get("status") not in ADDON_STATUS_VALUES:
             _LOGGER.warning(
                 "Status-Event mit unbekanntem schema/status ignoriert: %r/%r", data.get("schema"), data.get("status"),
             )
             return
-        previous = None if self.data is None else self.data["status"]
         self.data = dict(data)
         self._watchdog.event_received(_now())
-        if data["status"] == STATUS_ZUGANG_ABGELEHNT and previous != STATUS_ZUGANG_ABGELEHNT:
-            self.entry.async_start_reauth(self.hass)
+        hinweise = data.get("geraet_hinweise")
+        repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
         if self.watchdog_status is not None:
-            # Entwarnung pruefen: gilt erst, wenn auch beide Add-ons laufen. An den Eintrag
-            # gebunden: wird beim Entladen/Entfernen storniert -- sonst koennte dieser Task nach
-            # async_sign_off noch Add-ons (neu) starten, die absichtlich gestoppt wurden, oder
+            # Entwarnung pruefen: gilt erst, wenn auch das Add-on laeuft. An den Eintrag gebunden: wird beim
+            # Entladen/Entfernen storniert -- sonst koennte dieser Task danach noch das Add-on (neu) starten oder
             # parallel zum Zeit-Takt laufen.
             self.entry.async_create_task(self.hass, self.async_check(), f"smartheat_recheck_{self.tenant_id}")
         async_dispatcher_send(self.hass, self.signal)
@@ -217,24 +216,17 @@ class SmartHeatCoordinator:
         self._checking = True
         try:
             try:
-                managers = await async_find_addon_managers(self.hass, LEGACY_ADDON_SPECS)
+                managers = await async_find_addon_managers(self.hass, ADDON_SPECS)
             except AddonError as error:
                 # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)
                 return
             running: dict[str, bool] = {}
-            bridge_options: dict = {}
             for config_slug, manager in managers.items():
                 info = await self._async_info(manager)
                 if info is False:
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running[config_slug] = info is not None and info.state == AddonState.RUNNING
-                if config_slug == HEIZUNGSBRUECKE_ADDON_SLUG and info is not None:
-                    bridge_options = dict(info.options)
-            # Bei iot_core nur die Heizungsbruecke (Plan AWS-2, Praez. 1): cloudflared ist dort gestoppt
-            # und ohne Ziel, das ist gewollt und kein Befund.
-            watched = provisioning.watched_addon_slugs(bridge_options)
-            running = {config_slug: state for config_slug, state in running.items() if config_slug in watched}
             status, revive = self._watchdog.check(_now(), running)
             for config_slug in revive:
                 await self._async_revive(managers[config_slug], running[config_slug])
@@ -267,11 +259,10 @@ class SmartHeatCoordinator:
 
     @callback
     def _set_watchdog_status(self, status: str | None) -> None:
-        """Push-Meldung und persistent_notification nur beim Beginn (None -> kritisch) und beim
-        Ende (kritisch -> None) eines Vorfalls. Eskaliert ein laufender Vorfall (z. B. gestoppt ->
-        reagiert nicht oder umgekehrt), wird nur der Text der bestehenden persistent_notification
-        aktualisiert (gleiche notification_id, kein neuer Eintrag) -- keine zweite Push-Meldung,
-        obwohl der Grund sich aendert: es ist derselbe Vorfall, keine zweite Stoerung."""
+        """persistent_notification beim Beginn (None -> kritisch) eines Vorfalls, entfernt an seinem Ende
+        (kritisch -> None). Eskaliert ein laufender Vorfall (z. B. gestoppt -> reagiert nicht oder umgekehrt), wird
+        nur der Text der bestehenden Meldung aktualisiert (gleiche notification_id, kein neuer Eintrag): es ist
+        derselbe Vorfall, keine zweite Stoerung."""
         if status == STATUS_ADDON_GESTOPPT:
             names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.incident_addon_slugs())
             reason = WATCHDOG_REASONS[status].format(addons=names)
@@ -283,12 +274,10 @@ class SmartHeatCoordinator:
         changed = (status, reason) != (previous, self._watchdog_reason)
         self.watchdog_status, self._watchdog_reason = status, reason
         if previous is None and status is not None:
-            self._notify(WATCHDOG_MESSAGES[status])
             persistent_notification.async_create(
                 self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
             )
         elif previous is not None and status is None:
-            self._notify(WATCHDOG_ALL_CLEAR_MESSAGE)
             persistent_notification.async_dismiss(self.hass, watchdog_notification_id(self.tenant_id))
         elif previous is not None and status is not None and status != previous:
             persistent_notification.async_create(
@@ -296,15 +285,3 @@ class SmartHeatCoordinator:
             )
         if changed:
             async_dispatcher_send(self.hass, self.signal)
-
-    @callback
-    def _notify(self, message: str) -> None:
-        for service in self.entry.options.get(OPTION_NOTIFY_SERVICES, []):
-            domain, _, name = service.partition(".")
-            self.hass.async_create_task(self._async_push(domain, name, message))
-
-    async def _async_push(self, domain: str, name: str, message: str) -> None:
-        try:
-            await self.hass.services.async_call(domain, name, {"title": "SmartHeat", "message": message}, blocking=True)
-        except Exception:  # noqa: BLE001 - Push ist best effort
-            _LOGGER.warning("Push-Meldung an %s.%s nicht gesendet", domain, name)

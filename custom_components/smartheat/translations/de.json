@@ -248,10 +248,13 @@
     "number": {"wunschtemperatur": {"name": "Wunschtemperatur"}}
   },
   "issues": {
-    "complete_setup": {
-      "title": "SmartHeat: Einrichtung für {tenant} abschließen",
-      "description": "Die Einrichtung von {tenant} ist unvollständig oder stammt aus einer älteren Version. Die Heizungssteuerung pausiert, die Anlage behält ihre letzten Werte. Unter Einstellungen → Geräte & Dienste → SmartHeat über ⋮ → „Neu konfigurieren“ anmelden. Die Zugangsdaten bleiben gleich."
-    }
+    "update_noetig": {"title": "SmartHeat: Add-on aktualisieren", "description": "{text} Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."},
+    "geraet_doppelt": {"title": "SmartHeat läuft doppelt", "description": "{text} Bitte die zweite Home-Assistant-Instanz mit demselben Add-on stoppen (z. B. ein eingespieltes Backup)."},
+    "wunsch_begrenzt": {"title": "SmartHeat: Wunschtemperatur begrenzt", "description": "{text}"},
+    "soll_quelle_aus": {"title": "SmartHeat: Thermostat ist aus", "description": "{text}"},
+    "konfiguration_abgelehnt": {"title": "SmartHeat: Einstellung abgelehnt", "description": "Das Add-on hat die neue Einstellung abgelehnt: {text} Bitte unter SmartHeat → Neu konfigurieren prüfen."},
+    "gesperrt": {"title": "SmartHeat: Gerät gesperrt", "description": "{text}"},
+    "geraet_hinweis": {"title": "SmartHeat-Hinweis", "description": "{text}"}
   },
   "common": {
     "done_status_datenfehler": "Das Add-on meldet einen Datenfehler ({grund}). SmartHeat regelt, sobald die Werte wieder stimmen; Details am SmartHeat-Gerät.",

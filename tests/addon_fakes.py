@@ -90,17 +90,37 @@ class FakeSupervisor:
         self.log.append(("supervision", slug, options.to_dict()))
 
 
+GERAET_ID = "shg-a"
+VAILLANT_HEBEL = ["curve", "room_setpoint", "heat_limit", "min_flow"]
+
+
 def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -> dict:
-    """Volles Status-Event (Schema aus const; Spec TP7 1.1, Plan 3c Praezisierung 7)."""
+    """Volles Status-Ereignis Schema 3 (Laufzeit-Teil wie Spec TP7 1.1/Plan 3c, dazu die Geraete-Felder aus Plan D;
+    Geraet GERAET_ID)."""
     event = {
         "schema": STATUS_EVENT_SCHEMA, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
         "letzte_serverantwort": None, "hebelsatz": "vaillant_vrc720", "hebel": None, "gelernt": None,
         "abo": "aktiv", "abo_frist_ende": None,
         "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None},
+        "geraet_id": GERAET_ID, "geraet_zustand": "regelt", "server_verbunden": True, "raum_soll": None,
+        "geraet_hinweise": [],
     }
     event.update(overrides)
     return event
+
+
+def make_device_entry(hass, *, tenant_id="wohnung1", geraet_id=GERAET_ID, lever_set="vaillant_vrc720",
+                      hebel=None, shift_lever="room_setpoint", profile_id="vaillant_gastherme_heizkoerper"):
+    """Eintrag ab 1.0.0 wie nach dem neuen Assistenten (Plan 5c I Task 4): Geraete-ID, Anlage, Profil, Hebel des
+    Server-Vorschlags; keine Optionen."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=2, unique_id=geraet_id, title=tenant_id,
+        data={"geraet_id": geraet_id, "tenant_id": tenant_id, "profile_id": profile_id, "lever_set": lever_set,
+              "hebel": list(VAILLANT_HEBEL if hebel is None else hebel), "shift_lever": shift_lever},
+    )
+    entry.add_to_hass(hass)
+    return entry
 
 
 def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry", options=None, data=None, version=2,

@@ -1,10 +1,13 @@
-"""Sensor-Felder je Hebelsatz (Plan 3c Task 12): stabile Entity-Schluessel, Werte aus hebel/gelernt."""
+"""Sensor-Felder je Hebel (Plan 3c Task 12; Spec 5c 8: Hebel aus entry.data["hebel"]): stabile Entity-Schluessel,
+Werte aus hebel/gelernt."""
 import pytest
 
 from custom_components.smartheat import sensor
 from custom_components.smartheat.const import STATUS_EVENT_SCHEMA
 
-VAILLANT = {"lever_set": "vaillant_vrc720", "shift_lever": "room_setpoint"}
+VAILLANT = {"lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
+            "shift_lever": "room_setpoint"}
+VIESSMANN = {"lever_set": "viessmann_vicare", "hebel": ["curve", "level", "room_setpoint"], "shift_lever": "level"}
 
 
 @pytest.mark.parametrize("lever, shift_lever, key", [
@@ -16,27 +19,30 @@ def test_lever_entity_keys_are_stable(lever, shift_lever, key):
     assert sensor.lever_entity_key(lever, shift_lever) == key
 
 
-def test_vaillant_entry_keeps_the_client1_entity_keys():
-    keys = sensor.entity_keys(VAILLANT)
-    assert {"heizkurve", "parallelverschiebung", "mindestvorlauf", "heizgrenze",
-            "gelernte_steigung", "gelernte_heizgrenze"} <= set(keys)
-    assert "niveau" not in keys and "raum_soll" not in keys
+def test_vaillant_entry_keeps_the_client1_entity_keys_in_their_order():
+    """Gleiche Schluessel und Reihenfolge wie 0.16.1 fuer client1 (Hebel in LEVER_OPTIONS-Reihenfolge)."""
+    assert sensor.entity_keys(VAILLANT) == (
+        "status", "datenfehler", "boost", "letzte_serverantwort", "abo", "addon_version",
+        "heizkurve", "parallelverschiebung", "heizgrenze", "mindestvorlauf", "gelernte_steigung", "gelernte_heizgrenze",
+    )
+
+
+def test_lever_order_does_not_depend_on_the_order_in_the_entry():
+    shuffled = {**VAILLANT, "hebel": ["min_flow", "heat_limit", "room_setpoint", "curve"]}
+    assert sensor.entity_keys(shuffled) == sensor.entity_keys(VAILLANT)
 
 
 def test_viessmann_entry_has_level_and_room_setpoint():
-    keys = sensor.entity_keys({"lever_set": "viessmann_vicare", "shift_lever": "level"})
+    keys = sensor.entity_keys(VIESSMANN)
     assert {"heizkurve", "niveau", "raum_soll"} <= set(keys)
     assert "heizgrenze" not in keys and "mindestvorlauf" not in keys
 
 
-def test_incomplete_entry_has_no_lever_or_learned_sensors():
-    keys = sensor.entity_keys({})
-    assert not {"heizkurve", "gelernte_steigung"} & set(keys)
+@pytest.mark.parametrize("data", [{}, {"hebel": []}, {"hebel": None}, {"hebel": "curve"}, {"hebel": ["unbekannt"]}])
+def test_entry_without_known_levers_has_no_lever_or_learned_sensors(data):
+    assert sensor.entity_fields(data) == sensor.FIELDS
+    keys = sensor.entity_keys(data)
     assert "status" in keys and "abo" in keys
-
-
-def test_unknown_lever_set_has_no_lever_sensors():
-    assert sensor.entity_fields({"lever_set": "gibt_es_nicht"}) == sensor.FIELDS
 
 
 EVENT = {

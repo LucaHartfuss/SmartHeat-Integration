@@ -248,10 +248,13 @@
     "number": {"wunschtemperatur": {"name": "Desired temperature"}}
   },
   "issues": {
-    "complete_setup": {
-      "title": "SmartHeat: complete the setup for {tenant}",
-      "description": "The setup of {tenant} is incomplete or comes from an older version. The heating control is paused, the heating keeps its last values. Open Settings → Devices & services → SmartHeat, choose ⋮ → Reconfigure and sign in. Your access credentials stay the same."
-    }
+    "update_noetig": {"title": "SmartHeat: update the add-on", "description": "{text} Settings → Add-ons → Heizungsbrücke → Update."},
+    "geraet_doppelt": {"title": "SmartHeat is running twice", "description": "{text} Please stop the second Home Assistant instance with the same add-on (e.g. a restored backup)."},
+    "wunsch_begrenzt": {"title": "SmartHeat: desired temperature limited", "description": "{text}"},
+    "soll_quelle_aus": {"title": "SmartHeat: thermostat is off", "description": "{text}"},
+    "konfiguration_abgelehnt": {"title": "SmartHeat: setting rejected", "description": "The add-on rejected the new setting: {text} Please check it under SmartHeat → Reconfigure."},
+    "gesperrt": {"title": "SmartHeat: device blocked", "description": "{text}"},
+    "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"}
   },
   "common": {
     "done_status_datenfehler": "The add-on reports a data error ({grund}). SmartHeat regulates as soon as the values are valid again; details on the SmartHeat device.",

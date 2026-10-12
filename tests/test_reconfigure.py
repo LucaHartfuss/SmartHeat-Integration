@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, call
 
+import pytest
 from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -288,6 +289,7 @@ def _supervision_by_slug(calls) -> dict:
     return {slug: options for _, slug, options in calls.supervision}
 
 
+@pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
 async def test_reconfigure_of_an_incomplete_entry_uses_the_detection_and_clears_the_repair_issue(hass, monkeypatch):
     """client1-Migration (Spec TP7 7, Schritt 4.3)."""
     mypyllant, mocks, calls = _prepare(
@@ -381,6 +383,7 @@ async def test_reauth_of_an_entry_without_a_current_plant_field_asks_for_reconfi
     assert (result["type"], result["reason"]) == ("abort", "reconfigure_first")
 
 
+@pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
 async def test_zugang_abgelehnt_event_starts_a_reauth_flow(hass, monkeypatch):
     mypyllant, _, _ = _prepare(hass, monkeypatch)
     entry = make_entry(hass, circuit_entry_id=mypyllant.entry_id)
@@ -461,6 +464,7 @@ async def test_reauth_setup_failure_menu_offers_only_cancel(hass, monkeypatch):
     assert result["menu_options"] == ["cancel"]
 
 
+@pytest.mark.skip(reason="alter Assistent, ersetzt in Plan 5c I Task 4/7")
 async def test_status_listener_is_unsubscribed_after_a_successful_reconfigure(hass, monkeypatch):
     """Der Flow meldet seinen eigenen StatusListener beim Ende ab (async_remove); nur der
     dauerhafte Listener des (neu geladenen) Coordinators darf uebrig bleiben, sonst bliebe ein

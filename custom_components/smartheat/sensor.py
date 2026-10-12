@@ -1,4 +1,4 @@
-"""Sensoren der SmartHeat-Integration (Spec TP7 1.2)."""
+"""Sensoren der SmartHeat-Integration (Spec TP7 1.2; Spec 5c 8: Hebel aus entry.data, Schluessel wie bis 0.16)."""
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -21,10 +21,7 @@ from .const import (
     DATENFEHLER_ARTEN,
     DATENFEHLER_KEINER,
     HINT_FIELDS,
-    LEVER_SET_FIELDS,
-    OPTION_LEVER_SET,
     STATUS_SENSOR_VALUES,
-    lever_set_levers,
 )
 from .entity import SmartHeatEntity
 
@@ -110,15 +107,21 @@ LEARNED_FIELDS = (
 )
 
 
+# Reihenfolge der Hebel wie bis 0.16 (LEVER_OPTIONS): gleiche Entity-Reihenfolge fuer client1.
+_LEVER_ORDER = ("curve", "room_setpoint", "level", "heat_limit", "min_flow")
+
+
 def entity_fields(entry_data: Mapping) -> tuple[EventField, ...]:
-    """Feste Felder plus je Hebel des Hebelsatzes und je Lernwert. Ohne bekannten Hebelsatz (Eintrag vor "Neu
-    konfigurieren") nur die festen Felder; dessen alte Entities raeumt __init__ nicht auf."""
-    lever_set = entry_data.get(OPTION_LEVER_SET)
-    if lever_set not in LEVER_SET_FIELDS:
+    """Feste Felder plus je Hebel aus entry_data["hebel"] (Server-Vorschlag; unbekannte Hebel entfallen) und je
+    Lernwert. Ohne bekannten Hebel nur die festen Felder."""
+    configured = entry_data.get("hebel")
+    if not isinstance(configured, list | tuple):
+        configured = ()
+    hebel = [lever for lever in _LEVER_ORDER if lever in configured]
+    if not hebel:
         return FIELDS
     shift_lever = entry_data.get("shift_lever")
-    levers = lever_set_levers(lever_set)
-    return FIELDS + tuple(_lever_field(lever, shift_lever) for lever in levers) + LEARNED_FIELDS
+    return FIELDS + tuple(_lever_field(lever, shift_lever) for lever in hebel) + LEARNED_FIELDS
 
 
 def entity_keys(entry_data: Mapping) -> tuple[str, ...]:
