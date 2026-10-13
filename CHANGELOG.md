@@ -3,12 +3,13 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
-## Unveröffentlicht
+## 1.0.0
 
 - **1.0.0** (Spec 5c): Einrichtung über die Supervisor-Discovery des Add-ons und die Einrichtungs-API des Servers;
   Erkennung und Prüfung laufen auf dem Server. Neue Entity Wunschtemperatur (wirkt lokal über das Add-on).
   Reparatur-Hinweise aus dem Gerät. Kein Server-Token im Betrieb, keine Add-on-Optionen. Setzt das Add-on 1.0.0
-  voraus; bestehende Installationen (0.16) ziehen mit einem eigenen Schritt um (5d).
+  voraus. Einträge aus 0.16 lehnt das Setup mit einem Hinweis ab: Eintrag löschen (solange 0.16 installiert ist),
+  Add-on 1.0.0 installieren, dann auf 1.0.0 aktualisieren und neu einrichten.
 - **Entfernt:** der Optionsdialog, die Erkennung und Prüfung in der Integration, der Rückbau über die Integration
   und das zweite Add-on `cloudflared_access_mqtt` im Assistenten. „Neu konfigurieren“ bietet stattdessen
   „Zuordnung ändern“ und „Gerät entfernen“.
