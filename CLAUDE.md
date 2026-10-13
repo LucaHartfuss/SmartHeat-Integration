@@ -5,7 +5,15 @@ HACS-Integration `smartheat` (Ordner und GitHub-Repo heißen `SmartHeat-Integrat
 Integration führt den Nutzer über die Einrichtungs-API des Servers (Anmelden → Anlage → Inventur → Zuordnung → Prüfung →
 Einrichten), zeigt den Status des Add-ons als Entities, macht seine Hinweise zu Reparatur-Hinweisen, bietet die
 Wunschtemperatur an und überwacht das Add-on (zweiter Wächter). Erkennung und Prüfung laufen auf dem Server, die
-Konfiguration setzt das Add-on selbst um. Aufbau: `../docs/architecture.md` Abschnitt 6.
+Konfiguration setzt das Add-on selbst um.
+
+## Struktur und Module
+
+Dateien, Schnittstellen, Daten, Invarianten und Tests der Integration stehen in der Modul-Doku des Dev-Roots, nicht
+hier: `../docs/module/ha-host.md` (HA-Oberfläche für die Einrichtung; Discovery und Status-Ereignis als Verträge mit dem
+Add-on). Die Einrichtungs-API des Servers beschreibt `../docs/module/einrichtung.md`; Modulkarte und Verträge V1–V5:
+`../docs/module/README.md`; Überblick und Datenflüsse: `../docs/architecture.md`. Wer die Integration ändert, zieht
+`ha-host.md` im selben Merge nach.
 
 ## Prüfen und Branches
 
@@ -34,7 +42,7 @@ neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbo
 - **Discovery-Felder** des Add-ons (`DISCOVERY_FIELDS`): `geraet_id`, `zustand` (auch „startet“), `claim_code` (nur
   solange `nicht_uebernommen`). Der Assistent vertraut nur einer Discovery der Heizungsbrücke aus unserem Store-Repository
   (Abgleich über `source`, exakter Slug; `url` und Slug-Endung beweisen nichts) und liest sie vor der Übernahme neu.
-- **`EINRICHTUNG_ROUTEN`** (`const.py`) = Routen des Servers (`einrichtung_api.ROUTEN`). Bearer genau als
+- **`EINRICHTUNG_ROUTEN`** (`const.py`) = Routen des Servers (`einrichtung/api.py`, `ROUTEN`). Bearer genau als
   `Authorization: Bearer <token>`; 404/405 können als HTML kommen (nach Statuscode abbilden). Nach angenommenem
   „entfernen“ sind 401/404 auf der Auftragsroute = „entfernt“.
 - **Keine Optionen, kein Token im Betrieb:** Die Integration schreibt keine Add-on-Optionen (nur Watchdog/Autostart über
