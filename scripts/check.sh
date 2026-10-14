@@ -51,10 +51,13 @@ else
   py() { .venv/bin/python "$@"; }
   PYEXE="$PWD/.venv/bin/python"
 fi
-DEV="${DEV_ROOT:-$(cd .. && pwd)}"
+# Dev-Root: in CI aus siblings.sh (DEV_ROOT), lokal der Ordner ueber dem Haupt-Checkout - auch aus einem
+# Worktree unter .devtools/wt/ (git-common-dir zeigt auf .git des Haupt-Checkouts; Audit 5, A5-08).
+DEV="${DEV_ROOT:-$(cd "$(git rev-parse --git-common-dir)/../.." && pwd)}"
 lint() { py -m ruff check . && py -m pyright --pythonpath "$PYEXE" && py scripts/ci/pin_check.py --repo "$PWD"; }
 tests() { py -m pytest -q; }
-contract() { python3 "$DEV/tools/contract_check.py"; }
+# Das eigene Repo ist dieser Checkout (auch ein Worktree), die Nachbarn kommen aus dem Dev-Root.
+contract() { python3 "$DEV/tools/contract_check.py" --integration "$PWD"; }
 check_only lint test contract
 step lint lint
 step test tests
