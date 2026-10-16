@@ -74,6 +74,50 @@ EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
     "entfernen": ("POST", "/geraet/entfernen"),
     "auftrag": ("GET", "/geraet/auftraege/<job_id>"),
 }
+# V3-Felder der Einrichtungs-API (Spec Stufe 3 S5 4): Kopie von einrichtung/api.py (Server), Contract-Check 62.
+# Je Route (Pflicht, optional) bzw. die Felder der Antwort; die Werte stehen ausgeschrieben, damit der Vergleich
+# wortlich bleibt.
+EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "anmelden": (("email", "password"), ()),
+    "abmelden": ((), ()),
+    "uebernehmen": (("device_id",), ("code",)),
+    "geraet": ((), ()),
+    "inventur": ((), ()),
+    "vorschlag": ((), ()),
+    "zuordnung": (("kreis", "profil", "hebelsatz"), ("tenant_id",)),
+    "pruefen": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler"),
+                ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll", "tenant_id", "ersetzen")),
+    "einrichten": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "tenant_id", "raum_soll"),
+                   ("batterien", "benachrichtigung", "hinweise_aus", "ersetzen")),
+    "neu_konfigurieren": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler"),
+                          ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")),
+    "entfernen": ((), ()),
+    "auftrag": ((), ()),
+}
+EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
+    "anmelden": ("token", "gueltig_bis"),
+    "abmelden": (),
+    "uebernehmen": ("device_id",),
+    "geraet": ("device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
+               "konfiguration", "raum_soll"),
+    "inventur": ("command_id",),
+    "vorschlag": ("integrationen",),
+    "zuordnung": ("kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "room_target", "batterie_je_entity",
+                  "benachrichtigung", "hinweise", "raum_soll", "abfrage_s", "hinweis"),
+    "pruefen": ("fehler", "warnungen"),
+    "einrichten": ("job_id",),
+    "neu_konfigurieren": ("job_id",),
+    "entfernen": ("freigegeben", "job_id"),
+    "auftrag": ("job_id", "art", "zustand", "fehler", "ergebnis", "seit"),
+}
+EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER = ("rolle", "pflicht", "vorschlag", "herkunft", "kandidaten")
+EINRICHTUNG_RAUMFUEHLER_FELDER = ("kandidaten", "vorschlag")
+EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "label", "hinweis", "kreise", "profile", "vorschlag")
+# Verschachtelte Objekte der Antwort `geraet`, die der Assistent liest (Eintrag von `anlagen`, `inventur`, Zusatzfelder
+# der `konfiguration`).
+EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar", "altpfad")
+EINRICHTUNG_GERAET_INVENTUR_FELDER = ("zustand", "command_id", "zeit", "fehler")
+EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever")
 AUFTRAG_FERTIG = "fertig"
 AUFTRAG_FEHLGESCHLAGEN = "fehlgeschlagen"
 # Rollen, die der Server im Schritt Anlagenwerte anbieten kann (device_protocol.HA_ROLLEN ohne room_target, das der

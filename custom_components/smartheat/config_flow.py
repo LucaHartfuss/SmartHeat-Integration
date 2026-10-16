@@ -28,6 +28,7 @@ from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from . import addon_control, supervisor_client
+from . import anfrage as v3_anfrage
 from .const import (
     ADDON_REPOSITORY_URL,
     AUFTRAG_FEHLGESCHLAGEN,
@@ -591,19 +592,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return await self.async_step_anlagenwerte()
 
     def _anfrage(self) -> dict:
-        e = self._eingaben
-        anfrage = {
-            "kreis": self._auswahl["kreis"], "profil": self._auswahl["profil"], "hebelsatz": self._auswahl["hebelsatz"],
-            "rollen": {**e.get("rollen", {}), "room_target": e.get("room_target")},
-            "raumfuehler": list(e.get("raumfuehler") or []), "batterien": list(e.get("batterien") or []),
-            "benachrichtigung": list(e.get("benachrichtigung") or []), "hinweise_aus": list(e.get("hinweise_aus") or []),
-            "raum_soll": e.get("raum_soll"),
-        }
-        if not self._reconfigure:
-            anfrage["tenant_id"] = self._tenant
-            if self._ersetzen:
-                anfrage["ersetzen"] = True
-        return anfrage
+        return v3_anfrage.anfrage(self._auswahl, self._eingaben, tenant_id=None if self._reconfigure else self._tenant,
+                                  ersetzen=bool(self._ersetzen))
 
     async def _warnungen(self, warnungen: dict) -> str:
         """Warnungen der Pruefung als Text der UI-Sprache; unbekannte Arten mit ihrem Schluessel."""

@@ -22,7 +22,15 @@ from urllib.parse import quote
 
 import aiohttp
 
-from .const import EINRICHTUNG_PREFIX, EINRICHTUNG_ROUTEN, ERROR_TEXT_MAX, REQUEST_TIMEOUT_SECONDS
+from . import anfrage as v3_anfrage
+from .const import (
+    EINRICHTUNG_ANFRAGE_FELDER,
+    EINRICHTUNG_ANTWORT_FELDER,
+    EINRICHTUNG_PREFIX,
+    EINRICHTUNG_ROUTEN,
+    ERROR_TEXT_MAX,
+    REQUEST_TIMEOUT_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,9 +128,7 @@ class EinrichtungClient:
 
     async def zuordnung(self, kreis: str, profil: str, hebelsatz: str, tenant_id: str | None = None) -> dict:
         """`tenant_id` nur beim Ersetzen: der Server schlaegt dann die Zuordnung des alten Geraets vor."""
-        body = {"kreis": kreis, "profil": profil, "hebelsatz": hebelsatz}
-        if tenant_id:
-            body["tenant_id"] = tenant_id
+        body = v3_anfrage.auswahl_body({"kreis": kreis, "profil": profil, "hebelsatz": hebelsatz}, tenant_id)
         return await self._dict("zuordnung", json=body)
 
     async def pruefen(self, anfrage: dict) -> dict:
@@ -146,7 +152,7 @@ class EinrichtungClient:
         body = await self._call(route, **kwargs)
         if not isinstance(body, dict):
             raise InvalidResponse(f"{route}: Antwort ist kein Objekt")
-        return body
+        return {key: body[key] for key in EINRICHTUNG_ANTWORT_FELDER[route] if key in body}
 
     async def _text_feld(self, route: str, feld: str, **kwargs: Any) -> str:
         wert = (await self._dict(route, **kwargs)).get(feld)
@@ -157,6 +163,10 @@ class EinrichtungClient:
     async def _call(self, route: str, *, json: dict | None = None, job_id: str | None = None, auth: bool = True,
                     ok: tuple[int, ...] = (200,), expect_json: bool = True) -> Any:
         method, path = EINRICHTUNG_ROUTEN[route]
+        if json is not None:
+            pflicht, optional = EINRICHTUNG_ANFRAGE_FELDER[route]
+            if fremd := sorted(set(json) - set(pflicht) - set(optional)):
+                raise ValueError(f"{route}: nicht deklarierte Felder {fremd}")  # Programmfehler, nie Nutzereingabe
         if job_id is not None:
             path = path.replace("<job_id>", quote(job_id, safe=""))
         headers = {"Authorization": f"Bearer {self.token}"} if auth and self.token else {}
