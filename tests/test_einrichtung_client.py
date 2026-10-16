@@ -204,11 +204,11 @@ async def test_logout_204_revokes_and_forgets_the_token(aiohttp_client):
 
 async def test_job_route_fills_the_id(aiohttp_client):
     async def handler(request):
-        return web.json_response({"zustand": "fertig", "job": request.match_info["job_id"]})
+        return web.json_response({"zustand": "fertig", "job_id": request.match_info["job_id"]})
 
     client = await _client(aiohttp_client, [("GET", "/geraet/auftraege/{job_id}", handler)])
-    assert (await client.auftrag("j1"))["job"] == "j1"
-    assert (await client.auftrag("a/b c"))["job"] == "a/b c"
+    assert (await client.auftrag("j1"))["job_id"] == "j1"
+    assert (await client.auftrag("a/b c"))["job_id"] == "a/b c"
 
 
 async def test_auftrag_401_after_accepted_removal_is_token_gone(aiohttp_client):
@@ -269,7 +269,7 @@ async def test_ids_come_back_as_strings_and_missing_ones_are_invalid(aiohttp_cli
 
 async def test_remaining_routes_use_their_method_and_path(aiohttp_client):
     async def vorschlag(request):
-        return web.json_response({"kreise": []})
+        return web.json_response({"integrationen": []})
 
     async def pruefen(request):
         return web.json_response({"fehler": {}, "warnungen": {"write_role_unmatched": ["x"]}})
@@ -280,7 +280,7 @@ async def test_remaining_routes_use_their_method_and_path(aiohttp_client):
     client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag", vorschlag),
                                             ("POST", "/geraet/pruefen", pruefen),
                                             ("POST", "/geraet/entfernen", entfernen)])
-    assert await client.vorschlag() == {"kreise": []}
+    assert await client.vorschlag() == {"integrationen": []}
     assert (await client.pruefen({}))["warnungen"] == {"write_role_unmatched": ["x"]}
     assert await client.entfernen() == {"freigegeben": True}
 
@@ -323,3 +323,15 @@ async def test_redirects_are_not_followed_and_never_resend_the_password(aiohttp_
         await client.anmelden("a@b.de", "pw")
     assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
     assert seen["target"] == 0 and client.token is None
+
+
+async def test_unbekannte_antwortfelder_fallen_weg(aiohttp_client):
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(200, {"device_id": "d", "neu": 1}))])
+    assert await client.geraet() == {"device_id": "d"}
+
+
+async def test_nicht_deklariertes_anfragefeld_ist_ein_programmfehler(aiohttp_client):
+    client = await _client(aiohttp_client, [])
+    with pytest.raises(ValueError):
+        await client.pruefen({"kreis": "k", "profil": "p", "hebelsatz": "h", "rollen": {}, "raumfuehler": [],
+                              "erfunden": 1})

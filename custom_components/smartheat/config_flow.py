@@ -27,7 +27,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
-from . import addon_control, supervisor_client
+from . import addon_control, supervisor_client, vertrag_pin
+from . import anfrage as v3_anfrage
 from .const import (
     ADDON_REPOSITORY_URL,
     AUFTRAG_FEHLGESCHLAGEN,
@@ -36,6 +37,17 @@ from .const import (
     DISCOVERY_FIELDS,
     DISCOVERY_WAIT_SECONDS,
     DOMAIN,
+    EINRICHTUNG_ANTWORT_FELDER,
+    EINRICHTUNG_GERAET_ANLAGE_FELDER,
+    EINRICHTUNG_GERAET_INVENTUR_FELDER,
+    EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ,
+    EINRICHTUNG_RAUMFUEHLER_FELDER,
+    EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER,
+    EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER,
+    EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER,
+    EINRICHTUNG_VORSCHLAG_KREIS_FELDER,
+    EINRICHTUNG_VORSCHLAG_PROFIL_FELDER,
+    EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER,
     ENTFERNEN_WAIT_SECONDS,
     GERAET_ID_RE,
     INVENTUR_WAIT_SECONDS,
@@ -66,6 +78,34 @@ _RAEUME = ("raumfuehler", "room_target")
 _BENACHRICHTIGUNG = ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")
 _INVENTUR_FERTIG = "fertig"
 _INVENTUR_FEHLGESCHLAGEN = "fehlgeschlagen"
+# Pin (Spec Stufe 3 S5 4): je Objekt der Einrichtungs-Antworten die Literale, die dieser Assistent liest, gegen die
+# Konstanten des Vertrags (const.EINRICHTUNG_*_FELDER). Liest der Assistent ein Feld, das der Vertrag nicht nennt, ist
+# das ein RuntimeError beim Import. Felder des V1-Dokuments in `konfiguration` (bindung, profil, hebelsatz) gehoeren
+# zu dessen eigenem Vertrag und stehen hier nicht.
+_VERTRAG_GEPINNT = {
+    "ANTWORT_FELDER[geraet]": (EINRICHTUNG_ANTWORT_FELDER["geraet"],
+                               ("eingerichtet", "tenant_id", "anlagen", "inventur", "konfiguration")),
+    "ANTWORT_FELDER[vorschlag]": (EINRICHTUNG_ANTWORT_FELDER["vorschlag"], ("integrationen",)),
+    "ANTWORT_FELDER[zuordnung]": (EINRICHTUNG_ANTWORT_FELDER["zuordnung"],
+                                  ("rollen", "raumfuehler", "room_target", "batterie_je_entity", "benachrichtigung",
+                                   "hinweise", "raum_soll")),
+    "ANTWORT_FELDER[pruefen]": (EINRICHTUNG_ANTWORT_FELDER["pruefen"], ("fehler", "warnungen")),
+    "ANTWORT_FELDER[entfernen]": (EINRICHTUNG_ANTWORT_FELDER["entfernen"], ("freigegeben", "job_id")),
+    "ANTWORT_FELDER[auftrag]": (EINRICHTUNG_ANTWORT_FELDER["auftrag"], ("zustand", "fehler")),
+    "GERAET_ANLAGE_FELDER": (EINRICHTUNG_GERAET_ANLAGE_FELDER,
+                             ("tenant_id", "aktiv", "belegt", "ersetzbar", "altpfad")),
+    "GERAET_INVENTUR_FELDER": (EINRICHTUNG_GERAET_INVENTUR_FELDER, ("zustand", "fehler")),
+    "GERAET_KONFIGURATION_ZUSATZ": (EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ, ("hebel", "shift_lever")),
+    "VORSCHLAG_INTEGRATION_FELDER": (EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER,
+                                     ("plattform", "label", "hinweis", "kreise", "profile", "vorschlag")),
+    "VORSCHLAG_KREIS_FELDER": (EINRICHTUNG_VORSCHLAG_KREIS_FELDER, ("schluessel", "label")),
+    "VORSCHLAG_PROFIL_FELDER": (EINRICHTUNG_VORSCHLAG_PROFIL_FELDER, ("profile_id", "label", "hebelsaetze")),
+    "VORSCHLAG_HEBELSATZ_FELDER": (EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER, ("id",)),
+    "VORSCHLAG_AUSWAHL_FELDER": (EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER, ("kreis", "profil")),
+    "ZUORDNUNG_ROLLE_FELDER": (EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER, ("rolle", "pflicht", "vorschlag", "kandidaten")),
+    "RAUMFUEHLER_FELDER": (EINRICHTUNG_RAUMFUEHLER_FELDER, ("kandidaten", "vorschlag")),
+}
+vertrag_pin.enthalten(__name__, _VERTRAG_GEPINNT)
 
 
 class _Unterbrechung(Exception):
@@ -591,19 +631,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return await self.async_step_anlagenwerte()
 
     def _anfrage(self) -> dict:
-        e = self._eingaben
-        anfrage = {
-            "kreis": self._auswahl["kreis"], "profil": self._auswahl["profil"], "hebelsatz": self._auswahl["hebelsatz"],
-            "rollen": {**e.get("rollen", {}), "room_target": e.get("room_target")},
-            "raumfuehler": list(e.get("raumfuehler") or []), "batterien": list(e.get("batterien") or []),
-            "benachrichtigung": list(e.get("benachrichtigung") or []), "hinweise_aus": list(e.get("hinweise_aus") or []),
-            "raum_soll": e.get("raum_soll"),
-        }
-        if not self._reconfigure:
-            anfrage["tenant_id"] = self._tenant
-            if self._ersetzen:
-                anfrage["ersetzen"] = True
-        return anfrage
+        return v3_anfrage.anfrage(self._auswahl, self._eingaben, tenant_id=None if self._reconfigure else self._tenant,
+                                  ersetzen=bool(self._ersetzen))
 
     async def _warnungen(self, warnungen: dict) -> str:
         """Warnungen der Pruefung als Text der UI-Sprache; unbekannte Arten mit ihrem Schluessel."""
