@@ -23,6 +23,7 @@ from urllib.parse import quote
 import aiohttp
 
 from . import anfrage as v3_anfrage
+from . import vertrag_pin
 from .const import (
     EINRICHTUNG_ANFRAGE_FELDER,
     EINRICHTUNG_ANTWORT_FELDER,
@@ -33,6 +34,14 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+# Pin (Spec Stufe 3 S5 4): die Felder, die dieser Client direkt liest (Token, Auftrags- und Befehls-ID).
+_VERTRAG_GEPINNT = {
+    "ANTWORT_FELDER[anmelden]": (EINRICHTUNG_ANTWORT_FELDER["anmelden"], ("token",)),
+    "ANTWORT_FELDER[inventur]": (EINRICHTUNG_ANTWORT_FELDER["inventur"], ("command_id",)),
+    "ANTWORT_FELDER[einrichten]": (EINRICHTUNG_ANTWORT_FELDER["einrichten"], ("job_id",)),
+    "ANTWORT_FELDER[neu_konfigurieren]": (EINRICHTUNG_ANTWORT_FELDER["neu_konfigurieren"], ("job_id",)),
+}
+vertrag_pin.enthalten(__name__, _VERTRAG_GEPINNT)
 
 
 class ApiError(Exception):

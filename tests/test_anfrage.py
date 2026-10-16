@@ -1,15 +1,10 @@
 """V3-Bodies der Einrichtungs-API (Spec Stufe 3 S5 4, A5-33): anfrage.py baut nur deklarierte Felder."""
-from custom_components.smartheat import anfrage
+import pytest
+
+from custom_components.smartheat import anfrage, vertrag_pin
 from custom_components.smartheat.const import (
     EINRICHTUNG_ANFRAGE_FELDER,
     EINRICHTUNG_GERAET_ANLAGE_FELDER,
-    EINRICHTUNG_GERAET_INVENTUR_FELDER,
-    EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ,
-    EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER,
-    EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER,
-    EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER,
-    EINRICHTUNG_VORSCHLAG_KREIS_FELDER,
-    EINRICHTUNG_VORSCHLAG_PROFIL_FELDER,
 )
 
 AUSWAHL = {"kreis": "k", "profil": "p", "hebelsatz": "vaillant_vrc720"}
@@ -46,20 +41,28 @@ def test_modul_importiert_kein_home_assistant():
     assert importe == []  # Contract-Check und E2E laden die Datei per Pfad
 
 
-def test_gelesene_felder_der_geraeteantwort_sind_deklariert():
-    """Felder, die config_flow aus geraet.anlagen[], geraet.inventur und geraet.konfiguration liest: ein Umbenennen
-    auf dem Server faellt ueber Contract-Check 62 und diesen Test auf."""
-    assert {"tenant_id", "aktiv", "altpfad", "belegt", "ersetzbar"} <= set(EINRICHTUNG_GERAET_ANLAGE_FELDER)
-    assert {"zustand", "fehler"} <= set(EINRICHTUNG_GERAET_INVENTUR_FELDER)
-    assert {"hebel", "shift_lever"} <= set(EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ)
+def test_vertrag_pin_importiert_kein_home_assistant():
+    import ast
+    import inspect
+    importe = [n for n in ast.walk(ast.parse(inspect.getsource(vertrag_pin))) if isinstance(n, ast.Import | ast.ImportFrom)]
+    assert [n.module for n in importe] == ["collections.abc"]
 
 
-def test_gelesene_felder_des_vorschlags_sind_deklariert():
-    """Felder, die config_flow aus den Integrationseintraegen von `vorschlag` liest (async_step_integration, _system,
-    _hebelsatz): ein Umbenennen auf dem Server faellt ueber Contract-Check 62 und diesen Test auf."""
-    assert {"plattform", "label", "hinweis", "kreise", "profile", "vorschlag"} <= set(
-        EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER)
-    assert {"schluessel", "label"} <= set(EINRICHTUNG_VORSCHLAG_KREIS_FELDER)
-    assert {"profile_id", "label", "hebelsaetze"} <= set(EINRICHTUNG_VORSCHLAG_PROFIL_FELDER)
-    assert {"id"} <= set(EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER)
-    assert {"kreis", "profil"} <= set(EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER)
+def test_pin_wirft_bei_fremdem_feld():
+    """Liest der Assistent ein Feld, das der Vertrag nicht nennt, scheitert der Import mit dem Feldnamen."""
+    with pytest.raises(RuntimeError, match="name"):
+        vertrag_pin.enthalten("modul", {"ANLAGE": (EINRICHTUNG_GERAET_ANLAGE_FELDER, ("tenant_id", "name"))})
+    vertrag_pin.enthalten("modul", {"ANLAGE": (EINRICHTUNG_GERAET_ANLAGE_FELDER, ("tenant_id", "aktiv"))})
+
+
+def test_config_flow_pinnt_seine_gelesenen_felder():
+    """Der Import von config_flow gelingt (Pin gegen die Konstanten), und jedes gepinnte Objekt ist belegt."""
+    from custom_components.smartheat import config_flow, einrichtung_client
+    for modul in (config_flow, einrichtung_client):
+        assert modul._VERTRAG_GEPINNT
+        assert all(literal for _, literal in modul._VERTRAG_GEPINNT.values())
+        vertrag_pin.enthalten(modul.__name__, modul._VERTRAG_GEPINNT)
+    # ein gepinntes Feld, das der Vertrag nicht (mehr) nennt, faellt auf
+    kaputt = {**config_flow._VERTRAG_GEPINNT, "ANTWORT_FELDER[entfernen]": (("job_id",), ("freigegeben", "job_id"))}
+    with pytest.raises(RuntimeError, match="freigegeben"):
+        vertrag_pin.enthalten("config_flow", kaputt)
