@@ -13,7 +13,7 @@ ERROR_TEXT_MAX = 300
 STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 3
 STATUS_EVENT_FIELDS = (
-    "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
+    "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
     "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
     "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise",
 )

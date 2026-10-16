@@ -49,11 +49,11 @@ GERAET_ID = "shg-a"
 VAILLANT_HEBEL = ["curve", "room_setpoint", "heat_limit", "min_flow"]
 
 
-def status_event(tenant_id, status, *, setup_id=None, grund=None, **overrides) -> dict:
+def status_event(tenant_id, status, *, grund=None, **overrides) -> dict:
     """Volles Status-Ereignis Schema 3 (Laufzeit-Teil wie Spec TP7 1.1/Plan 3c, dazu die Geraete-Felder aus Plan D;
     Geraet GERAET_ID)."""
     event = {
-        "schema": STATUS_EVENT_SCHEMA, "tenant_id": tenant_id, "setup_id": setup_id, "addon_version": "0.20.0",
+        "schema": STATUS_EVENT_SCHEMA, "tenant_id": tenant_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
         "letzte_serverantwort": None, "hebelsatz": "vaillant_vrc720", "hebel": None, "gelernt": None,
         "abo": "aktiv", "abo_frist_ende": None,
