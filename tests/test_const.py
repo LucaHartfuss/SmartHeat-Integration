@@ -4,10 +4,10 @@ from custom_components.smartheat import const
 
 def test_status_event_schema_3_keeps_the_runtime_fields():
     assert const.STATUS_EVENT_SCHEMA == 3
-    assert const.STATUS_EVENT_FIELDS[:16] == (
-        "schema", "tenant_id", "setup_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
+    assert const.STATUS_EVENT_FIELDS[:15] == (
+        "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
         "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise")
-    assert const.STATUS_EVENT_FIELDS[16:] == (
+    assert const.STATUS_EVENT_FIELDS[15:] == (
         "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise")
 
 
