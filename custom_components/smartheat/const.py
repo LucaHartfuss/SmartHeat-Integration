@@ -113,6 +113,12 @@ EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
 EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER = ("rolle", "pflicht", "vorschlag", "herkunft", "kandidaten")
 EINRICHTUNG_RAUMFUEHLER_FELDER = ("kandidaten", "vorschlag")
 EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "label", "hinweis", "kreise", "profile", "vorschlag")
+# Verschachtelte Objekte eines Integrationseintrags der Antwort `vorschlag` (kreise, profile, hebelsaetze, vorschlag).
+EINRICHTUNG_VORSCHLAG_KREIS_FELDER = ("schluessel", "label")
+EINRICHTUNG_VORSCHLAG_PROFIL_FELDER = ("profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
+                                       "hebelsaetze")
+EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER = ("id", "hebel")
+EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreis", "profil")
 # Verschachtelte Objekte der Antwort `geraet`, die der Assistent liest (Eintrag von `anlagen`, `inventur`, Zusatzfelder
 # der `konfiguration`).
 EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar", "altpfad")

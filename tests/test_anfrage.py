@@ -5,6 +5,11 @@ from custom_components.smartheat.const import (
     EINRICHTUNG_GERAET_ANLAGE_FELDER,
     EINRICHTUNG_GERAET_INVENTUR_FELDER,
     EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ,
+    EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER,
+    EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER,
+    EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER,
+    EINRICHTUNG_VORSCHLAG_KREIS_FELDER,
+    EINRICHTUNG_VORSCHLAG_PROFIL_FELDER,
 )
 
 AUSWAHL = {"kreis": "k", "profil": "p", "hebelsatz": "vaillant_vrc720"}
@@ -47,3 +52,14 @@ def test_gelesene_felder_der_geraeteantwort_sind_deklariert():
     assert {"tenant_id", "aktiv", "altpfad", "belegt", "ersetzbar"} <= set(EINRICHTUNG_GERAET_ANLAGE_FELDER)
     assert {"zustand", "fehler"} <= set(EINRICHTUNG_GERAET_INVENTUR_FELDER)
     assert {"hebel", "shift_lever"} <= set(EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ)
+
+
+def test_gelesene_felder_des_vorschlags_sind_deklariert():
+    """Felder, die config_flow aus den Integrationseintraegen von `vorschlag` liest (async_step_integration, _system,
+    _hebelsatz): ein Umbenennen auf dem Server faellt ueber Contract-Check 62 und diesen Test auf."""
+    assert {"plattform", "label", "hinweis", "kreise", "profile", "vorschlag"} <= set(
+        EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER)
+    assert {"schluessel", "label"} <= set(EINRICHTUNG_VORSCHLAG_KREIS_FELDER)
+    assert {"profile_id", "label", "hebelsaetze"} <= set(EINRICHTUNG_VORSCHLAG_PROFIL_FELDER)
+    assert {"id"} <= set(EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER)
+    assert {"kreis", "profil"} <= set(EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER)
