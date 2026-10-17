@@ -5,6 +5,8 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Eine riesige Ganzzahl (etwa 10^400) im Status-Ereignis löst keinen Fehler in der Entity-Aktualisierung mehr aus;
+  die Wunschtemperatur und die Hebel- und Lernwert-Sensoren zeigen dann „unbekannt“.
 - Einträge aus 0.16 (ohne Geräte-ID) bekommen keinen eigenen Text und keinen Reparatur-Hinweis mehr; Home Assistant
   zeigt den Migrationsfehler. Das Update von 0.16 läuft weiter wie unter 1.0.0 beschrieben (erst den Eintrag löschen).
 - Die Anlagenwahl liest das Feld `altpfad` der Einrichtungs-API nicht mehr (der Server sendet es nicht mehr).

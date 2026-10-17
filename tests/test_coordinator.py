@@ -521,6 +521,25 @@ async def test_event_with_broken_lever_values_does_not_crash_entities(hass, monk
     assert hass.states.get(STATUS).state == "regelt"
 
 
+@pytest.mark.parametrize("huge", [10**400, -10**400], ids=["plus", "minus"])
+async def test_huge_integers_in_lever_values_are_unknown_without_an_error(hass, monkeypatch, clock, caplog, huge):
+    """Ein JSON-int ausserhalb des float-Bereichs (float() wirft OverflowError) ist unknown wie NaN; die uebrigen
+    Entities bleiben unberuehrt."""
+    await _setup(hass, monkeypatch, {})
+
+    _fire(hass, status_event(TENANT, "regelt", hebel={"curve": 1.2, "room_setpoint": huge, "heat_limit": huge,
+                                                       "min_flow": 20.5}, gelernt={"curve": huge, "heat_limit": 16.2}))
+    await hass.async_block_till_done()
+
+    for key in ("parallelverschiebung", "heizgrenze", "gelernte_steigung"):
+        assert hass.states.get(f"sensor.smartheat_wohnung1_{key}").state == "unknown", key
+    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.2"
+    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
+    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_heizgrenze").state == "16.2"
+    assert hass.states.get(STATUS).state == "regelt"
+    assert "OverflowError" not in caplog.text
+
+
 async def test_parallel_shift_and_min_flow_sensors(hass, monkeypatch, clock):
     """Task 20: offset entfaellt, dessen Rolle uebernehmen die beiden Temperatur-Sensoren
     parallelverschiebung und mindestvorlauf (jetzt aus hebel); die alte offset-Entity wird nicht erzeugt."""

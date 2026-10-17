@@ -29,7 +29,7 @@ from .entity import SmartHeatEntity
 def _number(value) -> float | None:
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: JSON-int ausserhalb des float-Bereichs
         return None
 
 
