@@ -521,6 +521,21 @@ async def test_event_with_broken_lever_values_does_not_crash_entities(hass, monk
     assert hass.states.get(STATUS).state == "regelt"
 
 
+@pytest.mark.parametrize("stored", ["inf", "-inf", "nan"])
+async def test_restore_ignores_a_non_finite_stored_value(hass, monkeypatch, clock, stored):
+    """Ein gespeicherter Zustand "inf"/"nan" (z. B. nach einer Einheiten-Umrechnung) darf nicht uebernommen werden:
+    wie im Live-Pfad ist der Sensor dann unknown."""
+    mock_restore_cache(hass, [State("sensor.smartheat_wohnung1_heizkurve", stored),
+                              State("sensor.smartheat_wohnung1_heizgrenze", stored),
+                              State("sensor.smartheat_wohnung1_mindestvorlauf", "20.5")])
+
+    await _setup(hass, monkeypatch, {})
+
+    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
+
+
 @pytest.mark.parametrize("huge", [10**400, -10**400], ids=["plus", "minus"])
 async def test_huge_integers_in_lever_values_are_unknown_without_an_error(hass, monkeypatch, clock, caplog, huge):
     """Ein JSON-int ausserhalb des float-Bereichs (float() wirft OverflowError) ist unknown wie NaN; die uebrigen

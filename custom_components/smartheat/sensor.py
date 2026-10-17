@@ -216,6 +216,10 @@ class EventSensor(SmartHeatEntity, SensorEntity):
 
     def _restore(self, last: State) -> None:
         value = self._field.restore(last.state)
+        if self._field.restore is _number:
+            number = _number(last.state)
+            if number is None or not isfinite(number):
+                return  # wie im Live-Pfad (_safe_value): NaN/Inf nie als Zustand, die Entity bleibt unbekannt
         if self._field.options is not None and value not in self._field.options:
             return  # z. B. ein Wert einer aelteren Version: nicht in die Enum-Entity
         self._attr_native_value = value
