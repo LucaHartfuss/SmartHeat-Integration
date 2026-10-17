@@ -164,7 +164,7 @@ def _vorbelegt(key: str, default: Any, *, required: bool = True) -> vol.Marker:
 
 
 class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
-    # 3 = Eintrag ab 1.0.0 (Geraete-ID); 2 = Eintrag bis 0.16 (Umzug in 5d).
+    # 3 = Eintrag ab 1.0.0 (Geraete-ID); 2 = Eintrag bis 0.16 (Umzug in Phase 1 Schritt 3).
     VERSION = 3
 
     def __init__(self) -> None:
@@ -427,8 +427,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Anlage ---
 
     def _anlagen(self) -> list[dict]:
-        """Anlagen, die dieses Geraet bekommen kann: aktiv, nicht am bisherigen Zugang (Umzug in 5d), frei oder
-        ersetzbar."""
+        """Anlagen, die dieses Geraet bekommen kann: aktiv, nicht am bisherigen Zugang (Umzug in Phase 1 Schritt 3),
+        frei oder ersetzbar."""
         return [a for a in self._geraet.get("anlagen") or []
                 if isinstance(a, dict) and isinstance(a.get("tenant_id"), str) and a.get("aktiv")
                 and not a.get("altpfad") and (not a.get("belegt") or a.get("ersetzbar"))]

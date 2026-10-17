@@ -15,15 +15,16 @@ from .const import DOMAIN
 from .coordinator import SmartHeatCoordinator
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
-# Eintrag aus einer Version vor 1.0.0 (ohne Geraete-ID, z. B. client1 bis zum Umzug in 5d): Fehler mit Text statt
-# eines KeyError, dazu ein Reparatur-Hinweis.
+# Eintrag aus einer Version vor 1.0.0 (ohne Geraete-ID, z. B. client1 vor dem Umzug in Phase 1 Schritt 3): Fehler mit
+# Text statt eines KeyError, dazu ein Reparatur-Hinweis.
 ALTER_EINTRAG = "alter_eintrag"
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Eintraege bis 0.16 (VERSION 2) zieht erst 5d um. Bis dahin bleiben sie unveraendert (ein zurueckgerolltes 0.16.1
-    richtet sie weiter ein) und laufen bis async_setup_entry, das sie mit Text und Reparatur-Hinweis ablehnt
-    (alter_eintrag) statt mit einem Migrationsfehler ohne Erklaerung."""
+    """Eintraege bis 0.16 (VERSION 2) werden nicht migriert (der Umzug von client1 in Phase 1 Schritt 3 lief ueber
+    Entfernen und Neueinrichten). Sie bleiben unveraendert (ein zurueckgerolltes 0.16.1 richtet sie weiter ein) und
+    laufen bis async_setup_entry, das sie mit Text und Reparatur-Hinweis ablehnt (alter_eintrag) statt mit einem
+    Migrationsfehler ohne Erklaerung."""
     return True
 
 

@@ -38,15 +38,22 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
+      # requirements_test.txt pinnt die phcc-Version von client1 (phcc 0.13.367 pinnt homeassistant==2026.9.4); sie
+      # folgt HomeAssistantPapa/.HA_VERSION und wird mit dem HA-Pin in SmartHeat-for-HomeAssistant/.github/workflows/ci.yml
+      # zusammen angehoben (docs/ci-cd-runbook.md; tools/ha_version_check.py prueft die Zeile unten).
       - run: pip install -r requirements_test.txt  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
+      - name: HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.9.4)
+        run: |
+          pip show homeassistant | grep -q '^Version: 2026\.9\.4$'
       - name: Taeglich gegen die neueste HA-Testumgebung (Spec 2.2)
         if: github.event_name == 'schedule'
         run: pip install -U pytest-homeassistant-custom-component  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - run: PYTHON=python bash scripts/check.sh --only test
   test-client1-ha:
-    # Dieselben Tests gegen die HA-Version von client1. Die phcc-Version muss HomeAssistantPapa/.HA_VERSION
-    # folgen (phcc 0.13.367 pinnt homeassistant==2026.9.4) und wird mit dem HA-Pin in
+    # Dieselben Tests gegen die HA-Version von client1. Die phcc-Version (requirements_test.txt) muss
+    # HomeAssistantPapa/.HA_VERSION folgen (phcc 0.13.367 pinnt homeassistant==2026.9.4) und wird mit dem HA-Pin in
     # SmartHeat-for-HomeAssistant/.github/workflows/ci.yml zusammen angehoben (docs/ci-cd-runbook.md).
+    # Pflicht-Check im Ruleset der Integration (Name nicht aendern).
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -57,7 +64,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Test-Abhaengigkeiten mit der HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.9.4)
-        run: pip install pytest pytest-asyncio pytest-homeassistant-custom-component==0.13.367  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
+        run: pip install -r requirements_test.txt  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
       - name: Kein Paket der neuen HA-Version im Environment
         run: |
           pip show homeassistant | grep -q '^Version: 2026\.9\.4$'

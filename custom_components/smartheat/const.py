@@ -18,8 +18,8 @@ STATUS_EVENT_FIELDS = (
     "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise",
 )
 # Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen (A5-85).
-HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = "key", "stufe", "text"
-HINWEIS_FIELDS = (HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT)
+HINWEIS_FIELDS = ("key", "stufe", "text")
+HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = HINWEIS_FIELDS
 HINWEIS_SOLL_QUELLE_AUS = "soll_quelle_aus"
 HINWEIS_KEYS = ("update_noetig", "geraet_doppelt", "wunsch_begrenzt", HINWEIS_SOLL_QUELLE_AUS,
                 "konfiguration_abgelehnt", "gesperrt")
