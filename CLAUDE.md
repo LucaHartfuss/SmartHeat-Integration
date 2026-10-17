@@ -18,7 +18,7 @@ Add-on). Die Einrichtungs-API des Servers beschreibt `../docs/module/einrichtung
 ## Prüfen und Branches
 
 ```
-scripts/check.sh          # lint, test, contract (--only <schritt> für einzelne Schritte)
+scripts/check.sh          # lint (mit vulture, Ausnahmen in vulture_ausnahmen.py), test, contract (--only <schritt>)
 ```
 Direkter Aufruf bleibt möglich: `python3.14 -m venv .venv && .venv/bin/pip install -r
 requirements_test.txt && .venv/bin/python -m pytest -q` (`pytest-homeassistant-custom-component`
@@ -31,7 +31,7 @@ die Fixture-Kopien bis 0.16 sind mit Plan 5c W Teil B entfallen.
 
 Feature-Branches (`feat/…`/`fix/…`) zweigen von `develop` ab und werden `--no-ff` nach `develop`
 gemergt — nie direkt nach `main`. `main` bewegt sich nur per Release-Tag (`vX.Y.Z`,
-Fortsetzung der bestehenden Tags `v0.1.0`…`v0.2.2`; `-dryrun`-Suffix = Probelauf) — ein Push nach
+Fortsetzung der bestehenden Tags, zuletzt `v1.0.0`; `-dryrun`-Suffix = Probelauf) — ein Push nach
 `main` ist ein Release, ab dem ersten GitHub-Release bietet HACS Kunden nur noch Releases statt des
 neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbook.md`.
 
@@ -52,8 +52,9 @@ neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbo
   im Log; wird bei jedem Ende beim Server beendet).
 - **Wunschtemperatur:** Ereignis `smartheat_wunsch` mit `{"raum_soll": Zahl}`, Grenzen 15–25 °C in 0,5-Schritten.
 - **`entry.data`** (`VERSION` 3) = `geraet_id`, `tenant_id`, `profile_id`, `lever_set`, `hebel`, `shift_lever`. Einträge
-  aus 0.16 (VERSION 2, ohne `geraet_id`) lehnt das Setup mit Text und Reparatur-Hinweis ab (`alter_eintrag`); den Umzug
-  macht Plan 5d. Die Entity-IDs und `unique_id`s von `client1` (13 aus 0.16.1) bleiben (`tests/test_init.py`).
+  aus 0.16 (VERSION 2, ohne `geraet_id`) lehnt das Setup mit Text und Reparatur-Hinweis ab (`alter_eintrag`);
+  `client1` ist in Phase 1 Schritt 3 über Entfernen und Neueinrichten umgezogen. Die Entity-IDs und `unique_id`s von
+  `client1` (13 aus 0.16.1) bleiben (`tests/test_init.py`).
 - Add-on-Slugs tragen einen Repo-Hash-Präfix (z. B. `f5f6325b_heizungsbruecke`): `supervisor_client.async_resolve_addons`;
   Mindestversion `MIN_ADDON_VERSIONS` (1.0.0) wird vor dem Warten auf die Discovery geprüft.
 - Vom Supervisor nie einen Fehlertext zeigen oder loggen (er kann Optionswerte zitieren), nur die Fehlerart.
