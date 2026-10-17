@@ -33,10 +33,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 
 def _temperature(value) -> float | None:
-    """Endliche Zahl (kein bool) als float, sonst None (unbekannt statt einer kaputten Anzeige)."""
-    if isinstance(value, bool) or not isinstance(value, int | float) or not isfinite(value):
+    """Endliche Zahl (kein bool) als float, sonst None (unbekannt statt einer kaputten Anzeige). Ein JSON-int
+    ausserhalb des float-Bereichs (10**400) ist nicht umwandelbar (OverflowError) und gilt wie NaN als unbekannt."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if isfinite(number) else None
 
 
 def _auf_schritt(value: float) -> float:

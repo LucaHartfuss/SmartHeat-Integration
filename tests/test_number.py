@@ -114,6 +114,19 @@ async def test_missing_or_broken_target_is_unknown(hass):
         assert hass.states.get(WUNSCH).state == "unknown", raum_soll
 
 
+@pytest.mark.parametrize("raum_soll", [10**400, -10**400], ids=["plus", "minus"])
+async def test_a_huge_integer_target_is_unknown_without_an_error(hass, caplog, raum_soll):
+    """Ein JSON-int ausserhalb des float-Bereichs (isfinite wirft OverflowError) ist unbekannt wie NaN."""
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    assert float(hass.states.get(WUNSCH).state) == 21.5
+    hass.bus.async_fire(STATUS_EVENT, _event(raum_soll=raum_soll))
+    await hass.async_block_till_done()
+    assert hass.states.get(WUNSCH).state == "unknown"
+    assert "OverflowError" not in caplog.text
+
+
 async def test_restores_the_last_value_after_a_restart(hass):
     mock_restore_cache(hass, [State(WUNSCH, "20.5")])
     await _setup(hass)
