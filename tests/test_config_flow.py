@@ -410,8 +410,7 @@ async def test_invalid_bootstrap_url_aborts(hass, server, monkeypatch):
 
 
 async def test_replace_needs_confirmation_and_uses_the_old_mapping(hass, server):
-    server.geraet_sicht["anlagen"] = [{"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": True,
-                                       "altpfad": False}]
+    server.geraet_sicht["anlagen"] = [{"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": True}]
     result = await _bis_anlage(hass)
     result = await _configure(hass, result, {"anlage": TENANT})
     assert result["step_id"] == "ersetzen"
@@ -425,8 +424,7 @@ async def test_replace_needs_confirmation_and_uses_the_old_mapping(hass, server)
 
 
 async def test_replace_sends_the_replace_flag(hass, server):
-    server.geraet_sicht["anlagen"] = [{"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": True,
-                                       "altpfad": False}]
+    server.geraet_sicht["anlagen"] = [{"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": True}]
     result = await _bis_anlage(hass)
     result = await _configure(hass, await _configure(hass, result, {"anlage": TENANT}), {})
     result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0",
@@ -444,9 +442,8 @@ async def test_replace_sends_the_replace_flag(hass, server):
 
 
 @pytest.mark.parametrize("anlage", [
-    {"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": False, "altpfad": True},
-    {"tenant_id": TENANT, "aktiv": False, "belegt": False, "ersetzbar": False, "altpfad": False},
-    {"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": False, "altpfad": False},
+    {"tenant_id": TENANT, "aktiv": False, "belegt": False, "ersetzbar": False},
+    {"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": False},
 ])
 async def test_tenant_that_cannot_be_used_is_not_offered(hass, server, anlage):
     server.geraet_sicht["anlagen"] = [anlage]
@@ -455,6 +452,15 @@ async def test_tenant_that_cannot_be_used_is_not_offered(hass, server, anlage):
 
     assert result["type"] == FlowResultType.ABORT and result["reason"] == "keine_anlage"
     assert server.calls[-1] == ("abmelden",)
+
+
+async def test_a_free_tenant_without_altpfad_is_offered(hass, server):
+    """Stufe 4 (V3 ohne altpfad): eine aktive, freie Anlage wird angeboten."""
+    server.geraet_sicht["anlagen"] = [{"tenant_id": TENANT, "aktiv": True, "belegt": False, "ersetzbar": False}]
+
+    result = await _bis_anlage(hass)
+
+    assert result["type"] == FlowResultType.FORM and result["step_id"] == "anlage"
 
 
 async def test_inventory_timeout_can_be_retried(hass, server, monkeypatch):
@@ -740,17 +746,6 @@ async def test_removal_of_an_offline_device_keeps_running(hass, server, monkeypa
     assert hass.config_entries.async_entries(DOMAIN) == [entry]
 
 
-async def test_reconfigure_of_an_old_entry_aborts_with_a_text(hass, server):
-    from .addon_fakes import make_entry
-
-    entry = make_entry(hass, version=config_flow.SmartHeatConfigFlow.VERSION)
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id})
-
-    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "alter_eintrag")
-
-
 async def test_there_is_no_options_dialog(hass, server):
     entry = await _eingerichtet(hass, server)
 
@@ -764,7 +759,7 @@ _ABORTS = {
     "keine_discovery", "discovery_ungueltig", "geraet_nicht_gemeldet", "keine_anlage", "inventur_fehler", "keine_integration",
     "nicht_unterstuetzt", "rolle_ohne_kandidaten", "einrichten_fehler", "einrichten_zeit", "keine_konfiguration",
     "entfernen_fehler", "entfernen_laeuft", "entfernt", "cannot_connect", "abgelehnt", "geraet_unbekannt",
-    "alter_eintrag", "unknown", "already_configured", "already_in_progress", "single_instance_allowed",
+    "unknown", "already_configured", "already_in_progress", "single_instance_allowed",
     "reconfigure_successful",
 }
 _ERRORS = {

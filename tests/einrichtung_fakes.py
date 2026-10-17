@@ -55,8 +55,7 @@ class FakeServer:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
         self.geraet_sicht = {"device_id": GERAET_ID, "host": "ha", "eingerichtet": False, "tenant_id": None,
-                             "anlagen": [{"tenant_id": TENANT, "aktiv": True, "belegt": False, "ersetzbar": False,
-                                          "altpfad": False}],
+                             "anlagen": [{"tenant_id": TENANT, "aktiv": True, "belegt": False, "ersetzbar": False}],
                              "inventur": {"zustand": "keine"}, "konfiguration": None, "raum_soll": 20.0}
         self.zuordnung_antwort = ZUORDNUNG
         self.inventur_ergebnis = {"zustand": "fertig"}

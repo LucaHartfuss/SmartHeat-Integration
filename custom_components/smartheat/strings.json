@@ -151,7 +151,6 @@
       "cannot_connect": "The SmartHeat service cannot be reached.",
       "abgelehnt": "The SmartHeat service refused: {grund}",
       "geraet_unbekannt": "The device does not belong to this account or is locked ({grund}).",
-      "alter_eintrag": "This entry comes from a version before 1.0.0. Please remove the entry and set up SmartHeat again.",
       "unknown": "Unexpected error; details are in the log.",
       "already_configured": "SmartHeat is already set up.",
       "already_in_progress": "The setup is already running.",
@@ -211,12 +210,10 @@
     "number": {"wunschtemperatur": {"name": "Desired temperature"}}
   },
   "exceptions": {
-    "alter_eintrag": {"message": "This SmartHeat entry comes from a version before 1.0.0 and has to be set up again (move to the add-on as a device)."},
     "wunsch_ungueltig": {"message": "The desired temperature must be a number."},
     "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."}
   },
   "issues": {
-    "alter_eintrag": {"title": "SmartHeat: set up the entry again", "description": "This SmartHeat entry comes from a version before 1.0.0 and no longer works with this version. Please remove the entry and set up SmartHeat again (move to the add-on as a device). Until then the add-on keeps controlling with its last configuration."},
     "update_noetig": {"title": "SmartHeat: update the add-on", "description": "{text} Settings → Add-ons → Heizungsbrücke → Update."},
     "geraet_doppelt": {"title": "SmartHeat is running twice", "description": "{text} Please stop the second Home Assistant instance with the same add-on (e.g. a restored backup)."},
     "wunsch_begrenzt": {"title": "SmartHeat: desired temperature limited", "description": "{text}"},

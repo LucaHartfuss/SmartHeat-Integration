@@ -92,8 +92,7 @@ _VERTRAG_GEPINNT = {
     "ANTWORT_FELDER[pruefen]": (EINRICHTUNG_ANTWORT_FELDER["pruefen"], ("fehler", "warnungen")),
     "ANTWORT_FELDER[entfernen]": (EINRICHTUNG_ANTWORT_FELDER["entfernen"], ("freigegeben", "job_id")),
     "ANTWORT_FELDER[auftrag]": (EINRICHTUNG_ANTWORT_FELDER["auftrag"], ("zustand", "fehler")),
-    "GERAET_ANLAGE_FELDER": (EINRICHTUNG_GERAET_ANLAGE_FELDER,
-                             ("tenant_id", "aktiv", "belegt", "ersetzbar", "altpfad")),
+    "GERAET_ANLAGE_FELDER": (EINRICHTUNG_GERAET_ANLAGE_FELDER, ("tenant_id", "aktiv", "belegt", "ersetzbar")),
     "GERAET_INVENTUR_FELDER": (EINRICHTUNG_GERAET_INVENTUR_FELDER, ("zustand", "fehler")),
     "GERAET_KONFIGURATION_ZUSATZ": (EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ, ("hebel", "shift_lever")),
     "VORSCHLAG_INTEGRATION_FELDER": (EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER,
@@ -164,7 +163,7 @@ def _vorbelegt(key: str, default: Any, *, required: bool = True) -> vol.Marker:
 
 
 class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
-    # 3 = Eintrag ab 1.0.0 (Geraete-ID); 2 = Eintrag bis 0.16 (Umzug in Phase 1 Schritt 3).
+    # 3 = Eintrag ab 1.0.0 (Geraete-ID).
     VERSION = 3
 
     def __init__(self) -> None:
@@ -427,11 +426,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Anlage ---
 
     def _anlagen(self) -> list[dict]:
-        """Anlagen, die dieses Geraet bekommen kann: aktiv, nicht am bisherigen Zugang (Umzug in Phase 1 Schritt 3),
-        frei oder ersetzbar."""
+        """Anlagen, die dieses Geraet bekommen kann: aktiv, frei oder ersetzbar."""
         return [a for a in self._geraet.get("anlagen") or []
                 if isinstance(a, dict) and isinstance(a.get("tenant_id"), str) and a.get("aktiv")
-                and not a.get("altpfad") and (not a.get("belegt") or a.get("ersetzbar"))]
+                and (not a.get("belegt") or a.get("ersetzbar"))]
 
     async def async_step_anlage(self, user_input: dict | None = None) -> ConfigFlowResult:
         anlagen = self._anlagen()
@@ -705,11 +703,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Neu konfigurieren ---
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
-        geraet_id = self._get_reconfigure_entry().data.get("geraet_id")
-        if not isinstance(geraet_id, str) or not geraet_id:
-            return self.async_abort(reason="alter_eintrag")
         self._reconfigure = True
-        self._discovery = {"geraet_id": geraet_id}
+        self._discovery = {"geraet_id": self._get_reconfigure_entry().data["geraet_id"]}
         return await self.async_step_anmelden()
 
     async def async_step_menue(self, user_input: dict | None = None) -> ConfigFlowResult:

@@ -151,7 +151,6 @@
       "cannot_connect": "Der SmartHeat-Dienst ist nicht erreichbar.",
       "abgelehnt": "Der SmartHeat-Dienst hat abgelehnt: {grund}",
       "geraet_unbekannt": "Das Gerät gehört nicht zu diesem Konto oder ist gesperrt ({grund}).",
-      "alter_eintrag": "Dieser Eintrag stammt aus einer Version vor 1.0.0. Bitte den Eintrag entfernen und SmartHeat neu einrichten.",
       "unknown": "Unerwarteter Fehler; Details stehen im Protokoll.",
       "already_configured": "SmartHeat ist bereits eingerichtet.",
       "already_in_progress": "Die Einrichtung läuft bereits.",
@@ -211,12 +210,10 @@
     "number": {"wunschtemperatur": {"name": "Wunschtemperatur"}}
   },
   "exceptions": {
-    "alter_eintrag": {"message": "Dieser SmartHeat-Eintrag stammt aus einer Version vor 1.0.0 und muss neu eingerichtet werden (Umzug auf das Add-on als Gerät)."},
     "wunsch_ungueltig": {"message": "Die Wunschtemperatur muss eine Zahl sein."},
     "thermostat_aus": {"message": "Das Thermostat ist ausgeschaltet. Solange es aus ist, nimmt SmartHeat keine Wunschtemperatur an."}
   },
   "issues": {
-    "alter_eintrag": {"title": "SmartHeat: Eintrag neu einrichten", "description": "Dieser SmartHeat-Eintrag stammt aus einer Version vor 1.0.0 und funktioniert mit dieser Version nicht mehr. Bitte den Eintrag entfernen und SmartHeat neu einrichten (Umzug auf das Add-on als Gerät). Das Add-on regelt bis dahin mit seiner letzten Konfiguration weiter."},
     "update_noetig": {"title": "SmartHeat: Add-on aktualisieren", "description": "{text} Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."},
     "geraet_doppelt": {"title": "SmartHeat läuft doppelt", "description": "{text} Bitte die zweite Home-Assistant-Instanz mit demselben Add-on stoppen (z. B. ein eingespieltes Backup)."},
     "wunsch_begrenzt": {"title": "SmartHeat: Wunschtemperatur begrenzt", "description": "{text}"},

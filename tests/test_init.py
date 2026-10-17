@@ -124,24 +124,16 @@ async def test_unloaded_entry_no_longer_follows_events(hass, monkeypatch):
     assert hass.states.get("number.smartheat_wohnung1_wunschtemperatur").state == "unavailable"
 
 
-async def test_an_entry_from_before_1_0_fails_with_a_text_and_a_repair_issue(hass, monkeypatch, caplog):
-    """Ein Eintrag aus 0.16 (ohne geraet_id, VERSION 2 wie client1 heute): Fehler mit uebersetztem Grund und ein
-    Reparatur-Hinweis statt eines KeyError; Entfernen raeumt den Hinweis weg."""
+async def test_an_entry_from_before_1_0_is_not_migrated(hass, monkeypatch):
+    """Stufe 4, Rueckweg loeschen: ein Eintrag aus 0.16 (VERSION 2) bleibt ohne Migration stehen (HA-Zustand
+    MIGRATION_ERROR); es gibt keinen Reparatur-Hinweis dafuer mehr."""
     monkeypatch.setattr(f"{CO}.async_find_addon_managers", AsyncMock(return_value={}))
-    entry = make_entry(hass, tenant_id="client1")
+    entry = make_entry(hass, tenant_id="client1", version=2)
 
     assert not await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.state is ConfigEntryState.SETUP_ERROR
-    assert (entry.error_reason_translation_domain, entry.error_reason_translation_key) == (DOMAIN, "alter_eintrag")
-    assert "KeyError" not in caplog.text
-    issue = ir.async_get(hass).async_get_issue(DOMAIN, "alter_eintrag")
-    assert (issue.is_fixable, issue.severity, issue.translation_key) == (False, ir.IssueSeverity.ERROR, "alter_eintrag")
-    assert hass.states.get("sensor.smartheat_client1_status") is None
-
-    await hass.config_entries.async_remove(entry.entry_id)
-    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.MIGRATION_ERROR
     assert ir.async_get(hass).async_get_issue(DOMAIN, "alter_eintrag") is None
 
 
