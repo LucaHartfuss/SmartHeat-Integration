@@ -118,7 +118,7 @@ EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER = ("id", "hebel")
 EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreis", "profil")
 # Verschachtelte Objekte der Antwort `geraet`, die der Assistent liest (Eintrag von `anlagen`, `inventur`, Zusatzfelder
 # der `konfiguration`).
-EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar", "altpfad")
+EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar")
 EINRICHTUNG_GERAET_INVENTUR_FELDER = ("zustand", "command_id", "zeit", "fehler")
 EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever")
 AUFTRAG_FERTIG = "fertig"
