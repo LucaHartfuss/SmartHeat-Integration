@@ -1,6 +1,6 @@
 pytest
 pytest-asyncio
-pytest-homeassistant-custom-component==0.13.366
+pytest-homeassistant-custom-component==0.13.367
 ruff==0.16.9
 pyright==1.1.414
 vulture==2.16
