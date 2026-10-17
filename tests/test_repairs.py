@@ -20,7 +20,7 @@ _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 
 
 async def _setup(hass):
-    entry = MockConfigEntry(domain=DOMAIN, data=DATA, unique_id="shg-a", version=2)
+    entry = MockConfigEntry(domain=DOMAIN, data=DATA, unique_id="shg-a", version=3)
     entry.add_to_hass(hass)
     with patch("custom_components.smartheat.coordinator.async_track_time_interval"):
         assert await hass.config_entries.async_setup(entry.entry_id)

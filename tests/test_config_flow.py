@@ -746,17 +746,6 @@ async def test_removal_of_an_offline_device_keeps_running(hass, server, monkeypa
     assert hass.config_entries.async_entries(DOMAIN) == [entry]
 
 
-async def test_reconfigure_of_an_old_entry_aborts_with_a_text(hass, server):
-    from .addon_fakes import make_entry
-
-    entry = make_entry(hass, version=config_flow.SmartHeatConfigFlow.VERSION)
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id})
-
-    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "alter_eintrag")
-
-
 async def test_there_is_no_options_dialog(hass, server):
     entry = await _eingerichtet(hass, server)
 
@@ -770,7 +759,7 @@ _ABORTS = {
     "keine_discovery", "discovery_ungueltig", "geraet_nicht_gemeldet", "keine_anlage", "inventur_fehler", "keine_integration",
     "nicht_unterstuetzt", "rolle_ohne_kandidaten", "einrichten_fehler", "einrichten_zeit", "keine_konfiguration",
     "entfernen_fehler", "entfernen_laeuft", "entfernt", "cannot_connect", "abgelehnt", "geraet_unbekannt",
-    "alter_eintrag", "unknown", "already_configured", "already_in_progress", "single_instance_allowed",
+    "unknown", "already_configured", "already_in_progress", "single_instance_allowed",
     "reconfigure_successful",
 }
 _ERRORS = {

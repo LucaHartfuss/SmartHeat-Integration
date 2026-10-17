@@ -163,7 +163,7 @@ def _vorbelegt(key: str, default: Any, *, required: bool = True) -> vol.Marker:
 
 
 class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
-    # 3 = Eintrag ab 1.0.0 (Geraete-ID); 2 = Eintrag bis 0.16 (Umzug in Phase 1 Schritt 3).
+    # 3 = Eintrag ab 1.0.0 (Geraete-ID).
     VERSION = 3
 
     def __init__(self) -> None:
@@ -703,11 +703,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Neu konfigurieren ---
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
-        geraet_id = self._get_reconfigure_entry().data.get("geraet_id")
-        if not isinstance(geraet_id, str) or not geraet_id:
-            return self.async_abort(reason="alter_eintrag")
         self._reconfigure = True
-        self._discovery = {"geraet_id": geraet_id}
+        self._discovery = {"geraet_id": self._get_reconfigure_entry().data["geraet_id"]}
         return await self.async_step_anmelden()
 
     async def async_step_menue(self, user_input: dict | None = None) -> ConfigFlowResult:
