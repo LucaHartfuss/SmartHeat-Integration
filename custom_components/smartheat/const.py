@@ -71,8 +71,8 @@ EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
     "entfernen": ("POST", "/geraet/entfernen"),
     "auftrag": ("GET", "/geraet/auftraege/<job_id>"),
 }
-# V3-Felder der Einrichtungs-API (Spec Stufe 3 S5 4): Kopie von einrichtung/api.py (Server), Contract-Check (Vertrag V3).
-# Je Route (Pflicht, optional) bzw. die Felder der Antwort; die Werte stehen ausgeschrieben, damit der Vergleich
+# V3-Felder der Einrichtungs-API (Spec Stufe 3 S5 4): Kopie von einrichtung/api.py (Server), Contract-Check (Vertrag
+# V3). Je Route (Pflicht, optional) bzw. die Felder der Antwort; die Werte stehen ausgeschrieben, damit der Vergleich
 # wortlich bleibt.
 EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "anmelden": (("email", "password"), ()),

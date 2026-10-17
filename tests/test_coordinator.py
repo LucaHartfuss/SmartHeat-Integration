@@ -204,7 +204,8 @@ async def test_an_event_updates_every_entity(hass, monkeypatch, clock):
 
 
 async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, monkeypatch, clock):
-    """A5-85: Der Coordinator filtert das Ereignis auf STATUS_EVENT_FIELDS; ein umbenanntes Feld dort faellt hier auf."""
+    """A5-85: Der Coordinator filtert das Ereignis auf STATUS_EVENT_FIELDS; ein umbenanntes Feld dort faellt hier
+    auf."""
     entry = await _setup(hass, monkeypatch, {})
     event = status_event(TENANT, "regelt", raum_soll=21.0)
     _fire(hass, {**event, "fremd": 1})

@@ -26,9 +26,10 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
             continue
         issue_id = hinweis_issue_id(key)
         aktuell.add(issue_id)
+        severity = ir.IssueSeverity.ERROR if hinweis.get(HINWEIS_FELD_STUFE) == KRITISCH else ir.IssueSeverity.WARNING
         ir.async_create_issue(
             hass, DOMAIN, issue_id, is_fixable=False,
-            severity=ir.IssueSeverity.ERROR if hinweis.get(HINWEIS_FELD_STUFE) == KRITISCH else ir.IssueSeverity.WARNING,
+            severity=severity,
             translation_key=key if key in HINWEIS_KEYS else GERAET_HINWEIS,
             translation_placeholders={"text": str(hinweis.get(HINWEIS_FELD_TEXT) or "")},
         )
