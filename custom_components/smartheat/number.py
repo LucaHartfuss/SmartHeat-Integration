@@ -14,7 +14,15 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, HINWEIS_SOLL_QUELLE_AUS, RAUM_SOLL_MAX, RAUM_SOLL_MIN, RAUM_SOLL_STEP, WUNSCH_EVENT
+from .const import (
+    DOMAIN,
+    HINWEIS_FELD_KEY,
+    HINWEIS_SOLL_QUELLE_AUS,
+    RAUM_SOLL_MAX,
+    RAUM_SOLL_MIN,
+    RAUM_SOLL_STEP,
+    WUNSCH_EVENT,
+)
 from .entity import SmartHeatEntity
 
 KEY = "wunschtemperatur"
@@ -62,7 +70,7 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         if not isfinite(value):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="wunsch_ungueltig")
         hinweise = (self.coordinator.data or {}).get("geraet_hinweise") or []
-        if any(isinstance(h, dict) and h.get("key") == HINWEIS_SOLL_QUELLE_AUS for h in hinweise):
+        if any(isinstance(h, dict) and h.get(HINWEIS_FELD_KEY) == HINWEIS_SOLL_QUELLE_AUS for h in hinweise):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="thermostat_aus")
         raum_soll = _auf_schritt(float(value))
         self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)

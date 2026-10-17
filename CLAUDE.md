@@ -25,7 +25,8 @@ requirements_test.txt && .venv/bin/python -m pytest -q` (`pytest-homeassistant-c
 braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup; `pytest.ini`:
 `asyncio_mode = auto`, `testpaths = tests`). `addon_fakes.py` (Fake-Add-on-Manager, Status-Ereignis, Einträge) und
 `einrichtung_fakes.py` (Fake-Einrichtungs-Server) sind gemeinsame Test-Doubles. `../tools/contract_check.py` liest aus
-diesem Repo nur `const.py` und `translations/{de,en}.json` (Checks 7, 8, 12, 14, 54, 56, 58–60); der Katalog-Parser und
+diesem Repo nur `const.py` und `translations/{de,en}.json` (Verträge V1, V3, V5 und Domäne; Liste: `python3
+../tools/contract_check.py --liste`); der Katalog-Parser und
 die Fixture-Kopien bis 0.16 sind mit Plan 5c W Teil B entfallen.
 
 Feature-Branches (`feat/…`/`fix/…`) zweigen von `develop` ab und werden `--no-ff` nach `develop`
@@ -37,7 +38,8 @@ neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbo
 ## Regeln und Fallen
 
 - **Status-Ereignis** `smartheat_status`, Schema 3 (Add-on `geraet_status.py`/`smartheat_runtime/status.py` ↔ `const.py`,
-  Contract-Check 14): `schema`, Feldliste und erlaubte Werte müssen exakt übereinstimmen. Den Gerätezustand gibt
+  Contract-Check, Vertrag V5): `schema`, Feldliste und erlaubte Werte müssen exakt übereinstimmen; der Coordinator
+  übernimmt nur die Felder aus `STATUS_EVENT_FIELDS`. Den Gerätezustand gibt
   `geraet_zustand` (nicht `status`: der Laufzeit-Teil sagt „startet“, solange das Add-on nicht konfiguriert ist).
 - **Discovery-Felder** des Add-ons (`DISCOVERY_FIELDS`): `geraet_id`, `zustand` (auch „startet“), `claim_code` (nur
   solange `nicht_uebernommen`). Der Assistent vertraut nur einer Discovery der Heizungsbrücke aus unserem Store-Repository

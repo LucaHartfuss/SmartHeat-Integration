@@ -17,11 +17,9 @@ STATUS_EVENT_FIELDS = (
     "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
     "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise",
 )
-HINWEIS_FIELDS = ("key", "stufe", "text")
-GERAET_ZUSTAENDE = (
-    "startet", "nicht_uebernommen", "keine_verbindung", "wartet_auf_einrichtung", "regelt", "stoerung", "gesperrt",
-    "update_noetig",
-)
+# Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen (A5-85).
+HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = "key", "stufe", "text"
+HINWEIS_FIELDS = (HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT)
 HINWEIS_SOLL_QUELLE_AUS = "soll_quelle_aus"
 HINWEIS_KEYS = ("update_noetig", "geraet_doppelt", "wunsch_begrenzt", HINWEIS_SOLL_QUELLE_AUS,
                 "konfiguration_abgelehnt", "gesperrt")
@@ -54,7 +52,6 @@ DISCOVERY_FIELDS = ("geraet_id", "zustand", "claim_code")
 # Geraete-ID: "shg-" + 16 Zeichen Base32 (klein) des SHA-256 des oeffentlichen Schluessels (Add-on
 # smartheat_device/identity.device_id_for, Server device_protocol.DEVICE_ID_PREFIX/DEVICE_ID_HASH_CHARS).
 GERAET_ID_RE = re.compile(r"shg-[a-z2-7]{16}")
-ZUSTAND_NICHT_UEBERNOMMEN = "nicht_uebernommen"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
 
@@ -74,7 +71,7 @@ EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
     "entfernen": ("POST", "/geraet/entfernen"),
     "auftrag": ("GET", "/geraet/auftraege/<job_id>"),
 }
-# V3-Felder der Einrichtungs-API (Spec Stufe 3 S5 4): Kopie von einrichtung/api.py (Server), Contract-Check 62.
+# V3-Felder der Einrichtungs-API (Spec Stufe 3 S5 4): Kopie von einrichtung/api.py (Server), Contract-Check (Vertrag V3).
 # Je Route (Pflicht, optional) bzw. die Felder der Antwort; die Werte stehen ausgeschrieben, damit der Vergleich
 # wortlich bleibt.
 EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
@@ -126,15 +123,6 @@ EINRICHTUNG_GERAET_INVENTUR_FELDER = ("zustand", "command_id", "zeit", "fehler")
 EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever")
 AUFTRAG_FERTIG = "fertig"
 AUFTRAG_FEHLGESCHLAGEN = "fehlgeschlagen"
-# Rollen, die der Server im Schritt Anlagenwerte anbieten kann (device_protocol.HA_ROLLEN ohne room_target, das der
-# Schritt Raeume zeigt); jede braucht einen Text unter config.step.anlagenwerte.data.
-ROLLEN_ANLAGENWERTE = (
-    "curve", "room_setpoint", "level", "heat_limit", "min_flow", "mode_select", "setpoint_comfort", "setpoint_setback",
-    "outdoor_temp", "flow_temperature", "flow_setpoint", "return_temperature", "operating_mode",
-    "system_water_pressure", "efficiency_ratio", "generator_hours", "generator_starts", "generator_state",
-    "energy_electrical_heating", "energy_electrical_dhw", "energy_primary_heating", "energy_primary_dhw",
-    "energy_thermal_heating", "energy_thermal_dhw", "energy_electrical_total",
-)
 
 DISCOVERY_WAIT_SECONDS = 300
 INVENTUR_WAIT_SECONDS = 120
