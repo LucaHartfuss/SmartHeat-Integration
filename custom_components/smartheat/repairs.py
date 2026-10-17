@@ -7,7 +7,7 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
-from .const import DOMAIN, HINWEIS_KEYS, hinweis_issue_id
+from .const import DOMAIN, HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT, HINWEIS_KEYS, hinweis_issue_id
 
 KRITISCH = "kritisch"
 _PREFIX = "hinweis_"
@@ -21,16 +21,17 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
     for hinweis in hinweise:
         if not isinstance(hinweis, dict):
             continue
-        key = hinweis.get("key")
+        key = hinweis.get(HINWEIS_FELD_KEY)
         if not isinstance(key, str) or not key:
             continue
         issue_id = hinweis_issue_id(key)
         aktuell.add(issue_id)
+        severity = ir.IssueSeverity.ERROR if hinweis.get(HINWEIS_FELD_STUFE) == KRITISCH else ir.IssueSeverity.WARNING
         ir.async_create_issue(
             hass, DOMAIN, issue_id, is_fixable=False,
-            severity=ir.IssueSeverity.ERROR if hinweis.get("stufe") == KRITISCH else ir.IssueSeverity.WARNING,
+            severity=severity,
             translation_key=key if key in HINWEIS_KEYS else GERAET_HINWEIS,
-            translation_placeholders={"text": str(hinweis.get("text") or "")},
+            translation_placeholders={"text": str(hinweis.get(HINWEIS_FELD_TEXT) or "")},
         )
     for domain, issue_id in list(registry.issues):
         if domain == DOMAIN and issue_id.startswith(_PREFIX) and issue_id not in aktuell:

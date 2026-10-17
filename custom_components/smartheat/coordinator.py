@@ -31,6 +31,7 @@ from .const import (
     SILENCE_SECONDS,
     STATUS_ADDON_GESTOPPT,
     STATUS_EVENT,
+    STATUS_EVENT_FIELDS,
     STATUS_EVENT_SCHEMA,
     STATUS_REAGIERT_NICHT,
     STOPPED_AFTER_CHECKS,
@@ -197,7 +198,8 @@ class SmartHeatCoordinator:
                 "Status-Event mit unbekanntem schema/status ignoriert: %r/%r", data.get("schema"), data.get("status"),
             )
             return
-        self.data = dict(data)
+        # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, A5-85); fehlende bleiben fehlend.
+        self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data}
         self._watchdog.event_received(_now())
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])

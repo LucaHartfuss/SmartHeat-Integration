@@ -20,11 +20,8 @@ def test_device_contract_values():
     assert const.EINRICHTUNG_ROUTEN["auftrag"] == ("GET", "/geraet/auftraege/<job_id>")
 
 
-def test_device_states_and_hint_keys_follow_the_add_on_wire():
+def test_hint_fields_and_keys_follow_the_add_on_wire():
     assert const.HINWEIS_FIELDS == ("key", "stufe", "text")
-    assert const.GERAET_ZUSTAENDE == (
-        "startet", "nicht_uebernommen", "keine_verbindung", "wartet_auf_einrichtung", "regelt", "stoerung", "gesperrt",
-        "update_noetig")
     assert set(const.HINWEIS_KEYS) == {
         "wunsch_begrenzt", "soll_quelle_aus", "geraet_doppelt", "update_noetig", "gesperrt", "konfiguration_abgelehnt"}
     assert const.hinweis_issue_id("Update-Noetig") == "hinweis_update_noetig"

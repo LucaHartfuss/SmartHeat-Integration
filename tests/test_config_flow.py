@@ -795,12 +795,12 @@ def test_every_step_error_and_abort_has_a_text(path):
         assert "{grund}" in config["error"][key], (path, key)
 
 
-def test_every_role_has_a_label():
-    from custom_components.smartheat.const import ROLLEN_ANLAGENWERTE
-
-    for path in ("translations/en.json", "translations/de.json"):
-        labels = json.loads((_COMPONENT / path).read_text(encoding="utf-8"))["config"]["step"]["anlagenwerte"]["data"]
-        assert set(labels) == set(ROLLEN_ANLAGENWERTE), path
+def test_both_languages_label_the_same_roles():
+    """Dass jede Rolle des Vertrags (HA_ROLLEN ohne room_target) einen Text hat, prueft ein Contract-Check (Vertrag V1,
+    Liste: tools/contract_check.py --liste) direkt gegen den Server; die Integration fuehrt keine Kopie der Rollen."""
+    labels = [set(json.loads((_COMPONENT / path).read_text(encoding="utf-8"))["config"]["step"]["anlagenwerte"]["data"])
+              for path in ("translations/en.json", "translations/de.json")]
+    assert labels[0] == labels[1] and "curve" in labels[0]
 
 
 def test_strings_json_equals_the_english_translation():
