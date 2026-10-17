@@ -53,8 +53,9 @@ laeuft und sich meldet, meldet Ausfaelle und startet sie neu (hoechstens dreimal
 
 ## Update von 0.16
 
-Installationen aus 0.16 (Eintrag ohne Geraete-ID) setzen sich mit 1.0.0 nicht ein: Die Integration zeigt "alter Eintrag"
-und einen Reparatur-Hinweis. Der Umzug ist ein eigener Schritt (Plan 5d); bis dahin bleibt 0.16.1 installiert.
+Einträge aus 0.16 (Eintrag ohne Geraete-ID) werden nicht migriert: Die Integration 1.0.0 zeigt "alter Eintrag" und
+einen Reparatur-Hinweis. Eintrag löschen (solange 0.16 installiert ist), Add-on 1.0.0 installieren, dann auf 1.0.0
+aktualisieren und neu einrichten (Einzelheiten im Abschnitt 1.0.0 des [CHANGELOG.md](CHANGELOG.md)).
 
 ## Aenderungen
 

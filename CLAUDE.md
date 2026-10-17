@@ -52,9 +52,8 @@ neuesten `main`-Commits an. Release-Ablauf, CI-Jobs, Token: `../docs/ci-cd-runbo
   im Log; wird bei jedem Ende beim Server beendet).
 - **Wunschtemperatur:** Ereignis `smartheat_wunsch` mit `{"raum_soll": Zahl}`, Grenzen 15–25 °C in 0,5-Schritten.
 - **`entry.data`** (`VERSION` 3) = `geraet_id`, `tenant_id`, `profile_id`, `lever_set`, `hebel`, `shift_lever`. Einträge
-  aus 0.16 (VERSION 2, ohne `geraet_id`) lehnt das Setup mit Text und Reparatur-Hinweis ab (`alter_eintrag`);
-  `client1` ist in Phase 1 Schritt 3 über Entfernen und Neueinrichten umgezogen. Die Entity-IDs und `unique_id`s von
-  `client1` (13 aus 0.16.1) bleiben (`tests/test_init.py`).
+  aus 0.16 (VERSION 2, ohne `geraet_id`) lehnt das Setup mit Text und Reparatur-Hinweis ab (`alter_eintrag`); 0.16-Einträge
+  werden nicht migriert. Die Entity-IDs und `unique_id`s von `client1` (13 aus 0.16.1) bleiben (`tests/test_init.py`).
 - Add-on-Slugs tragen einen Repo-Hash-Präfix (z. B. `f5f6325b_heizungsbruecke`): `supervisor_client.async_resolve_addons`;
   Mindestversion `MIN_ADDON_VERSIONS` (1.0.0) wird vor dem Warten auf die Discovery geprüft.
 - Vom Supervisor nie einen Fehlertext zeigen oder loggen (er kann Optionswerte zitieren), nur die Fehlerart.
