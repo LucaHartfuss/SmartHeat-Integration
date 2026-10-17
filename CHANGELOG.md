@@ -3,6 +3,12 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## Unveröffentlicht
+
+- Einträge aus 0.16 (ohne Geräte-ID) bekommen keinen eigenen Text und keinen Reparatur-Hinweis mehr; Home Assistant
+  zeigt den Migrationsfehler. Das Update von 0.16 läuft weiter wie unter 1.0.0 beschrieben (erst den Eintrag löschen).
+- Die Anlagenwahl liest das Feld `altpfad` der Einrichtungs-API nicht mehr (der Server sendet es nicht mehr).
+
 ## 1.0.0
 
 - **1.0.0** (Spec 5c): Einrichtung über die Supervisor-Discovery des Add-ons und die Einrichtungs-API des Servers;
