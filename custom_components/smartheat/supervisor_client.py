@@ -74,8 +74,9 @@ _BRANCH = re.compile(r"[A-Za-z0-9._/-]+")
 
 
 def _valid_branch(branch: str) -> bool:
-    """Branch-Angabe nur aus [A-Za-z0-9._/-], nicht leer, ohne `..` und ohne fuehrendes `/` (also auch ohne
-    Leerraum, Steuerzeichen und ein zweites `#`)."""
+    """Branch-Angabe nur aus [A-Za-z0-9._/-], nicht leer, ohne `..` und ohne fuehrendes `/` (also innerhalb des Branches
+    ohne Leerraum, Steuerzeichen und ein zweites `#`). Leerraum an den Enden der ganzen Adresse schneidet
+    _normalized_repository vorher ab: `<Adresse>#develop ` gilt als Branch `develop`."""
     return bool(_BRANCH.fullmatch(branch)) and ".." not in branch and not branch.startswith("/")
 
 

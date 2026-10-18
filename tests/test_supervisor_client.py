@@ -250,6 +250,9 @@ async def test_store_error_becomes_addon_error(supervisor):
     REPO_URL + "/#develop",
     REPO_URL + "#feat/testoffensive-t5",
     REPO_URL + "#v1.0.0",
+    # Leerraum an den Enden der ganzen Adresse wird vorher abgeschnitten (bewusst angenommen, siehe _valid_branch)
+    REPO_URL + "#develop\n",
+    "  " + REPO_URL + "#develop ",
     # GitHub unterscheidet Gross- und Kleinschreibung im Pfad nicht
     "https://github.com/lucahartfuss/smartheat-for-homeassistant#develop",
 ])
