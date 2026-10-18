@@ -395,9 +395,39 @@ async def test_geraet_ohne_inventur_bleibt_ohne_inventur(aiohttp_client):
     assert await client.geraet() == {"anlagen": [], "inventur": None}
 
 
-def test_jedes_verschachtelte_objekt_der_pfadtabelle_hat_eine_feldkonstante():
+def test_felder_aus_nimmt_genau_die_konstanten_der_pfadtabelle_auf():
     from custom_components.smartheat import antwort
 
     namen = {pfad[-1] for pfade in antwort.VERSCHACHTELT.values() for pfad in pfade}
-    assert namen <= set(einrichtung_client._OBJEKT_FELDER), namen - set(einrichtung_client._OBJEKT_FELDER)
+    assert set(einrichtung_client._OBJEKT_FELDER) == namen
     assert set(antwort.VERSCHACHTELT) <= set(einrichtung_client.EINRICHTUNG_ANTWORT_FELDER)
+    assert all(einrichtung_client._OBJEKT_FELDER[n] == getattr(einrichtung_client.const, f"EINRICHTUNG_{n}")
+               for n in namen)
+
+
+# Bruchtest (K2) je Route: die Felder der obersten Ebene als Literale aus V3 (nicht ueber die Konstanten). Die
+# Antwort traegt zusaetzlich ein fremdes Feld, das der Filter verwirft; fehlende Felder bleiben fehlend.
+_OBERSTE_EBENE = [
+    ("anmelden", {"token", "gueltig_bis"}),
+    ("uebernehmen", {"device_id"}),
+    ("geraet", {"device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
+                "konfiguration", "raum_soll"}),
+    ("inventur", {"command_id"}),
+    ("vorschlag", {"integrationen"}),
+    ("zuordnung", {"kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "room_target", "batterie_je_entity",
+                   "benachrichtigung", "hinweise", "raum_soll", "abfrage_s", "hinweis"}),
+    ("pruefen", {"fehler", "warnungen"}),
+    ("einrichten", {"job_id"}),
+    ("neu_konfigurieren", {"job_id"}),
+    ("entfernen", {"freigegeben", "job_id"}),
+    ("auftrag", {"job_id", "art", "zustand", "fehler", "ergebnis", "seit"}),
+]
+
+
+@pytest.mark.parametrize("route, felder", _OBERSTE_EBENE, ids=[route for route, _ in _OBERSTE_EBENE])
+async def test_filter_haelt_auf_oberster_ebene_genau_die_felder_aus_v3(aiohttp_client, route, felder):
+    methode, pfad = einrichtung_client.EINRICHTUNG_ROUTEN[route]
+    voll = {**dict.fromkeys(sorted(felder)), "fremd": 1}
+    client = await _client(aiohttp_client, [(methode, pfad.replace("<job_id>", "{job_id}"), _antwort(200, voll))])
+    kwargs = {"job_id": "j"} if route == "auftrag" else {}
+    assert set(await client._dict(route, **kwargs)) == felder

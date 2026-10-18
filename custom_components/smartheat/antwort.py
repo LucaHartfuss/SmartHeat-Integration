@@ -31,9 +31,10 @@ def _kuerzen(wert: Any, pfad: tuple[str, ...], felder: tuple[str, ...]) -> Any:
 
 
 def felder_aus(konstanten: Any) -> dict[str, tuple[str, ...]]:
-    """Die Feldkonstanten `EINRICHTUNG_*_FELDER`/`*_ZUSATZ` eines Moduls (const.py) ohne das Praefix."""
-    return {name.removeprefix("EINRICHTUNG_"): wert for name, wert in vars(konstanten).items()
-            if name.startswith("EINRICHTUNG_") and name.endswith(("_FELDER", "_ZUSATZ"))}
+    """Die Feldkonstanten `EINRICHTUNG_<Name>` eines Moduls (const.py), die die Pfadtabelle nennt, nach Name ohne
+    das Praefix. Fehlt eine, ist das ein AttributeError beim Import des Clients statt ein stiller Ausfall."""
+    namen = {pfad[-1] for pfade in VERSCHACHTELT.values() for pfad in pfade}
+    return {name: getattr(konstanten, f"EINRICHTUNG_{name}") for name in sorted(namen)}
 
 
 def verschachtelt(route: str, body: dict, felder: dict[str, tuple[str, ...]]) -> dict:
