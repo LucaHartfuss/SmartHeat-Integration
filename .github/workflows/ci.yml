@@ -1,10 +1,30 @@
 name: CI
+# Pruefstufen (Root-Runbook Abschnitt 3, Spec Testoffensive Nr. 30/35): alle Jobs gehoeren zur Standardstufe und laufen
+# bei Push (alle Branches, oeffentliches Repo ohne Minutenkosten), im Tageslauf und im Release (stufe: voll) gleich; die
+# Eingabe stufe ist deklariert, damit der Release-Workflow und workflow_dispatch sie wie in den anderen Repos uebergeben.
+# hassfest und hacs sind Container-Actions, gehoeren als Pflicht-Checks des Rulesets aber ausdruecklich zur
+# Standardstufe (Ausnahme der Docker-Regel in tools/tests/test_workflows.py des Root-Repos). Pflicht-Checks (lint,
+# test, test-client1-ha, hassfest, hacs, contract) bleiben Jobs ohne Job-if (sonst scheitert der Fast-Forward von main
+# mit GH013).
 on:
   push:
     branches: ["**"]
+  workflow_dispatch:
+    inputs:
+      stufe:
+        description: "Prüfstufe: standard oder voll (hier gleich, alle Jobs gehören zur Standardstufe)"
+        type: string
+        required: false
+        default: standard
   schedule:
     - cron: "47 3 * * *"
   workflow_call:
+    inputs:
+      stufe:
+        description: "Prüfstufe: standard oder voll (hier gleich, alle Jobs gehören zur Standardstufe)"
+        type: string
+        required: false
+        default: standard
     secrets:
       CROSS_REPO_TOKEN:
         required: true
