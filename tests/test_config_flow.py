@@ -1,22 +1,26 @@
 """Spec 5c 2.1: Assistent ueber der Einrichtungs-API (Discovery, manuell, Ersetzen, eingerichtetes Geraet,
-Neu konfigurieren, Fehler). Die Einrichtungs-API ersetzt FakeServer (einrichtung_fakes.py), die Add-on-Seite die
-Fixture `server` (Discovery, bootstrap_url, Mindestversion)."""
+Neu konfigurieren, Fehler). Attrappen nur an der Grenze (Spec Nr. 23, A5-25): die Einrichtungs-API ist
+`einrichtung_fakes.FakeServer` (autospec des `EinrichtungClient`), der Supervisor `supervisor_fakes.FakeSupervisor`
+(Fixture `supervisor`: Store, Add-ons, Optionen mit `bootstrap_url`, Discovery, Mindestversion ueber die Version des
+installierten Add-ons). Eigene Funktionen von `addon_control` und `supervisor_client` laufen echt."""
+import copy
 import json
 import logging
+from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
-from homeassistant.components.hassio import AddonError
+from aiohasupervisor.exceptions import SupervisorError
+from aiohasupervisor.models import AddonBoot, AddonState
 from homeassistant.config_entries import SOURCE_HASSIO, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.smartheat import config_flow
 from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DOMAIN
 from custom_components.smartheat.einrichtung_client import ApiError, InvalidResponse, NotFound, TooMany
-from custom_components.smartheat.supervisor_client import AddonOutdatedError
 
 from . import einrichtung_fakes
 from .einrichtung_fakes import (
@@ -35,52 +39,29 @@ from .einrichtung_fakes import (
     Rejected,
     TokenUngueltig,
 )
+from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon
 
 DISCOVERY = HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen",
                                       "claim_code": CLAIM_CODE},
-                              name="Heizungsbruecke", slug="abc_heizungsbruecke", uuid="u1")
+                              name="Heizungsbruecke", slug=BRIDGE_SLUG, uuid="u1")
 LOGIN = {"email": "a@b.de", "password": PASSWORT}
-BRUECKE = SimpleNamespace(slug="abc_heizungsbruecke", repository="abc", url=ADDON_REPOSITORY_URL, version="1.0.0")
+LABOR_URL = "https://labor.example.test"
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 
 
+def _melden(supervisor, config) -> None:
+    """Discovery-Liste des Supervisors: eine Meldung der Heizungsbruecke mit `config`, bei None keine."""
+    supervisor.discovery = [] if config is None else [discovery_message(config)]
+
+
 @pytest.fixture
-def server(monkeypatch):
+def server(monkeypatch, supervisor):
+    """Einrichtungs-API an der Grenze `EinrichtungClient(session, base_url)`; der Supervisor meldet die installierte
+    Heizungsbruecke 1.0.0 mit `bootstrap_url` = LABOR_URL und ihre Discovery mit Uebernahme-Code."""
     fake = FakeServer()
-    original = config_flow.EinrichtungClient.__init__
-
-    def init(self, session, base_url):
-        original(self, session, base_url)
-        fake.base_url = base_url
-        fake.bind(self)
-
-    monkeypatch.setattr(config_flow.EinrichtungClient, "__init__", init)
-
-    async def bootstrap_url(hass):
-        return "https://labor.example.test"
-
-    async def discovery(hass):
-        return fake.discovery
-
-    async def resolve(hass, repository_url, min_versions):
-        fake.calls.append(("addon_version", dict(min_versions)))
-        if fake.addon_error is not None:
-            raise fake.addon_error
-        return {}
-
-    def supervisor(hass):
-        return SimpleNamespace(addons=SimpleNamespace(list=AsyncMock(side_effect=lambda: list(fake.addons))),
-                               store=SimpleNamespace(repositories_list=AsyncMock(return_value=[SimpleNamespace(
-                                   slug="abc", source=ADDON_REPOSITORY_URL, url=ADDON_REPOSITORY_URL)])))
-
-    fake.discovery = {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE}
-    fake.addons = [BRUECKE]
-    fake.addon_error = None
-    monkeypatch.setattr(config_flow.addon_control, "get_supervisor_client", supervisor)
-    monkeypatch.setattr(config_flow.supervisor_client, "get_supervisor_client", supervisor)
-    monkeypatch.setattr(config_flow.addon_control, "async_bootstrap_url", bootstrap_url)
-    monkeypatch.setattr(config_flow.addon_control, "async_discovery", discovery)
-    monkeypatch.setattr(config_flow.supervisor_client, "async_resolve_addons", resolve)
+    monkeypatch.setattr(config_flow, "EinrichtungClient", lambda session, base_url: fake.client(base_url))
+    supervisor.addon_options[BRIDGE_SLUG] = {"bootstrap_url": LABOR_URL}
+    _melden(supervisor, {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE})
     monkeypatch.setattr(config_flow, "POLL_SECONDS", 0)
     return fake
 
@@ -164,7 +145,7 @@ async def test_discovery_flow_creates_the_entry(hass, server):
     assert result["data"] == {"geraet_id": GERAET_ID, "tenant_id": TENANT, "profile_id": KONFIGURATION["profil"],
                               "lever_set": "vaillant_vrc720", "hebel": KONFIGURATION["hebel"],
                               "shift_lever": "room_setpoint"}
-    assert server.base_url == "https://labor.example.test"
+    assert server.base_url == LABOR_URL
     assert ("uebernehmen", GERAET_ID, CLAIM_CODE) in server.calls
     assert ("zuordnung", "mypyllant|e1|SYSTEM|0", "vaillant_gastherme_heizkoerper", "vaillant_vrc720", None) \
         in server.calls
@@ -177,7 +158,6 @@ async def test_discovery_flow_creates_the_entry(hass, server):
                    "outdoor_temp": "sensor.zuhause_outdoor_temperature", "room_target": "climate.wohnzimmer_thermostat"},
         "raumfuehler": ["sensor.wohnzimmer_temperatur"], "batterien": ["sensor.wohnzimmer_batterie"],
         "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "raum_soll": 21.0}
-    assert ("addon_version", {"heizungsbruecke": "1.0.0"}) in server.calls
     assert server.calls[-1] == ("abmelden",)
 
 
@@ -190,7 +170,7 @@ def _nur(objekt, felder):
     return {k: v for k, v in objekt.items() if k in felder}
 
 
-async def test_der_assistent_kommt_mit_genau_den_gepinnten_feldern_durch(hass, server, monkeypatch):
+async def test_der_assistent_kommt_mit_genau_den_gepinnten_feldern_durch(hass, server):
     """F-ha-host-39 Zeile 1: Antworten des Servers, auf genau die gepinnten Literale gekuerzt (je Objekt nur sie),
     reichen dem Assistenten bis `create_entry`: er liest kein Feld ausserhalb der Pins."""
     sicht = _nur(server.geraet_sicht, _pin("ANTWORT_FELDER[geraet]"))
@@ -210,7 +190,7 @@ async def test_der_assistent_kommt_mit_genau_den_gepinnten_feldern_durch(hass, s
                  "rollen": [_nur(r, _pin("ZUORDNUNG_ROLLE_FELDER")) for r in ZUORDNUNG["rollen"]],
                  "raumfuehler": _nur(ZUORDNUNG["raumfuehler"], _pin("RAUMFUEHLER_FELDER")),
                  "room_target": _nur(ZUORDNUNG["room_target"], _pin("RAUMFUEHLER_FELDER"))}
-    monkeypatch.setattr(einrichtung_fakes, "VORSCHLAG", vorschlag)
+    server.vorschlag_antwort = vorschlag
     server.zuordnung_antwort = zuordnung
     server.pruef_ergebnis = _nur(server.pruef_ergebnis, _pin("ANTWORT_FELDER[pruefen]"))
     server.auftrag_ergebnis = _nur(server.auftrag_ergebnis, _pin("ANTWORT_FELDER[auftrag]"))
@@ -345,12 +325,12 @@ async def test_setup_job_timeout_has_its_own_text(hass, server, monkeypatch):
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "einrichten_zeit")
 
 
-async def test_already_set_up_device_only_creates_the_entry(hass, server):
+async def test_already_set_up_device_only_creates_the_entry(hass, server, supervisor):
     server.geraet_sicht.update(eingerichtet=True, tenant_id=TENANT, konfiguration=KONFIGURATION)
-    server.discovery = {"geraet_id": GERAET_ID, "zustand": "regelt"}
+    _melden(supervisor, {"geraet_id": GERAET_ID, "zustand": "regelt"})
 
     result = await _bis_anlage(hass, HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "regelt"}, name="x",
-                                                       slug="abc_heizungsbruecke", uuid="u2"))
+                                                       slug=BRIDGE_SLUG, uuid="u2"))
     assert result["step_id"] == "schon_eingerichtet"
     result = await _configure(hass, result, {})
 
@@ -372,21 +352,20 @@ async def test_discovery_of_a_configured_device_aborts(hass, server):
                                     {"geraet_id": "SHG-AAAAAAAAAAAAAAAA"}, {"geraet_id": f"{GERAET_ID} [x](y)"}])
 async def test_invalid_discovery_aborts(hass, server, config):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=HassioServiceInfo(
-        config=config, name="x", slug="abc_heizungsbruecke", uuid="u3"))
+        config=config, name="x", slug=BRIDGE_SLUG, uuid="u3"))
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
 
 
 @pytest.mark.parametrize("addons", [
-    [BRUECKE],  # die Discovery stammt von einem anderen Add-on (slug passt nicht)
-    [SimpleNamespace(slug="xyz_heizungsbruecke", repository="xyz", url="https://github.com/fremd/addons",
-                     version="9.9.9")],
+    [installed_addon(BRIDGE_SLUG)],  # die Discovery stammt von einem anderen Add-on (slug passt nicht)
+    [installed_addon("xyz_heizungsbruecke", url="https://github.com/fremd/addons", version="9.9.9")],
     # fremdes Repository, das sich mit unserer url und einem *_heizungsbruecke als Heizungsbruecke ausgibt
-    [SimpleNamespace(slug="xyz_heizungsbruecke", repository="xyz", url=ADDON_REPOSITORY_URL, version="1.0.0")],
+    [installed_addon("xyz_heizungsbruecke", url=ADDON_REPOSITORY_URL)],
     [],
 ])
-async def test_discovery_of_a_foreign_addon_aborts(hass, server, addons):
-    server.addons = addons
+async def test_discovery_of_a_foreign_addon_aborts(hass, server, supervisor, addons):
+    supervisor.installed = addons
     foreign = HassioServiceInfo(config=DISCOVERY.config, name="x", slug="xyz_heizungsbruecke", uuid="u5")
 
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=foreign)
@@ -394,9 +373,8 @@ async def test_discovery_of_a_foreign_addon_aborts(hass, server, addons):
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
 
 
-async def test_local_addon_imitating_the_bridge_is_rejected(hass, server):
-    server.addons = [SimpleNamespace(slug="local_heizungsbruecke", repository="local", url=ADDON_REPOSITORY_URL,
-                                     version="1.0.0")]
+async def test_local_addon_imitating_the_bridge_is_rejected(hass, server, supervisor):
+    supervisor.installed = [installed_addon("local_heizungsbruecke", url=ADDON_REPOSITORY_URL)]
     local = HassioServiceInfo(config=DISCOVERY.config, name="x", slug="local_heizungsbruecke", uuid="u6")
 
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=local)
@@ -406,9 +384,9 @@ async def test_local_addon_imitating_the_bridge_is_rejected(hass, server):
 
 @pytest.mark.parametrize("discovery", [None, {"geraet_id": "shg-bbbbbbbbbbbbbbbb", "zustand": "nicht_uebernommen",
                                                "claim_code": "ANDERERCODE1"}])
-async def test_claim_without_a_trusted_discovery_of_this_device_aborts(hass, server, discovery):
+async def test_claim_without_a_trusted_discovery_of_this_device_aborts(hass, server, supervisor, discovery):
     """Nie auf Geraete-ID und Code der ersten Meldung zurueckfallen."""
-    server.discovery = discovery
+    _melden(supervisor, discovery)
 
     result = await _bis_anlage(hass)
 
@@ -417,36 +395,90 @@ async def test_claim_without_a_trusted_discovery_of_this_device_aborts(hass, ser
     assert server.calls[-1] == ("abmelden",)
 
 
-async def test_claim_uses_the_current_discovery_code(hass, server):
-    """Die erste Discovery kann `startet` ohne Code sein; vor dem Uebernehmen liest der Assistent sie neu."""
-    server.discovery = {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": "NEUERCODE123"}
+@pytest.mark.parametrize("erste", [{"geraet_id": GERAET_ID, "zustand": "startet"},
+                                   {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": "ALTERCODE123"}],
+                         ids=["ohne_code", "mit_altem_code"])
+async def test_claim_uses_the_current_discovery_code(hass, server, supervisor, erste):
+    """Die erste Discovery kann `startet` ohne Code sein oder einen alten Code tragen; vor dem Uebernehmen liest der
+    Assistent sie neu und nimmt nur den frischen Code."""
+    _melden(supervisor, {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": "NEUERCODE123"})
 
-    await _bis_anlage(hass, HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "startet"}, name="x",
-                                              slug="abc_heizungsbruecke", uuid="u4"))
+    await _bis_anlage(hass, HassioServiceInfo(config=erste, name="x", slug=BRIDGE_SLUG, uuid="u4"))
 
-    assert ("uebernehmen", GERAET_ID, "NEUERCODE123") in server.calls
+    assert [call for call in server.calls if call[0] == "uebernehmen"] == [("uebernehmen", GERAET_ID, "NEUERCODE123")]
 
 
-async def test_outdated_addon_aborts_before_login(hass, server):
-    server.addon_error = AddonOutdatedError("heizungsbruecke", "0.36.0", "1.0.0")
+@pytest.mark.parametrize("version", ["0.36.0", "0.99.9"])
+async def test_outdated_addon_aborts_before_login(hass, server, supervisor, version):
+    supervisor.installed = [installed_addon(BRIDGE_SLUG, version=version)]
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
 
     result = await _configure(hass, result, {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "addon_veraltet")
-    assert not any(call[0] == "anmelden" for call in server.calls)
+    assert server.calls == [] and server.base_url is None
 
 
-async def test_invalid_bootstrap_url_aborts(hass, server, monkeypatch):
-    async def bootstrap_url(hass_):
-        return None
+async def test_the_minimum_addon_version_1_0_0_is_enough(hass, server, supervisor):
+    """Mindestversion genau 1.0.0 (MIN_ADDON_VERSIONS): sie reicht bis zur Anmeldung; 0.99.9 bricht ab (Test oben)."""
+    supervisor.installed = [installed_addon(BRIDGE_SLUG, version="1.0.0")]
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
 
-    monkeypatch.setattr(config_flow.addon_control, "async_bootstrap_url", bootstrap_url)
+    result = await _configure(hass, result, {})
+
+    assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "anmelden")
+    assert server.base_url == LABOR_URL
+
+
+@pytest.mark.parametrize("start", ["discovery", "manuell"])
+async def test_a_version_that_cannot_be_compared_aborts_with_addon_fehler(hass, server, supervisor, caplog, start):
+    """Eine nicht vergleichbare Version der Heizungsbruecke ist ein Fehlerpfad (`addon_fehler`) auf beiden Startwegen,
+    keine Ausnahme aus dem Schritt; im Log steht nur die Fehlerart, nie die Version."""
+    caplog.set_level(logging.DEBUG)
+    supervisor.installed = [installed_addon(BRIDGE_SLUG, version="GEHEIM-kein-semver")]
+
+    if start == "discovery":
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+        result = await _configure(hass, result, {})
+    else:
+        result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "addon_fehler")
+    assert "Add-on-Version nicht pruefbar (AddonError)" in caplog.text
+    assert "GEHEIM" not in caplog.text and "GEHEIM" not in str(result)
+    assert server.base_url is None and server.calls == []
+
+
+@pytest.mark.parametrize("value", ["http://labor.example.test", "", "ftp://labor.example.test", "https://", 42])
+async def test_invalid_bootstrap_url_aborts(hass, server, supervisor, value):
+    supervisor.addon_options[BRIDGE_SLUG] = {"bootstrap_url": value}
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
 
     result = await _configure(hass, result, {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "bootstrap_url_ungueltig")
+
+
+@pytest.mark.parametrize(("start", "ungueltig"), [
+    ("discovery", "http://labor.example.test"), ("discovery", "https://"), ("discovery", "nicht lesbar"),
+    ("manuell", "http://labor.example.test"), ("manuell", "https://"),
+    # manuell und Optionen nicht lesbar: schon das Starten scheitert (addon_fehler), siehe Add-on-Tests
+])
+async def test_an_invalid_bootstrap_url_sends_nothing_to_any_server(hass, server, supervisor, start, ungueltig):
+    """F-ha-host-35 (Angreifer im LAN): ohne gueltige Adresse entsteht kein Client, es geht keine Anfrage hinaus und
+    kein Passwort an eine andere Adresse (auch nicht an die Produktion); auf beiden Wegen des Starts."""
+    if ungueltig == "nicht lesbar":
+        supervisor.errors[("addons.addon_info", BRIDGE_SLUG)] = SupervisorError("Optionen: geheim")
+    else:
+        supervisor.addon_options[BRIDGE_SLUG] = {"bootstrap_url": ungueltig}
+    if start == "discovery":
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+        result = await _configure(hass, result, {})
+    else:
+        result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "bootstrap_url_ungueltig")
+    assert server.base_url is None and server.calls == []
 
 
 async def test_replace_needs_confirmation_and_uses_the_old_mapping(hass, server):
@@ -535,6 +567,97 @@ async def test_no_supported_integration_shows_the_server_text(hass, server):
     assert "myVAILLANT" in result["description_placeholders"]["grund"]
 
 
+@pytest.mark.parametrize("inventur", [{"zustand": "fehlgeschlagen", "fehler": None}, {"zustand": "fehlgeschlagen"}])
+async def test_an_expired_inventory_command_shows_a_dash(hass, server, inventur):
+    """5c-I-2 (hingenommen): ein abgelaufener Inventur-Befehl hat keinen Fehlertext; der Abbruch zeigt dann „-“."""
+    server.inventur_ergebnis = inventur
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "inventur_fehler")
+    assert result["description_placeholders"] == {"grund": "-"}
+    text = json.loads((_COMPONENT / "translations/de.json").read_text(encoding="utf-8"))["config"]["abort"][
+        "inventur_fehler"]
+    assert text.format(**result["description_placeholders"]) == "Die Anlage ließ sich nicht prüfen: -"
+
+
+def _integration(plattform="mypyllant", label="myVAILLANT", kreise=None, hebelsaetze=None, profile=None):
+    """Eine Integration des Vorschlags nach dem Muster von einrichtung_fakes.VORSCHLAG."""
+    integration = copy.deepcopy(einrichtung_fakes.VORSCHLAG["integrationen"][0])
+    integration.update(plattform=plattform, label=label)
+    if kreise is not None:
+        integration["kreise"] = kreise
+    if hebelsaetze is not None:
+        integration["profile"][0]["hebelsaetze"] = hebelsaetze
+    if profile is not None:
+        integration["profile"] = profile
+    return integration
+
+
+def _optionen(result, feld):
+    selector = next(value for key, value in result["data_schema"].schema.items() if key == feld)
+    return [option["value"] if isinstance(option, dict) else option for option in selector.config["options"]]
+
+
+async def test_several_integrations_show_the_selection_step(hass, server):
+    server.vorschlag_antwort = {"integrationen": [_integration(), _integration("vicare", "ViCare")]}
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+    assert result["step_id"] == "integration"
+    assert _optionen(result, "integration") == ["mypyllant", "vicare"]
+    result = await _configure(hass, result, {"integration": "vicare"})
+
+    assert result["step_id"] == "system" and result["description_placeholders"]["integration"] == "ViCare"
+
+
+async def test_one_integration_and_one_lever_set_skip_their_steps(hass, server):
+    """Genau eine Integration und ein Hebelsatz: der Assistent geht ohne Auswahlschritt weiter (nach `system` direkt
+    in `raeume`, die Zuordnung mit dem einzigen Hebelsatz)."""
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+    assert result["step_id"] == "system"
+
+    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert result["step_id"] == "raeume"
+    assert ("zuordnung", "mypyllant|e1|SYSTEM|0", "vaillant_gastherme_heizkoerper", "vaillant_vrc720", None) \
+        in server.calls
+
+
+async def test_several_systems_and_lever_sets_are_offered(hass, server):
+    kreise = [{"schluessel": "mypyllant|e1|SYSTEM|0", "label": "Zuhause"},
+              {"schluessel": "mypyllant|e1|SYSTEM|1", "label": "Werkstatt"}]
+    hebelsaetze = [{"id": "vaillant_vrc720", "hebel": ["curve"]}, {"id": "vaillant_vrc700", "hebel": ["curve"]}]
+    server.vorschlag_antwort = {"integrationen": [_integration(kreise=kreise, hebelsaetze=hebelsaetze)]}
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+    assert result["step_id"] == "system"
+    assert _optionen(result, "kreis") == ["mypyllant|e1|SYSTEM|0", "mypyllant|e1|SYSTEM|1"]
+    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|1", "profil": "vaillant_gastherme_heizkoerper"})
+    assert result["step_id"] == "hebelsatz"
+    assert _optionen(result, "hebelsatz") == ["vaillant_vrc720", "vaillant_vrc700"]
+    assert not any(call[0] == "zuordnung" for call in server.calls)
+    result = await _configure(hass, result, {"hebelsatz": "vaillant_vrc700"})
+
+    assert result["step_id"] == "raeume"
+    assert ("zuordnung", "mypyllant|e1|SYSTEM|1", "vaillant_gastherme_heizkoerper", "vaillant_vrc700", None) \
+        in server.calls
+
+
+@pytest.mark.parametrize("integration", [
+    _integration(kreise=[]),
+    _integration(profile=[]),
+    _integration(hebelsaetze=[]),
+], ids=["ohne_kreise", "ohne_profile", "profil_ohne_hebelsatz"])
+async def test_an_integration_without_circuit_or_lever_set_is_not_supported(hass, server, integration):
+    server.vorschlag_antwort = {"integrationen": [integration]}
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "nicht_unterstuetzt")
+    assert result["description_placeholders"] == {"integration": "myVAILLANT"}
+    assert server.calls[-1] == ("abmelden",)
+
+
 @pytest.mark.parametrize("route", ["zuordnung", "pruefen"])
 @pytest.mark.parametrize("error", [Rejected("Diesen Heizkreis hat Home Assistant nicht gemeldet."),
                                    Conflict("Bitte zuerst die Anlage in Home Assistant prüfen lassen.", 409)])
@@ -592,6 +715,54 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
     assert result["description_placeholders"]["rolle"] == "Außentemperatur"
 
 
+async def test_without_candidates_the_room_fields_have_an_empty_selector(hass, server):
+    """5c-I-3 (hingenommen): ohne Kandidaten fuer Raumfuehler und Raum-Soll zeigt der Assistent die Pflichtfelder mit
+    leerem Selektor (kein Abbruch wie bei `rolle_ohne_kandidaten`)."""
+    server.zuordnung_antwort = {**ZUORDNUNG, "raumfuehler": {"kandidaten": [], "vorschlag": []},
+                                "room_target": {"kandidaten": [], "vorschlag": None}}
+
+    result = await _bis_raeume(hass)
+
+    schema = result["data_schema"].schema
+    felder = {str(key): (type(key).__name__, value.config["include_entities"]) for key, value in schema.items()}
+    assert felder == {"raumfuehler": ("Required", []), "room_target": ("Required", [])}
+
+
+_VIELE = {"raumfuehler": [f"sensor.raum_{i}" for i in range(1, 10)],
+          "batterien": [f"sensor.batterie_{i}" for i in range(1, 18)],
+          "benachrichtigung": [f"notify.mobile_app_handy_{i}" for i in range(1, 12)]}
+
+
+@pytest.mark.parametrize(("feld", "anzahl"), [("raumfuehler", 9), ("batterien", 17), ("benachrichtigung", 11)])
+async def test_too_many_entries_are_sent_and_the_400_without_field_aborts(hass, server, feld, anzahl):
+    """5c-I-3 (hingenommen): der Assistent sendet die Auswahl ungekuerzt (9 Raumfuehler, 17 Batterien, 11 Handys);
+    antwortet der Server mit 400 ohne `fehler`, bricht er mit dessen Text ab, statt das Feld zu markieren."""
+    raeume = [*_VIELE["raumfuehler"], "climate.wohnzimmer_thermostat"]
+    server.zuordnung_antwort = {
+        **ZUORDNUNG, "raumfuehler": {"kandidaten": raeume, "vorschlag": []},
+        "room_target": {"kandidaten": raeume, "vorschlag": None},
+        "batterie_je_entity": {f"sensor.raum_{i}": f"sensor.batterie_{i}" for i in range(1, 18)},
+        "benachrichtigung": _VIELE["benachrichtigung"]}
+    server.fehler["pruefen"] = Rejected("Höchstens 8 Raumfühler, 16 Batterien und 10 Handys.")
+    auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld]}
+    assert len(auswahl[feld]) == anzahl
+    result = await _bis_raeume(hass)
+    result = await _configure(hass, result, {"raumfuehler": auswahl["raumfuehler"],
+                                             "room_target": "climate.wohnzimmer_thermostat"})
+    result = await _configure(hass, result, {
+        "curve": "number.zuhause_circuit_0_heating_curve", "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
+        "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
+    assert result["step_id"] == "benachrichtigung"
+
+    result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"], "hinweise_aus": [],
+                                             "batterien": auswahl["batterien"], "raum_soll": 21.0})
+
+    anfrage = next(call[1] for call in server.calls if call[0] == "pruefen")
+    assert len(anfrage[feld]) == anzahl
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "abgelehnt")
+    assert result["description_placeholders"]["grund"] == "Höchstens 8 Raumfühler, 16 Batterien und 10 Handys."
+
+
 async def test_closing_the_dialog_logs_out(hass, server):
     result = await _bis_anlage(hass)
     assert result["step_id"] == "anlage"
@@ -602,83 +773,155 @@ async def test_closing_the_dialog_logs_out(hass, server):
     assert server.calls[-1] == ("abmelden",)
 
 
+# --- Fortschrittsschritte ---
+
+
+@pytest.mark.parametrize("quelle", ["supervisor", "server"])
+async def test_an_unexpected_error_in_a_progress_step_aborts_and_logs_only_its_type(hass, server, supervisor, caplog,
+                                                                                   quelle):
+    """F-ha-host-46: eine unerwartete Ausnahme im Task eines Fortschrittsschritts endet mit `unknown`; der Log nennt die
+    Ausnahmeart, nie ihren Text (er kann Werte von Supervisor oder Server zitieren)."""
+    caplog.set_level(logging.DEBUG)
+    if quelle == "supervisor":
+        # Keine SupervisorError (die faengt der Code): eine fremde Ausnahme des Clients mit Text (Schritt addon_starten).
+        supervisor.errors["store.repositories_list"] = RuntimeError("GEHEIM-supervisor")
+        result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+        art = "RuntimeError"
+    else:
+        server.fehler["inventur"] = RuntimeError("GEHEIM-server")  # Schritt inventur
+        result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+        art = "RuntimeError"
+        assert server.calls[-1] == ("abmelden",)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "unknown")
+    assert f"({art}), Aufrufstelle:" in caplog.text
+    assert 'config_flow.py", line' in caplog.text  # die Aufrufstelle nennt den Rahmen des Assistenten
+    assert "GEHEIM" not in caplog.text
+
+
+@pytest.mark.parametrize("route", ["inventur", "einrichten", "entfernen"])
+async def test_an_expired_session_in_a_progress_step_goes_back_to_login(hass, server, route):
+    if route == "entfernen":
+        result = await _reconfigure(hass, await _eingerichtet(hass, server))
+        result = await _configure(hass, result, {"next_step_id": "geraet_entfernen"})
+        weiter, danach = {}, "menue"
+    elif route == "inventur":
+        result, weiter, danach = await _bis_anlage(hass), {"anlage": TENANT}, "anlage"
+    else:
+        result, weiter, danach = await _bis_zusammenfassung(hass), {}, "anlage"
+    server.fehler[route] = TokenUngueltig("", 401)
+
+    result = await _configure(hass, result, weiter)
+
+    assert (result["step_id"], result["errors"]) == ("anmelden", {"base": "sitzung_abgelaufen"})
+    assert server.calls[-2][0] == route and server.calls[-1] == ("abmelden",)
+    del server.fehler[route]
+    result = await _configure(hass, result, LOGIN)
+    assert result["step_id"] == danach
+
+
 # --- Manueller Start ---
 
 
-async def test_manual_start_installs_the_addon_and_waits_for_discovery(hass, server, monkeypatch):
-    installed = []
+def _nicht_installiert(supervisor, version: str = "1.0.0") -> None:
+    """Repository im Store, die Heizungsbruecke installierbar, aber nicht installiert."""
+    supervisor.installed = []
+    supervisor.store_addons = {BRIDGE_SLUG: version}
 
-    async def install(hass_):
-        installed.append(True)
 
-    answers = [None, {"geraet_id": GERAET_ID, "zustand": "startet"}]
-
-    async def discovery(hass_):
-        return answers.pop(0) if answers else {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen",
-                                               "claim_code": CLAIM_CODE}
-
-    monkeypatch.setattr(config_flow.addon_control, "async_install_and_start", install)
-    monkeypatch.setattr(config_flow.addon_control, "async_discovery", discovery)
-    monkeypatch.setattr(config_flow, "is_hassio", lambda hass_: True)
+async def test_manual_start_installs_the_addon_and_waits_for_discovery(hass, server, supervisor):
+    _nicht_installiert(supervisor)
+    mit_code = [discovery_message({"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE})]
+    folge = [[], [discovery_message({"geraet_id": GERAET_ID, "zustand": "startet"})]]
+    supervisor.client.discovery.list.side_effect = lambda: folge.pop(0) if folge else mit_code
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     result = await _progress(hass, result)
-    assert installed and result["step_id"] == "anmelden"
+    assert result["step_id"] == "anmelden"
+    assert [(addon.slug, addon.state) for addon in supervisor.installed] == [(BRIDGE_SLUG, AddonState.STARTED)]
+    assert supervisor.supervision == {BRIDGE_SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
+    assert supervisor.config_written == [] and folge == []
 
     result = await _configure(hass, result, LOGIN)
 
     assert result["step_id"] == "anlage"
     assert ("uebernehmen", GERAET_ID, CLAIM_CODE) in server.calls
+    assert server.base_url == LABOR_URL
 
 
-async def test_manual_start_without_supervisor_aborts(hass, server):
+async def test_manual_start_without_supervisor_aborts(hass, server, supervisor):
+    supervisor.hassio = False
+
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "kein_supervisor")
+    assert supervisor.client.store.repositories_list.await_count == 0
 
 
-async def test_manual_start_with_an_outdated_addon_does_not_wait(hass, server, monkeypatch):
-    async def install(hass_):
-        return None
-
-    async def discovery(hass_):
-        raise AssertionError("ein zu altes Add-on meldet sich nie; nicht warten")
-
-    server.addon_error = AddonOutdatedError("heizungsbruecke", "0.36.0", "1.0.0")
-    monkeypatch.setattr(config_flow.addon_control, "async_install_and_start", install)
-    monkeypatch.setattr(config_flow.addon_control, "async_discovery", discovery)
-    monkeypatch.setattr(config_flow, "is_hassio", lambda hass_: True)
+async def test_manual_start_with_an_outdated_addon_does_not_wait(hass, server, supervisor):
+    """Ein zu altes Add-on meldet sich nie: nicht auf die Discovery warten (die Meldung liegt schon bereit und wuerde
+    den Assistenten sonst weiterfuehren)."""
+    _nicht_installiert(supervisor, version="0.36.0")
 
     result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "addon_veraltet")
+    assert [(addon.slug, addon.version) for addon in supervisor.installed] == [(BRIDGE_SLUG, "0.36.0")]
+    supervisor.client.discovery.list.assert_not_awaited()
+    assert server.base_url is None
 
 
-async def test_addon_error_shows_no_supervisor_text(hass, server, monkeypatch, caplog):
-    async def install(hass_):
-        raise AddonError("Supervisor sagt: geheimer-wert")
-
-    monkeypatch.setattr(config_flow.addon_control, "async_install_and_start", install)
-    monkeypatch.setattr(config_flow, "is_hassio", lambda hass_: True)
+async def test_addon_error_shows_no_supervisor_text(hass, server, supervisor, caplog):
+    _nicht_installiert(supervisor)
+    supervisor.errors[("store.install_addon", BRIDGE_SLUG)] = SupervisorError("Supervisor sagt: geheimer-wert")
 
     result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "addon_fehler")
+    assert supervisor.installed == []
+    assert "AddonError" in caplog.text  # nur die Fehlerart
     assert "geheimer-wert" not in str(result) and "geheimer-wert" not in caplog.text
 
 
-async def test_manual_start_without_discovery_times_out(hass, server, monkeypatch):
-    async def install(hass_):
-        return None
-
-    server.discovery = None
-
-    monkeypatch.setattr(config_flow.addon_control, "async_install_and_start", install)
-    monkeypatch.setattr(config_flow, "is_hassio", lambda hass_: True)
+async def test_manual_start_without_discovery_times_out(hass, server, supervisor, monkeypatch):
+    _melden(supervisor, None)
     monkeypatch.setattr(config_flow, "DISCOVERY_WAIT_SECONDS", 0)
 
     result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "keine_discovery")
+    assert supervisor.client.discovery.list.await_count >= 1
+    assert server.base_url is None
+
+
+@pytest.mark.parametrize("start", ["discovery", "manuell"])
+async def test_two_installed_bridges_never_start_the_assistant(hass, server, supervisor, start):
+    """F-ha-host-40: zwei Add-ons passen auf die Heizungsbruecke (gleicher Repository-Slug und genauer Slug). Schon
+    die Herkunftspruefung (`async_bridge_slug`) weist das als mehrdeutig zurueck: die Discovery wird verworfen, der
+    manuelle Start bricht mit `addon_fehler` ab; geraten wird nicht."""
+    supervisor.installed = [installed_addon(BRIDGE_SLUG), installed_addon(BRIDGE_SLUG, version="0.9.0")]
+
+    if start == "discovery":
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+        expected = "discovery_ungueltig"
+    else:
+        result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+        expected = "addon_fehler"
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, expected)
+    assert server.base_url is None and supervisor.client.store.install_addon.await_count == 0
+
+
+async def test_a_second_bridge_before_the_version_check_aborts_as_ambiguous(hass, server, supervisor):
+    """`addon_mehrdeutig` entsteht nur, wenn die zweite Installation nach der Herkunftspruefung der Discovery und vor
+    der Pruefung der Mindestversion auftaucht (zwischen den Schritten `hassio` und `bestaetigen`)."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+    assert result["step_id"] == "bestaetigen"
+    supervisor.installed.append(installed_addon(BRIDGE_SLUG, version="0.9.0"))
+
+    result = await _configure(hass, result, {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "addon_mehrdeutig")
+    assert server.base_url is None and server.calls == []
 
 
 # --- Neu konfigurieren ---
@@ -783,6 +1026,45 @@ async def test_removal_of_an_offline_device_keeps_running(hass, server, monkeypa
     result = await _configure(hass, await _configure(hass, result, {"next_step_id": "geraet_entfernen"}), {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_laeuft")
+    assert hass.config_entries.async_entries(DOMAIN) == [entry]
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="5c-I-1 (TO-ha-host-T8): Ziel: wird das Entfernen nach den 300 s doch fertig, verschwindet "
+                          "der Eintrag; heute bleibt er stehen")
+async def test_a_removal_that_finishes_after_the_wait_removes_the_entry(hass, server, monkeypatch):
+    entry = await _eingerichtet(hass, server)
+    server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
+    monkeypatch.setattr(config_flow, "ENTFERNEN_WAIT_SECONDS", 0)
+    result = await _reconfigure(hass, entry)
+    result = await _configure(hass, await _configure(hass, result, {"next_step_id": "geraet_entfernen"}), {})
+    if result.get("reason") != "entfernen_laeuft":
+        pytest.fail(f"Vorbedingung: {result}")  # kein AssertionError: der xfail soll nur am Ziel haengen
+
+    server.auftrag_ergebnis = {"zustand": "fertig", "fehler": None}  # das Geraet ist wieder online, der Server fertig
+    server.entfernt = True
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=1))
+    await hass.async_block_till_done()
+
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+@pytest.mark.parametrize("data", [{"tenant_id": TENANT}, {"geraet_id": None, "tenant_id": TENANT},
+                                  {"geraet_id": "", "tenant_id": TENANT}, {"geraet_id": 7, "tenant_id": TENANT},
+                                  {"geraet_id": "shg-aaaaaaaaaaaaaaa1", "tenant_id": TENANT}],
+                         ids=["fehlt", "null", "leer", "zahl", "falsche_form"])
+async def test_reconfigure_without_a_valid_device_id_aborts_before_login(hass, server, caplog, data):
+    """S4-Reconfigure: ein Eintrag ohne gueltige Geraete-ID (etwa VERSION 2, MIGRATION_ERROR) bricht mit `unknown` ab
+    statt mit einem KeyError; es entsteht kein Client und keine Anfrage."""
+    entry = MockConfigEntry(domain=DOMAIN, data=data, version=config_flow.SmartHeatConfigFlow.VERSION, title=TENANT)
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "unknown")
+    assert server.base_url is None and server.calls == []
+    assert "ohne gueltige Geraete-ID" in caplog.text
     assert hass.config_entries.async_entries(DOMAIN) == [entry]
 
 

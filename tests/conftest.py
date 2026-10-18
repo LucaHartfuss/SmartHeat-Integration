@@ -1,6 +1,7 @@
 import pytest
 
-pytest_plugins = "pytest_homeassistant_custom_component"
+# supervisor_fakes stellt die Fixture `supervisor` (Attrappe des Supervisor-Clients) bereit.
+pytest_plugins = ["pytest_homeassistant_custom_component", "tests.supervisor_fakes"]
 
 
 @pytest.fixture(autouse=True)
