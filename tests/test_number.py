@@ -2,6 +2,7 @@
 from unittest.mock import patch
 
 import pytest
+from homeassistant.components.number import DATA_COMPONENT
 from homeassistant.core import Context, State
 from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_restore_cache
@@ -96,6 +97,41 @@ async def test_a_non_finite_value_is_refused_without_an_event(hass):
     assert events == []
 
 
+@pytest.mark.parametrize("value, domain, key", [
+    (float("nan"), DOMAIN, "wunsch_ungueltig"),
+    (float("inf"), "number", "out_of_range"),
+    (float("-inf"), "number", "out_of_range"),
+], ids=["nan", "plus_inf", "minus_inf"])
+async def test_a_non_finite_wish_by_service_is_refused_with_its_key(hass, value, domain, key):
+    """Ueber den Dienst: NaN besteht HAs min/max-Pruefung und lehnt die Entity mit `wunsch_ungueltig` ab; +Inf und
+    -Inf weist schon HAs Bereichspruefung (`out_of_range`) ab. Kein Ereignis, die Anzeige bleibt."""
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    events = _listen(hass)
+    with pytest.raises(ServiceValidationError) as error:
+        await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": value}, blocking=True)
+    assert (error.value.translation_domain, error.value.translation_key) == (domain, key)
+    await hass.async_block_till_done()
+    assert events == [] and float(hass.states.get(WUNSCH).state) == 21.5
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=["nan", "plus_inf", "minus_inf"])
+async def test_the_entity_itself_refuses_every_non_finite_wish_with_wunsch_ungueltig(hass, value):
+    """Die Entity selbst (ohne HAs Bereichspruefung davor, etwa bei einem Aufruf aus einer anderen Integration) lehnt
+    NaN, +Inf und -Inf mit `wunsch_ungueltig` ab, ohne Ereignis."""
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    events = _listen(hass)
+    entity = hass.data[DATA_COMPONENT].get_entity(WUNSCH)
+    with pytest.raises(ServiceValidationError) as error:
+        await entity.async_set_native_value(value)
+    assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, "wunsch_ungueltig")
+    await hass.async_block_till_done()
+    assert events == [] and float(hass.states.get(WUNSCH).state) == 21.5
+
+
 async def test_a_value_outside_the_range_is_refused_without_an_event(hass):
     await _setup(hass)
     events = _listen(hass)
@@ -131,6 +167,15 @@ async def test_restores_the_last_value_after_a_restart(hass):
     mock_restore_cache(hass, [State(WUNSCH, "20.5")])
     await _setup(hass)
     assert float(hass.states.get(WUNSCH).state) == 20.5
+
+
+@pytest.mark.parametrize("stored", ["inf", "-inf", "nan"])
+async def test_a_stored_non_finite_value_is_not_restored(hass, stored):
+    """Ein gespeicherter Zustand `inf`/`-inf`/`nan` wird nach dem Neustart nicht uebernommen: die Entity ist
+    `unknown` wie im Live-Pfad (gegenueber `20.5`, das uebernommen wird)."""
+    mock_restore_cache(hass, [State(WUNSCH, stored)])
+    await _setup(hass)
+    assert hass.states.get(WUNSCH).state == "unknown"
 
 
 async def test_a_wish_is_refused_while_the_thermostat_is_off(hass):

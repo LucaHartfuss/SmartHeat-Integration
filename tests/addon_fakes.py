@@ -1,49 +1,10 @@
-"""Aufzeichnende Attrappen fuer Add-ons und Status-Events (Spec TP7, 5c)."""
+"""Status-Ereignisse und Eintraege fuer die Integrationstests (Spec TP7, 5c). Add-ons und Supervisor bildet
+`supervisor_fakes.FakeSupervisor` an der Grenze nach (A5-25: kein Ersatz des `AddonManager` mehr)."""
 from __future__ import annotations
 
-import asyncio
-from types import SimpleNamespace
-
-from homeassistant.components.hassio import AddonState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat.const import DOMAIN, STATUS_EVENT_SCHEMA
-
-
-class FakeAddon:
-    """AddonManager-Ersatz: jede Aktion landet als Tupel in `log`."""
-
-    def __init__(self, slug, log, *, options=None, state=AddonState.RUNNING, on_restart=None, error=None):
-        self.addon_slug = slug
-        self.log = log
-        self.options = dict(options or {})
-        self.state = state
-        self.on_restart = on_restart
-        self.error = error
-
-    def _check(self):
-        if self.error is not None:
-            raise self.error
-
-    async def async_get_addon_info(self):
-        self._check()
-        return SimpleNamespace(options=dict(self.options), state=self.state, version="0.20.0")
-
-    async def async_restart_addon(self):
-        self._check()
-        self.log.append(("restart", self.addon_slug))
-        if self.on_restart is not None:
-            # Wie der echte Supervisor: Das Status-Event des neu gestarteten Add-ons kommt erst nach dem Rueckkehr des Aufrufs.
-            asyncio.get_running_loop().call_soon(self.on_restart, self)
-
-    async def async_start_addon(self):
-        self._check()
-        self.log.append(("start", self.addon_slug))
-
-    async def async_stop_addon(self):
-        self._check()
-        self.log.append(("stop", self.addon_slug))
-
 
 GERAET_ID = "shg-a"
 VAILLANT_HEBEL = ["curve", "room_setpoint", "heat_limit", "min_flow"]

@@ -1,9 +1,18 @@
 """Spec 5c 2.1: Client der Einrichtungs-API (Token nur im Speicher, Fehler je Status)."""
+import asyncio
+import datetime
+import ipaddress
 import logging
+import ssl
 
 import aiohttp
 import pytest
 from aiohttp import web
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.smartheat import einrichtung_client
 from custom_components.smartheat.einrichtung_client import (
@@ -169,16 +178,23 @@ async def test_unreachable_server_is_cannot_connect(unreachable):
 
 
 async def test_timeout_is_cannot_connect(aiohttp_client, monkeypatch):
-    import asyncio
+    """Ein echter Server, der laenger braucht als die Frist (hier auf 0,05 s verkuerzt): die Anfrage kommt an, der
+    Client wartet nicht auf die Antwort, sondern meldet die Zeitueberschreitung (nicht „nicht erreichbar“)."""
+    angekommen = []
 
     async def langsam(request):
+        angekommen.append(request.path)
         await asyncio.sleep(5)
-        return web.json_response({})
+        return web.json_response({"device_id": "zu spaet"})
 
     monkeypatch.setattr(einrichtung_client, "REQUEST_TIMEOUT_SECONDS", 0.05)
     client = await _client(aiohttp_client, [("GET", "/geraet", langsam)])
-    with pytest.raises(CannotConnect):
+    beginn = asyncio.get_running_loop().time()
+    with pytest.raises(CannotConnect) as caught:
         await client.geraet()
+    assert asyncio.get_running_loop().time() - beginn < 2
+    assert caught.value.text == "Der SmartHeat-Dienst antwortet nicht."
+    assert angekommen == [f"{P}/geraet"]
 
 
 async def test_logout_never_raises(aiohttp_client, unreachable):
@@ -489,3 +505,163 @@ async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_c
     with pytest.raises(Rejected) as caught:
         await client.einrichten({})
     assert caught.value.fehler == {"raumfuehler": "required", "zahl": "3"}
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="5c-I-11: die fehler-Werte der Pruefung sind nicht in der Laenge begrenzt (Ziel, TO-ha-host-T8)")
+async def test_ein_fehler_wert_mit_100000_zeichen_kommt_gekuerzt_an(aiohttp_client):
+    """Ziel (5c-I-11): ein vom Server gesteuerter `fehler`-Wert mit 100000 Zeichen kommt in `Rejected.fehler` mit
+    hoechstens 200 Zeichen an. Heute kommt er ungekuerzt an."""
+    body = {"error": "x", "fehler": {"raumfuehler": "y" * 100000}}
+    client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
+    with pytest.raises(Rejected) as caught:
+        await client.einrichten({})
+    assert len(caught.value.fehler["raumfuehler"]) <= 200
+
+
+# --- Angreifer im LAN: Zertifikat des Servers (F-ha-host-32) ---------------------------------------------------------
+
+def _selbstsigniert(tmp_path) -> ssl.SSLContext:
+    """Server-Kontext mit einem selbst signierten Zertifikat fuer 127.0.0.1 (Name passt, nur der Aussteller ist
+    unbekannt: so sieht ein Mann in der Mitte aus, der kein Zertifikat einer vertrauten Stelle hat)."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+    jetzt = datetime.datetime.now(datetime.UTC)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(jetzt - datetime.timedelta(minutes=5))
+            .not_valid_after(jetzt + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+                           critical=False)
+            .sign(key, hashes.SHA256()))
+    certfile, keyfile = tmp_path / "cert.pem", tmp_path / "key.pem"
+    certfile.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    keyfile.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                          serialization.NoEncryption()))
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile, keyfile)
+    return context
+
+
+async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_passwort_noch_token(hass, tmp_path):
+    """Die Integration baut den Client mit der Sitzung von HA (`async_get_clientsession`, wie config_flow): gegen einen
+    HTTPS-Server mit selbst signiertem Zertifikat bricht die Verbindung ab, bevor ein Body hinausgeht. Gegenprobe:
+    derselbe Aufruf mit `ssl=False` erreicht den Server mit dem Passwort."""
+    bodies = []
+
+    async def anmelden(request):
+        bodies.append(await request.json())
+        return web.json_response({"token": "t-mitm"})
+
+    app = web.Application()
+    app.router.add_post(f"{P}/anmelden", anmelden)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Der Client legt nach der fehlgeschlagenen Pruefung auf; asyncio meldet das auf der Seite des Servers (des
+    # Angreifers) an den Ausnahme-Handler der Loop. Nur diese Meldung wird hier geschluckt, alle anderen gehen weiter.
+    loop = asyncio.get_running_loop()
+    handler_vorher = loop.get_exception_handler()
+
+    def handshake_abbruch_des_servers(loop_, context):
+        if context.get("message") == "Error on transport creation for incoming connection":
+            return
+        if handler_vorher is None:
+            loop_.default_exception_handler(context)
+        else:
+            handler_vorher(loop_, context)
+
+    loop.set_exception_handler(handshake_abbruch_des_servers)
+    try:
+        site = web.TCPSite(runner, "127.0.0.1", 0, ssl_context=_selbstsigniert(tmp_path))
+        await site.start()
+        base_url = f"https://127.0.0.1:{runner.addresses[0][1]}"
+        session = async_get_clientsession(hass)
+        client = EinrichtungClient(session, base_url)
+
+        with pytest.raises(CannotConnect) as caught:
+            await client.anmelden("a@b.de", "pw-geheim-42")
+
+        assert isinstance(caught.value.__cause__, aiohttp.ClientConnectorCertificateError)
+        assert bodies == [] and client.token is None
+        # Gegenprobe: ohne Zertifikatspruefung kaeme das Passwort an.
+        async with session.post(f"{base_url}{P}/anmelden", json={"email": "a@b.de", "password": "pw-geheim-42"},
+                                ssl=False) as response:
+            assert response.status == 200
+        assert bodies == [{"email": "a@b.de", "password": "pw-geheim-42"}]
+    finally:
+        await runner.cleanup()
+        loop.set_exception_handler(handler_vorher)
+
+
+# --- Route verschoben (F-ha-host-39, K2) ---------------------------------------------------------------------------
+
+# Methode und voller Pfad je Route als Literale aus V3 (Server `einrichtung/api.py`), nicht ueber die Konstanten.
+_ROUTEN_V3 = [
+    ("anmelden", "POST", "/einrichtung/v1/anmelden", {"token": "t"}, lambda c: c.anmelden("a@b.de", "pw")),
+    ("abmelden", "POST", "/einrichtung/v1/abmelden", {}, lambda c: c.abmelden()),
+    ("uebernehmen", "POST", "/einrichtung/v1/geraete/uebernehmen", {}, lambda c: c.uebernehmen("shg-a", "C")),
+    ("geraet", "GET", "/einrichtung/v1/geraet", {}, lambda c: c.geraet()),
+    ("inventur", "POST", "/einrichtung/v1/geraet/inventur", {"command_id": "c"}, lambda c: c.inventur()),
+    ("vorschlag", "GET", "/einrichtung/v1/geraet/vorschlag", {}, lambda c: c.vorschlag()),
+    ("zuordnung", "POST", "/einrichtung/v1/geraet/zuordnung", {}, lambda c: c.zuordnung("k", "p", "h")),
+    ("pruefen", "POST", "/einrichtung/v1/geraet/pruefen", {}, lambda c: c.pruefen({})),
+    ("einrichten", "POST", "/einrichtung/v1/geraet/einrichten", {"job_id": "j"}, lambda c: c.einrichten({})),
+    ("neu_konfigurieren", "POST", "/einrichtung/v1/geraet/neu-konfigurieren", {"job_id": "j"},
+     lambda c: c.neu_konfigurieren({})),
+    ("entfernen", "POST", "/einrichtung/v1/geraet/entfernen", {}, lambda c: c.entfernen()),
+    ("auftrag", "GET", "/einrichtung/v1/geraet/auftraege/j-1", {}, lambda c: c.auftrag("j-1")),
+]
+
+
+@pytest.mark.parametrize("route, methode, pfad, antwort, aufruf", _ROUTEN_V3, ids=[r[0] for r in _ROUTEN_V3])
+async def test_jede_route_trifft_methode_und_pfad_aus_v3(aiohttp_client, route, methode, pfad, antwort, aufruf):
+    """Der Server antwortet nur unter Methode und Pfad aus V3; verschiebt die Integration eine Route, antwortet er
+    404 bzw. 405 und dieser Test wird rot (nicht nur Contract-Check 54)."""
+    gesehen = []
+
+    async def handler(request):
+        gesehen.append((request.method, request.path))
+        return web.json_response(antwort)
+
+    app = web.Application()
+    app.router.add_route(methode, pfad, handler)
+    client = EinrichtungClient(await aiohttp_client(app), "")
+    client.token = "t"
+    await aufruf(client)
+    assert gesehen == [(methode, pfad)]
+
+
+@web.middleware
+async def _html_fehlerseiten(request, handler):
+    """Wie Flask vor dem Server: Routing-404 und -405 kommen als HTML-Seite."""
+    try:
+        return await handler(request)
+    except web.HTTPException as error:
+        if error.status not in (404, 405):
+            raise
+        return web.Response(status=error.status, content_type="text/html",
+                            text=f"<!doctype html><title>{error.status}</title><h1>{error.reason}</h1>")
+
+
+@pytest.mark.parametrize("server_route, server_methode, aufruf, fehler, status", [
+    ("/geraet/vorschlaege", "GET", lambda c: c.vorschlag(), NotFound, 404),
+    ("/geraet/pruefen", "PUT", lambda c: c.pruefen({}), ApiError, 405),
+], ids=["pfad_verschoben", "methode_verschoben"])
+async def test_eine_verschobene_route_bildet_den_client_nach_dem_status_ab(aiohttp_client, server_route,
+                                                                           server_methode, aufruf, fehler, status):
+    """Hat der Server eine Route verschoben (anderer Pfad bzw. andere Methode), antwortet er 404 bzw. 405 als HTML:
+    der Client bildet nach dem Status ab (NotFound bzw. ApiError mit 405), ohne Text und ohne Absturz."""
+    gesehen = []
+
+    async def handler(request):
+        gesehen.append(request.path)
+        return web.json_response({})
+
+    app = web.Application(middlewares=[_html_fehlerseiten])
+    app.router.add_route(server_methode, f"{P}{server_route}", handler)
+    client = EinrichtungClient(await aiohttp_client(app), "")
+    client.token = "t"
+    with pytest.raises(ApiError) as caught:
+        await aufruf(client)
+    assert type(caught.value) is fehler and caught.value.status == status and caught.value.text == ""
+    assert gesehen == []

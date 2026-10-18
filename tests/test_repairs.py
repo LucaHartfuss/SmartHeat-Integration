@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.translation import async_get_translations
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import repairs
@@ -105,6 +106,42 @@ def test_hint_without_text_or_stufe_is_a_warning_with_empty_text(hass):
     issue = ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_soll_quelle_aus")
     assert (issue.severity, issue.translation_key, issue.translation_placeholders) == (
         ir.IssueSeverity.WARNING, "soll_quelle_aus", {"text": ""})
+
+
+# Texte des Geraets wie heizungsbruecke/geraet_status.py und smartheat_device.device.ABLEHNUNG_ANZEIGE (Deutsch).
+_UPDATE_TEXT = "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren."
+_ABGELEHNT_TEXT = "Die Einrichtung wurde abgelehnt (Code rolle_fehlt). Die Begründung zeigt der Einrichtungsassistent."
+
+
+async def test_hint_issues_keep_todays_ids_and_texts(hass):
+    """5c-I-14, heutiges Verhalten festgehalten: die Issue-ID ist nur `hinweis_<schluessel>` (nicht je Eintrag, passt zu
+    `single_config_entry`); die Beschreibung von `update_noetig` wiederholt nach dem Geraetetext dessen Anweisung; die
+    deutschen Geraetetexte stehen auch in den englischen Beschreibungen."""
+    entry = await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, {**EVENT, "geraet_hinweise": [
+        {"key": "update_noetig", "stufe": "kritisch", "text": _UPDATE_TEXT},
+        {"key": "konfiguration_abgelehnt", "stufe": "kritisch", "text": _ABGELEHNT_TEXT}]})
+    await hass.async_block_till_done()
+    issues = _own_issues(hass)
+    assert set(issues) == {"hinweis_update_noetig", "hinweis_konfiguration_abgelehnt"}
+    assert not any(entry.entry_id in issue_id for issue_id in issues)
+
+    def beschreibung(texte, issue_id):
+        issue = issues[issue_id]
+        return texte[f"component.{DOMAIN}.issues.{issue.translation_key}.description"].format(
+            **issue.translation_placeholders)
+
+    en = await async_get_translations(hass, "en", "issues", [DOMAIN])
+    de = await async_get_translations(hass, "de", "issues", [DOMAIN])
+    assert beschreibung(en, "hinweis_update_noetig") == (
+        "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren. "
+        "Settings → Add-ons → Heizungsbrücke → Update.")
+    assert beschreibung(de, "hinweis_update_noetig") == (
+        "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren. "
+        "Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren.")
+    assert beschreibung(en, "hinweis_konfiguration_abgelehnt") == (
+        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt (Code rolle_fehlt). Die Begründung "
+        "zeigt der Einrichtungsassistent. Please check it under SmartHeat → Reconfigure.")
 
 
 @pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])

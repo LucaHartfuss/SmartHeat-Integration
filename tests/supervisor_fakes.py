@@ -63,6 +63,7 @@ class FakeSupervisor:
         self.config_written: list[str] = []  # Slugs, an die set_addon_options eine Konfiguration schrieb
         self.discovery: list = []
         self.errors: dict = {}
+        self.actions: list[tuple[str, str]] = []  # (start|restart|stop|uninstall, Slug) in Aufrufreihenfolge
 
         self.client = create_autospec(SupervisorClient, instance=True)
         self.client.addons = create_autospec(AddonsClient, instance=True)
@@ -77,6 +78,7 @@ class FakeSupervisor:
         addons.addon_info.side_effect = self._addon_info
         addons.set_addon_options.side_effect = self._set_addon_options
         addons.start_addon.side_effect = self._start_addon
+        addons.restart_addon.side_effect = self._restart_addon
         addons.stop_addon.side_effect = self._stop_addon
         addons.uninstall_addon.side_effect = self._uninstall_addon
         self.client.discovery.list.side_effect = self._discovery_list
@@ -152,14 +154,22 @@ class FakeSupervisor:
     def _start_addon(self, addon: str) -> None:
         self._check("addons.start_addon", addon)
         self._installed_or_404(addon).state = AddonState.STARTED
+        self.actions.append(("start", addon))
+
+    def _restart_addon(self, addon: str) -> None:
+        self._check("addons.restart_addon", addon)
+        self._installed_or_404(addon).state = AddonState.STARTED
+        self.actions.append(("restart", addon))
 
     def _stop_addon(self, addon: str) -> None:
         self._check("addons.stop_addon", addon)
         self._installed_or_404(addon).state = AddonState.STOPPED
+        self.actions.append(("stop", addon))
 
     def _uninstall_addon(self, addon: str, options=None) -> None:
         self._check("addons.uninstall_addon", addon)
         self.installed.remove(self._installed_or_404(addon))
+        self.actions.append(("uninstall", addon))
 
     # --- discovery ---
 
