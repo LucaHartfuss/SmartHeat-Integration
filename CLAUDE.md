@@ -21,8 +21,9 @@ scripts/check.sh          # lint (mit vulture, Ausnahmen in vulture_ausnahmen.py
 Direkter Aufruf bleibt möglich: `python3.14 -m venv .venv && .venv/bin/pip install -r
 requirements_test.txt && .venv/bin/python -m pytest -q` (`pytest-homeassistant-custom-component`
 braucht Python >=3.14, daher das explizite `python3.14` beim Venv-Setup; `pytest.ini`:
-`asyncio_mode = auto`, `testpaths = tests`). `addon_fakes.py` (Fake-Add-on-Manager, Status-Ereignis, Einträge) und
-`einrichtung_fakes.py` (Fake-Einrichtungs-Server) sind gemeinsame Test-Doubles. `../tools/contract_check.py` liest aus
+`asyncio_mode = auto`, `testpaths = tests`). `addon_fakes.py` (Fake-Add-on-Manager, Status-Ereignis, Einträge),
+`einrichtung_fakes.py` (Fake-Einrichtungs-Server) und `supervisor_fakes.py` (`FakeSupervisor`, Fixture `supervisor`:
+Attrappe des `aiohasupervisor`-Clients) sind gemeinsame Test-Doubles. `../tools/contract_check.py` liest aus
 diesem Repo `const.py`, `anfrage.py` (Bodies der Einrichtungs-API) und `translations/{de,en}.json` (Verträge V1, V3, V5
 und Domäne; Liste: `python3 ../tools/contract_check.py --liste`).
 

@@ -12,10 +12,10 @@ Add-on-Slug mit einem Repository-Hash (verifiziert gegen einen echten Supervisor
 wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst loest das nicht auf -- sein addon_slug
 muss bereits der echte, installationsspezifische Slug sein. async_resolve_addons() schliesst genau
 diese Luecke und folgt dabei dieser Regel (Sicherheitsfix 0f34d56): Das Store-Repository wird allein
-an seiner Eintragsadresse (`source`) erkannt und liefert den Repository-Slug; ein installiertes Add-on
-zaehlt nur, wenn es zu diesem Repository gehoert und genau den Slug "<Repository-Slug>_<config_slug>"
-hat. Weder die `url` aus der config.yaml des Add-ons noch ein blosses Slug-Suffix zaehlen. Geprueft
-wird zusaetzlich die Mindestversion (TP6 I4): ein zu altes Add-on ist kein Treffer.
+an seiner Eintragsadresse (`source`, auch mit `#<branch>`) erkannt und liefert den Repository-Slug;
+ein installiertes Add-on zaehlt nur, wenn es zu diesem Repository gehoert und genau den Slug
+"<Repository-Slug>_<config_slug>" hat. Weder die `url` aus der config.yaml des Add-ons noch ein blosses
+Slug-Suffix zaehlen. Geprueft wird zusaetzlich die Mindestversion (TP6 I4): ein zu altes Add-on ist kein Treffer.
 """
 from __future__ import annotations
 
@@ -68,14 +68,24 @@ class ResolvedAddon:
     version: str | None
 
 
-def _normalized_repository(value: str) -> str:
-    return value.strip().lower().rstrip("/").removesuffix(".git")
+def _normalized_repository(value: str) -> str | None:
+    """Adresse ohne Branch-Angabe `#<branch>`, ohne / und .git am Ende, klein geschrieben; None bei leerem Branch
+    oder mehr als einem `#` (keine Branch-Angabe)."""
+    address, hash_mark, branch = value.strip().partition("#")
+    if hash_mark and (not branch or "#" in branch):
+        return None
+    return address.lower().rstrip("/").removesuffix(".git")
 
 
 def _same_repository(value: object, repository_url: str = ADDON_REPOSITORY_URL) -> bool:
     """Adresse eines Store-Repositorys gleich `repository_url`: ohne / und .git am Ende, Gross-/Kleinschreibung egal
-    (GitHub-Adressen unterscheiden sie nicht); das Schema bleibt unterschieden (http ist nicht https)."""
-    return isinstance(value, str) and _normalized_repository(value) == _normalized_repository(repository_url)
+    (GitHub-Adressen unterscheiden sie nicht); das Schema bleibt unterschieden (http ist nicht https). Ein Branch
+    desselben Repositorys (`<Adresse>#<branch>`, nicht leer, ein `#`) gilt als gleichwertig (5c-W-11); die
+    Slug-Pruefung in matching_addons bleibt."""
+    if not isinstance(value, str):
+        return False
+    normalized = _normalized_repository(value)
+    return normalized is not None and normalized == _normalized_repository(repository_url)
 
 
 async def async_repository_slug(hass: HomeAssistant, repository_url: str = ADDON_REPOSITORY_URL) -> str | None:
