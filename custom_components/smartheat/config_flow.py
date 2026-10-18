@@ -703,8 +703,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Neu konfigurieren ---
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Nur ein Eintrag mit gueltiger Geraete-ID (ab 1.0.0); sonst Abbruch vor der Anmeldung (S4-Reconfigure)."""
+        geraet_id = self._get_reconfigure_entry().data.get("geraet_id")
+        if not isinstance(geraet_id, str) or not GERAET_ID_RE.fullmatch(geraet_id):
+            _LOGGER.warning("Neu konfigurieren: Eintrag ohne gueltige Geraete-ID; bitte loeschen und neu einrichten")
+            return self.async_abort(reason="unknown")
         self._reconfigure = True
-        self._discovery = {"geraet_id": self._get_reconfigure_entry().data["geraet_id"]}
+        self._discovery = {"geraet_id": geraet_id}
         return await self.async_step_anmelden()
 
     async def async_step_menue(self, user_input: dict | None = None) -> ConfigFlowResult:

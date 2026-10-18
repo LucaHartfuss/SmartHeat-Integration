@@ -1,10 +1,12 @@
 """Fortschritts-Mechanik des Config-Flows: ein Hintergrund-Task je Fortschritts-Schritt,
 `async_show_progress`/`async_show_progress_done` je nach Task-Stand. Fehlertext und Folgeschritt bei einer
-unerwarteten Ausnahme bleiben Sache des Flows (`_progress_error_step`)."""
+unerwarteten Ausnahme bleiben Sache des Flows (`_progress_error_step`). Geloggt werden nur Art und Ort der Ausnahme, nie
+ihr Text: er kann Werte von Supervisor oder Server zitieren (Regel 6)."""
 from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -47,7 +49,10 @@ class ProgressFlowMixin:
         task, self._progress_task = self._progress_task, None
         try:
             next_step = task.result()
-        except Exception:
-            _LOGGER.exception("Unerwarteter Fehler im Fortschritts-Schritt %s", step_id)
+        except Exception as error:  # noqa: BLE001 - jede unerwartete Ausnahme endet im Fehlerschritt des Flows
+            # Nur Art und Aufrufstelle (Quelltextzeilen, keine Werte), nicht _LOGGER.exception: die letzte Zeile des
+            # Tracebacks waere der Text der Ausnahme.
+            _LOGGER.error("Unerwarteter Fehler im Fortschritts-Schritt %s (%s), Aufrufstelle:\n%s", step_id,
+                          type(error).__name__, "".join(traceback.format_tb(error.__traceback__)).rstrip())
             next_step = await self._progress_error_step()
         return self.async_show_progress_done(next_step_id=next_step)

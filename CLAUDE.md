@@ -41,5 +41,6 @@ neuesten `main`-Commit.
   `supervisor_client.async_resolve_addons`.
 - `manifest.json`-Repo-URL = Name des GitHub-Repos (`SmartHeat-Integration`), nicht der lokale Ordnername.
 - Einträge ohne `geraet_id` (VERSION 2) bleiben ohne Migration im Zustand `MIGRATION_ERROR` (seit Stufe 4; kein eigener
-  Text mehr). Die Entity-IDs und `unique_id`s von `client1` (13) bleiben (`tests/test_init.py`).
+  Text mehr); „Neu konfigurieren“ bricht bei ihnen mit `unknown` ab. Die Entity-IDs und `unique_id`s von `client1` (13)
+  bleiben (`tests/test_init.py`).
 - Ohne Supervisor (`is_hassio`) bricht der Assistent mit `kein_supervisor` ab.

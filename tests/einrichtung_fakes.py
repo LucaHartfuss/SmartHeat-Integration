@@ -1,9 +1,12 @@
-"""Nachgebildete Einrichtungs-API und Add-on-Seite fuer die Flow-Tests (Spec 5c 2.1)."""
+"""Nachgebildete Einrichtungs-API fuer die Flow-Tests (Spec 5c 2.1); die Add-on-Seite steht in supervisor_fakes.py."""
 from __future__ import annotations
+
+from unittest.mock import create_autospec
 
 from custom_components.smartheat.einrichtung_client import (
     CannotConnect,
     Conflict,
+    EinrichtungClient,
     InvalidAuth,
     NotFound,
     Rejected,
@@ -48,15 +51,23 @@ ZUORDNUNG = {
 
 
 class FakeServer:
-    """Ersetzt EinrichtungClient-Methoden; zaehlt Aufrufe, haelt das Token wie der echte Client nur im Speicher.
-    Fehler je Route ueber `fehler[route]` (eine Ausnahme, die der Aufruf wirft). Nach einem angenommenen Entfernen
-    antwortet `auftrag` wie der Server mit 401 (die Freigabe widerruft das Token)."""
+    """Einrichtungs-API an der Grenze (Spec Nr. 23): `client(base_url)` liefert, was der Assistent als
+    `EinrichtungClient` baut, als `create_autospec(EinrichtungClient, instance=True)` (Signaturen geprueft) mit den
+    Seiteneffekten unten; die Klasse selbst bleibt unveraendert. Zaehlt Aufrufe, haelt das Token wie der
+    echte Client nur im Speicher und merkt sich die Adresse (`base_url`, None: nie ein Client gebaut). Fehler je Route
+    ueber `fehler[route]` (eine Ausnahme, die der Aufruf wirft). Nach einem angenommenen Entfernen antwortet `auftrag`
+    wie der Server mit 401 (die Freigabe widerruft das Token)."""
+
+    ROUTEN = ("anmelden", "abmelden", "uebernehmen", "geraet", "inventur", "vorschlag", "zuordnung", "pruefen",
+              "einrichten", "neu_konfigurieren", "entfernen", "auftrag")
 
     def __init__(self) -> None:
+        self.base_url: str | None = None
         self.calls: list[tuple] = []
         self.geraet_sicht = {"device_id": GERAET_ID, "host": "ha", "eingerichtet": False, "tenant_id": None,
                              "anlagen": [{"tenant_id": TENANT, "aktiv": True, "belegt": False, "ersetzbar": False}],
                              "inventur": {"zustand": "keine"}, "konfiguration": None, "raum_soll": 20.0}
+        self.vorschlag_antwort = VORSCHLAG
         self.zuordnung_antwort = ZUORDNUNG
         self.inventur_ergebnis = {"zustand": "fertig"}
         self.pruef_ergebnis = {"fehler": {}, "warnungen": {}}
@@ -64,12 +75,17 @@ class FakeServer:
         self.entfernen_ergebnis: dict = {"job_id": "j3"}
         self.entfernt = False
         self.fehler: dict[str, Exception] = {}
+        self._client = None
 
-    def bind(self, client) -> None:
-        for name in ("anmelden", "abmelden", "uebernehmen", "geraet", "inventur", "vorschlag", "zuordnung", "pruefen",
-                     "einrichten", "neu_konfigurieren", "entfernen", "auftrag"):
-            setattr(client, name, getattr(self, f"_{name}"))
+    def client(self, base_url: str):
+        """Ersatz fuer `EinrichtungClient(session, base_url)` im Assistenten."""
+        self.base_url = base_url
+        client = create_autospec(EinrichtungClient, instance=True)
+        client.token = None
+        for name in self.ROUTEN:
+            getattr(client, name).side_effect = getattr(self, f"_{name}")
         self._client = client
+        return client
 
     def _check(self, route: str) -> None:
         if route in self.fehler:
@@ -100,7 +116,7 @@ class FakeServer:
 
     async def _vorschlag(self):
         self._check("vorschlag")
-        return VORSCHLAG
+        return self.vorschlag_antwort
 
     async def _zuordnung(self, kreis, profil, hebelsatz, tenant_id=None):
         self.calls.append(("zuordnung", kreis, profil, hebelsatz, tenant_id))
