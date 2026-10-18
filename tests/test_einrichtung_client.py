@@ -431,3 +431,61 @@ async def test_filter_haelt_auf_oberster_ebene_genau_die_felder_aus_v3(aiohttp_c
     client = await _client(aiohttp_client, [(methode, pfad.replace("<job_id>", "{job_id}"), _antwort(200, voll))])
     kwargs = {"job_id": "j"} if route == "auftrag" else {}
     assert set(await client._dict(route, **kwargs)) == felder
+
+
+# --- Randfaelle des Clients (Testoffensive T2, F-ha-host-37) -----------------------------------------------------
+
+_FEHLT = object()
+
+
+@pytest.mark.parametrize("wert", [7, "", None, ["c-1"], _FEHLT], ids=["zahl", "leer", "null", "liste", "fehlt"])
+@pytest.mark.parametrize("route, feld, aufruf", [
+    ("inventur", "command_id", lambda client: client.inventur()),
+    ("einrichten", "job_id", lambda client: client.einrichten({"tenant_id": "x"})),
+])
+async def test_id_mit_falschem_typ_leer_oder_fehlend_ist_invalid_response(aiohttp_client, route, feld, aufruf, wert):
+    pfad = einrichtung_client.EINRICHTUNG_ROUTEN[route][1]
+    body = {} if wert is _FEHLT else {feld: wert}
+    client = await _client(aiohttp_client, [("POST", pfad, _antwort(200, body))])
+    with pytest.raises(InvalidResponse) as caught:
+        await aufruf(client)
+    assert feld in caught.value.text and caught.value.status is None
+
+
+@pytest.mark.parametrize("status", [201, 202, 204])
+async def test_erfolgsstatus_ausser_200_ist_ein_fehler_mit_dem_status(aiohttp_client, status):
+    """Heutiges Verhalten: nur 200 gilt als Erfolg (der Server antwortet nie anders); 201/202/204 werden wie jeder
+    unbekannte Status zum `ApiError` mit Status, nicht zu einer Antwort."""
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(status, {"device_id": "d"}))])
+    with pytest.raises(ApiError) as caught:
+        await client.geraet()
+    assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
+
+
+@pytest.mark.parametrize("status", [201, 202])
+async def test_erfolgsstatus_ausser_200_gilt_auch_fuer_ids(aiohttp_client, status):
+    pfad = einrichtung_client.EINRICHTUNG_ROUTEN["einrichten"][1]
+    client = await _client(aiohttp_client, [("POST", pfad, _antwort(status, {"job_id": "j-1"}))])
+    with pytest.raises(ApiError) as caught:
+        await client.einrichten({"tenant_id": "x"})
+    assert caught.value.status == status
+
+
+@pytest.mark.parametrize("fehler", [["raumfuehler"], "raumfuehler", 7, None, True],
+                         ids=["liste", "text", "zahl", "null", "bool"])
+async def test_400_mit_fehler_ohne_objekt_behaelt_den_text_und_hat_keine_feldfehler(aiohttp_client, fehler):
+    """5c-I-11: `fehler` kein Objekt -> leere Feldfehler, der Text des Servers bleibt, kein Absturz."""
+    body = {"error": "Zuordnung unvollständig", "fehler": fehler}
+    client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
+    with pytest.raises(Rejected) as caught:
+        await client.einrichten({})
+    assert caught.value.text == "Zuordnung unvollständig" and caught.value.fehler == {}
+    assert caught.value.status == 400
+
+
+async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_client):
+    body = {"error": "x", "fehler": {"raumfuehler": "required", "zahl": 3}}
+    client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
+    with pytest.raises(Rejected) as caught:
+        await client.einrichten({})
+    assert caught.value.fehler == {"raumfuehler": "required", "zahl": "3"}
