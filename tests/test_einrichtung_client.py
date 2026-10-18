@@ -335,3 +335,69 @@ async def test_nicht_deklariertes_anfragefeld_ist_ein_programmfehler(aiohttp_cli
     with pytest.raises(ValueError):
         await client.pruefen({"kreis": "k", "profil": "p", "hebelsatz": "h", "rollen": {}, "raumfuehler": [],
                               "erfunden": 1})
+
+
+async def test_verschachtelte_fremde_felder_fallen_weg(aiohttp_client):
+    integration = {"plattform": "p", "label": "l", "hinweis": None, "neu": 1,
+                   "kreise": [{"schluessel": "s", "label": "k", "neu": 1}],
+                   "profile": [{"profile_id": "x", "label": "l", "erzeuger_typ": "e", "verteilsystem": "v",
+                                "shift_lever": None, "hebelsaetze": [{"id": "h", "hebel": [], "neu": 1}], "neu": 1}],
+                   "vorschlag": {"kreis": None, "profil": None, "neu": 1}}
+    client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag",
+                                             _antwort(200, {"integrationen": [integration], "neu": 1}))])
+    antwort = await client.vorschlag()
+    eintrag = antwort["integrationen"][0]
+    # Literale aus V3
+    assert set(antwort) == {"integrationen"}
+    assert set(eintrag) == {"plattform", "label", "hinweis", "kreise", "profile", "vorschlag"}
+    assert set(eintrag["kreise"][0]) == {"schluessel", "label"}
+    assert set(eintrag["profile"][0]) == {"profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
+                                          "hebelsaetze"}
+    assert set(eintrag["profile"][0]["hebelsaetze"][0]) == {"id", "hebel"}
+    assert set(eintrag["vorschlag"]) == {"kreis", "profil"}
+
+
+async def test_zuordnung_und_geraet_werden_verschachtelt_gefiltert(aiohttp_client):
+    rolle = {"rolle": "r", "pflicht": True, "vorschlag": None, "herkunft": None, "kandidaten": [], "neu": 1}
+    raum = {"kandidaten": [], "vorschlag": None, "neu": 1}
+    anlage = {"tenant_id": "t", "aktiv": True, "belegt": False, "ersetzbar": False, "neu": 1}
+    inventur = {"zustand": "fertig", "command_id": "c", "zeit": "z", "fehler": None, "neu": 1}
+    konfiguration = {"profil": "p", "hebel": [], "shift_lever": None, "unbekannt": 1}
+    client = await _client(aiohttp_client, [
+        ("POST", "/geraet/zuordnung", _antwort(200, {"rollen": [rolle], "raumfuehler": raum, "room_target": raum})),
+        ("GET", "/geraet", _antwort(200, {"anlagen": [anlage], "inventur": inventur,
+                                           "konfiguration": konfiguration}))])
+    zuordnung = await client.zuordnung("k", "p", "h")
+    assert set(zuordnung["rollen"][0]) == {"rolle", "pflicht", "vorschlag", "herkunft", "kandidaten"}
+    assert set(zuordnung["raumfuehler"]) == set(zuordnung["room_target"]) == {"kandidaten", "vorschlag"}
+    sicht = await client.geraet()
+    assert set(sicht["anlagen"][0]) == {"tenant_id", "aktiv", "belegt", "ersetzbar"}
+    assert set(sicht["inventur"]) == {"zustand", "command_id", "zeit", "fehler"}
+    assert sicht["konfiguration"] == konfiguration  # Auszug des V1-Dokuments: ungekuerzt
+
+
+@pytest.mark.parametrize("kaputt", [
+    {"integrationen": "kein Array"},
+    {"integrationen": [None, 3, "x"]},
+    {"integrationen": [{"kreise": "kein Array", "profile": [None], "vorschlag": "x"}]},
+    {"integrationen": [{"profile": [{"hebelsaetze": 5}]}]},
+    {},
+])
+async def test_verschachtelte_nicht_objekte_bleiben_unangetastet(aiohttp_client, kaputt):
+    """Der Filter wirft nie und ersetzt nichts: Nicht-Objekte und fehlende Teile bleiben, wie sie sind (der Assistent
+    prueft sie wie bisher)."""
+    client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag", _antwort(200, kaputt))])
+    assert await client.vorschlag() == kaputt
+
+
+async def test_geraet_ohne_inventur_bleibt_ohne_inventur(aiohttp_client):
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(200, {"inventur": None, "anlagen": []}))])
+    assert await client.geraet() == {"anlagen": [], "inventur": None}
+
+
+def test_jedes_verschachtelte_objekt_der_pfadtabelle_hat_eine_feldkonstante():
+    from custom_components.smartheat import antwort
+
+    namen = {pfad[-1] for pfade in antwort.VERSCHACHTELT.values() for pfad in pfade}
+    assert namen <= set(einrichtung_client._OBJEKT_FELDER), namen - set(einrichtung_client._OBJEKT_FELDER)
+    assert set(antwort.VERSCHACHTELT) <= set(einrichtung_client.EINRICHTUNG_ANTWORT_FELDER)

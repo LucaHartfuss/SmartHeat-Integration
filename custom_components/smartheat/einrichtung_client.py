@@ -23,7 +23,8 @@ from urllib.parse import quote
 import aiohttp
 
 from . import anfrage as v3_anfrage
-from . import vertrag_pin
+from . import antwort as v3_antwort
+from . import const, vertrag_pin
 from .const import (
     EINRICHTUNG_ANFRAGE_FELDER,
     EINRICHTUNG_ANTWORT_FELDER,
@@ -42,6 +43,8 @@ _VERTRAG_GEPINNT = {
     "ANTWORT_FELDER[neu_konfigurieren]": (EINRICHTUNG_ANTWORT_FELDER["neu_konfigurieren"], ("job_id",)),
 }
 vertrag_pin.enthalten(__name__, _VERTRAG_GEPINNT)
+# Felder der verschachtelten Objekte (V3) fuer `antwort.verschachtelt`.
+_OBJEKT_FELDER = v3_antwort.felder_aus(const)
 
 
 class ApiError(Exception):
@@ -161,7 +164,8 @@ class EinrichtungClient:
         body = await self._call(route, **kwargs)
         if not isinstance(body, dict):
             raise InvalidResponse(f"{route}: Antwort ist kein Objekt")
-        return {key: body[key] for key in EINRICHTUNG_ANTWORT_FELDER[route] if key in body}
+        felder = {key: body[key] for key in EINRICHTUNG_ANTWORT_FELDER[route] if key in body}
+        return v3_antwort.verschachtelt(route, felder, _OBJEKT_FELDER)
 
     async def _text_feld(self, route: str, feld: str, **kwargs: Any) -> str:
         wert = (await self._dict(route, **kwargs)).get(feld)
