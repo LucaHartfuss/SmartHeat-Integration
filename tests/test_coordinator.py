@@ -702,7 +702,9 @@ async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, 
     await entry.runtime_data.async_check()
     clock["t"] += 300
     await entry.runtime_data.async_check()
-    assert created == [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])]
+    if created != [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])]:
+        # Failed statt AssertionError: eine kaputte Vorbedingung darf nicht still als xfail durchgehen.
+        pytest.fail(f"Vorbedingung: der Waechter meldet addon_gestoppt genau einmal, gemeldet: {created}")
 
     await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()

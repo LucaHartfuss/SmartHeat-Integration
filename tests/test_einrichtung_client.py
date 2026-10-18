@@ -118,12 +118,6 @@ async def test_non_json_error_bodies_map_by_status_without_crashing(aiohttp_clie
     assert caught.value.status == status and caught.value.text == ""
 
 
-async def test_unrouted_path_gives_a_status_error_not_a_crash(aiohttp_client):
-    client = await _client(aiohttp_client, [])  # aiohttp antwortet 404 mit Text/HTML
-    with pytest.raises(NotFound):
-        await client.vorschlag()
-
-
 async def test_error_text_is_capped_and_must_be_a_string(aiohttp_client):
     lang = await _client(aiohttp_client, [("GET", "/geraet", _antwort(409, {"error": "x" * 5000}))])
     with pytest.raises(Conflict) as caught:
@@ -577,20 +571,21 @@ async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_passwort_noch_tok
         base_url = f"https://127.0.0.1:{runner.addresses[0][1]}"
         session = async_get_clientsession(hass)
         client = EinrichtungClient(session, base_url)
+        client.token = "t-alt"  # ein Token des echten Servers darf nicht durch das des Angreifers ersetzt werden
 
         with pytest.raises(CannotConnect) as caught:
             await client.anmelden("a@b.de", "pw-geheim-42")
 
         assert isinstance(caught.value.__cause__, aiohttp.ClientConnectorCertificateError)
-        assert bodies == [] and client.token is None
+        assert bodies == [] and client.token == "t-alt"
         # Gegenprobe: ohne Zertifikatspruefung kaeme das Passwort an.
         async with session.post(f"{base_url}{P}/anmelden", json={"email": "a@b.de", "password": "pw-geheim-42"},
                                 ssl=False) as response:
             assert response.status == 200
         assert bodies == [{"email": "a@b.de", "password": "pw-geheim-42"}]
     finally:
-        await runner.cleanup()
         loop.set_exception_handler(handler_vorher)
+        await runner.cleanup()
 
 
 # --- Route verschoben (F-ha-host-39, K2) ---------------------------------------------------------------------------
@@ -633,7 +628,9 @@ async def test_jede_route_trifft_methode_und_pfad_aus_v3(aiohttp_client, route, 
 
 @web.middleware
 async def _html_fehlerseiten(request, handler):
-    """Wie Flask vor dem Server: Routing-404 und -405 kommen als HTML-Seite."""
+    """Routing-404 und -405 als HTML-Seite. Der heutige Server antwortet unter dem Praefix mit JSON `{error}`
+    (5c-S-2); HTML kommt, wenn ein Proxy davor die Fehlerseite liefert oder ein Stand vor 5c-S-2 antwortet. Der Client
+    muss beides nach dem Status abbilden."""
     try:
         return await handler(request)
     except web.HTTPException as error:
@@ -646,11 +643,13 @@ async def _html_fehlerseiten(request, handler):
 @pytest.mark.parametrize("server_route, server_methode, aufruf, fehler, status", [
     ("/geraet/vorschlaege", "GET", lambda c: c.vorschlag(), NotFound, 404),
     ("/geraet/pruefen", "PUT", lambda c: c.pruefen({}), ApiError, 405),
-], ids=["pfad_verschoben", "methode_verschoben"])
+    (None, None, lambda c: c.vorschlag(), NotFound, 404),
+], ids=["pfad_verschoben", "methode_verschoben", "keine_route"])
 async def test_eine_verschobene_route_bildet_den_client_nach_dem_status_ab(aiohttp_client, server_route,
                                                                            server_methode, aufruf, fehler, status):
-    """Hat der Server eine Route verschoben (anderer Pfad bzw. andere Methode), antwortet er 404 bzw. 405 als HTML:
-    der Client bildet nach dem Status ab (NotFound bzw. ApiError mit 405), ohne Text und ohne Absturz."""
+    """Hat der Server eine Route verschoben (anderer Pfad bzw. andere Methode) oder kennt er sie gar nicht, kommt 404
+    bzw. 405 als HTML (Proxy oder Stand vor 5c-S-2): der Client bildet nach dem Status ab (NotFound bzw. ApiError mit
+    405), ohne Text und ohne Absturz. Fuehrt den frueheren `test_unrouted_path_gives_a_status_error_not_a_crash` mit."""
     gesehen = []
 
     async def handler(request):
@@ -658,7 +657,8 @@ async def test_eine_verschobene_route_bildet_den_client_nach_dem_status_ab(aioht
         return web.json_response({})
 
     app = web.Application(middlewares=[_html_fehlerseiten])
-    app.router.add_route(server_methode, f"{P}{server_route}", handler)
+    if server_route is not None:
+        app.router.add_route(server_methode, f"{P}{server_route}", handler)
     client = EinrichtungClient(await aiohttp_client(app), "")
     client.token = "t"
     with pytest.raises(ApiError) as caught:
