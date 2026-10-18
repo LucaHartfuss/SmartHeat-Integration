@@ -20,6 +20,7 @@ Slug-Suffix zaehlen. Geprueft wird zusaetzlich die Mindestversion (TP6 I4): ein 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from aiohasupervisor.exceptions import SupervisorError
@@ -68,11 +69,20 @@ class ResolvedAddon:
     version: str | None
 
 
+_BRANCH = re.compile(r"[A-Za-z0-9._/-]+")
+
+
+def _valid_branch(branch: str) -> bool:
+    """Branch-Angabe nur aus [A-Za-z0-9._/-], nicht leer, ohne `..` und ohne fuehrendes `/` (also auch ohne
+    Leerraum, Steuerzeichen und ein zweites `#`)."""
+    return bool(_BRANCH.fullmatch(branch)) and ".." not in branch and not branch.startswith("/")
+
+
 def _normalized_repository(value: str) -> str | None:
-    """Adresse ohne Branch-Angabe `#<branch>`, ohne / und .git am Ende, klein geschrieben; None bei leerem Branch
-    oder mehr als einem `#` (keine Branch-Angabe)."""
+    """Adresse ohne Branch-Angabe `#<branch>`, ohne / und .git am Ende, klein geschrieben; None bei einer
+    ungueltigen Branch-Angabe (fail closed)."""
     address, hash_mark, branch = value.strip().partition("#")
-    if hash_mark and (not branch or "#" in branch):
+    if hash_mark and not _valid_branch(branch):
         return None
     return address.lower().rstrip("/").removesuffix(".git")
 
@@ -80,7 +90,7 @@ def _normalized_repository(value: str) -> str | None:
 def _same_repository(value: object, repository_url: str = ADDON_REPOSITORY_URL) -> bool:
     """Adresse eines Store-Repositorys gleich `repository_url`: ohne / und .git am Ende, Gross-/Kleinschreibung egal
     (GitHub-Adressen unterscheiden sie nicht); das Schema bleibt unterschieden (http ist nicht https). Ein Branch
-    desselben Repositorys (`<Adresse>#<branch>`, nicht leer, ein `#`) gilt als gleichwertig (5c-W-11); die
+    desselben Repositorys (`<Adresse>#<branch>`, Branch siehe _valid_branch) gilt als gleichwertig (5c-W-11); die
     Slug-Pruefung in matching_addons bleibt."""
     if not isinstance(value, str):
         return False

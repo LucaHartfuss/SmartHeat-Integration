@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from aiohasupervisor.exceptions import SupervisorError, SupervisorTimeoutError
-from aiohasupervisor.models import AddonBoot, AddonState
+from aiohasupervisor.models import AddonBoot, AddonsOptions, AddonState
 from homeassistant.components.hassio import AddonError, AddonManager
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.data_entry_flow import FlowResultType
@@ -133,10 +133,11 @@ def _installable(supervisor):
     supervisor.installed = []
 
 
-async def test_install_and_start_never_writes_options(hass, supervisor):
+async def test_install_and_start_never_writes_options(hass, supervisor, caplog):
     _installable(supervisor)
 
-    manager = await addon_control.async_install_and_start(hass)
+    with caplog.at_level(logging.WARNING):
+        manager = await addon_control.async_install_and_start(hass)
 
     assert isinstance(manager, AddonManager)
     assert manager.addon_slug == SLUG
@@ -144,6 +145,10 @@ async def test_install_and_start_never_writes_options(hass, supervisor):
     assert supervisor.config_written == []
     assert supervisor.addon_options == {}
     assert supervisor.supervision == {SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
+    # genau ein Aufruf, nur fuer den installierten Slug, und keine Warnung (auch kein gescheiterter weiterer Slug)
+    supervisor.client.addons.set_addon_options.assert_awaited_once_with(
+        SLUG, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO))
+    assert [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING] == []
 
 
 async def test_install_and_start_leaves_a_running_addon_alone(hass, supervisor):

@@ -235,6 +235,8 @@ async def test_store_error_becomes_addon_error(supervisor):
     REPO_URL + "#develop",
     REPO_URL + ".git#develop",
     REPO_URL + "/#develop",
+    REPO_URL + "#feat/testoffensive-t5",
+    REPO_URL + "#v1.0.0",
     # GitHub unterscheidet Gross- und Kleinschreibung im Pfad nicht
     "https://github.com/lucahartfuss/smartheat-for-homeassistant#develop",
 ])
@@ -258,6 +260,7 @@ async def test_a_branch_entry_keeps_the_slug_check(supervisor, fake):
     _setup(supervisor, [fake], repositories=[
         _repository(source=REPO_URL + "#develop"), _repository("0badc0de", "https://github.com/fremd/addons")])
 
+    assert await async_repository_slug(None, REPO_URL) == REPO  # der Branch-Eintrag ist erkannt
     with pytest.raises(AddonNotFoundError):
         await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
 
@@ -300,3 +303,20 @@ async def test_two_invalid_addresses_are_not_the_same_repository(supervisor):
     _setup(supervisor, _both(), repositories=[_repository(source="https://github.com/andere/addons#")])
 
     assert await async_repository_slug(None, REPO_URL + "#") is None
+
+
+@pytest.mark.parametrize("source", [
+    REPO_URL + "# develop",  # Leerzeichen
+    REPO_URL + "#../../x",  # ..
+    REPO_URL + "#\x00",  # Steuerzeichen
+    REPO_URL + "#de v",  # Leerzeichen im Branch
+    REPO_URL + "#/x",  # fuehrendes /
+    REPO_URL + "#a..b",  # .. im Branch
+])
+async def test_an_invalid_branch_is_never_our_repository(supervisor, source):
+    """Als Branch gilt nur [A-Za-z0-9._/-]+ ohne `..` und ohne fuehrendes `/` (fail closed)."""
+    _setup(supervisor, _both(), repositories=[_repository(source=source)])
+
+    assert await async_repository_slug(None, REPO_URL) is None
+    with pytest.raises(AddonNotFoundError):
+        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
