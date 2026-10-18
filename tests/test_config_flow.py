@@ -430,6 +430,25 @@ async def test_the_minimum_addon_version_1_0_0_is_enough(hass, server, superviso
     assert server.base_url == LABOR_URL
 
 
+@pytest.mark.parametrize("start", ["discovery", "manuell"])
+async def test_a_version_that_cannot_be_compared_aborts_with_addon_fehler(hass, server, supervisor, caplog, start):
+    """Eine nicht vergleichbare Version der Heizungsbruecke ist ein Fehlerpfad (`addon_fehler`) auf beiden Startwegen,
+    keine Ausnahme aus dem Schritt; im Log steht nur die Fehlerart, nie die Version."""
+    caplog.set_level(logging.DEBUG)
+    supervisor.installed = [installed_addon(BRIDGE_SLUG, version="GEHEIM-kein-semver")]
+
+    if start == "discovery":
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+        result = await _configure(hass, result, {})
+    else:
+        result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "addon_fehler")
+    assert "Add-on-Version nicht pruefbar (AddonError)" in caplog.text
+    assert "GEHEIM" not in caplog.text and "GEHEIM" not in str(result)
+    assert server.base_url is None and server.calls == []
+
+
 @pytest.mark.parametrize("value", ["http://labor.example.test", "", "ftp://labor.example.test", "https://", 42])
 async def test_invalid_bootstrap_url_aborts(hass, server, supervisor, value):
     supervisor.addon_options[BRIDGE_SLUG] = {"bootstrap_url": value}
@@ -764,10 +783,10 @@ async def test_an_unexpected_error_in_a_progress_step_aborts_and_logs_only_its_t
     Ausnahmeart, nie ihren Text (er kann Werte von Supervisor oder Server zitieren)."""
     caplog.set_level(logging.DEBUG)
     if quelle == "supervisor":
-        # Eine Version, die AwesomeVersion nicht vergleichen kann: die Ausnahme zitiert sie (Schritt addon_starten).
-        supervisor.installed = [installed_addon(BRIDGE_SLUG, version="GEHEIM-supervisor")]
+        # Keine SupervisorError (die faengt der Code): eine fremde Ausnahme des Clients mit Text (Schritt addon_starten).
+        supervisor.errors["store.repositories_list"] = RuntimeError("GEHEIM-supervisor")
         result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
-        art = "AwesomeVersionCompareException"
+        art = "RuntimeError"
     else:
         server.fehler["inventur"] = RuntimeError("GEHEIM-server")  # Schritt inventur
         result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
@@ -775,7 +794,8 @@ async def test_an_unexpected_error_in_a_progress_step_aborts_and_logs_only_its_t
         assert server.calls[-1] == ("abmelden",)
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "unknown")
-    assert art in caplog.text
+    assert f"({art}), Aufrufstelle:" in caplog.text
+    assert 'config_flow.py", line' in caplog.text  # die Aufrufstelle nennt den Rahmen des Assistenten
     assert "GEHEIM" not in caplog.text
 
 

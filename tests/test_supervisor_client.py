@@ -77,6 +77,19 @@ async def test_ambiguous_match_names_the_slug(supervisor):
     assert info.value.config_slug == "heizungsbruecke"
 
 
+@pytest.mark.parametrize("version", ["GEHEIM-kein-semver", ""])
+async def test_a_version_that_cannot_be_compared_is_an_addon_error_without_its_text(supervisor, version):
+    """Eine Version, die AwesomeVersion nicht vergleichen kann, ist ein Fehlerpfad (AddonError), keine fremde
+    Ausnahme; der Text nennt sie nicht."""
+    _setup(supervisor, _both(hb_version=version))
+
+    with pytest.raises(AddonError) as info:
+        await async_resolve_addons(None, REPO_URL, MIN)
+
+    assert "heizungsbruecke" in str(info.value)
+    assert version == "" or version not in str(info.value)
+
+
 @pytest.mark.parametrize("installed", ["0.18.0", "0.18.9", None])
 async def test_outdated_addon_reports_installed_and_required(supervisor, installed):
     _setup(supervisor, _both(hb_version=installed))

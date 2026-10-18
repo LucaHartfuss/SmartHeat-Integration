@@ -14,6 +14,13 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   und einer Zeile im Protokoll ab (vorher ein interner Fehler).
 - Ein unerwarteter Fehler in einem Warteschritt des Assistenten steht nur noch mit Art und Aufrufstelle im Protokoll,
   nicht mehr mit seinem Text (er konnte Werte des Supervisors oder des Servers enthalten).
+- Die Heizungsbrücke wird auch erkannt, wenn das Add-on-Repository mit einem Branch eingetragen ist
+  (`https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant#develop`, etwa im Labor oder als Beta-Tester); als
+  Branch zählen nur Buchstaben, Ziffern, `.`, `_`, `-` und `/` (ohne `..` und ohne `/` am Anfang). Ein Fork oder
+  eine ähnlich lautende Adresse zählt weiter nicht.
+- Eine Add-on-Version, die sich nicht mit der Mindestversion vergleichen lässt, bricht den Assistenten mit „Das
+  Add-on Heizungsbrücke ließ sich nicht … prüfen“ ab (vorher ein interner Fehler); die Version steht nicht im
+  Protokoll.
 
 ## 1.0.0
 

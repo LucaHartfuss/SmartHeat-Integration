@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from aiohasupervisor.exceptions import SupervisorError
 from awesomeversion import AwesomeVersion
+from awesomeversion.exceptions import AwesomeVersionException
 from homeassistant.components.hassio import AddonError, AddonManager, get_supervisor_client
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.hassio import is_hassio
@@ -126,7 +127,8 @@ async def async_resolve_addons(
 ) -> dict[str, ResolvedAddon]:
     """Loest alle `min_versions`-Schluessel (bare config.yaml-Slugs) aus EINEM addons.list() auf, nur Add-ons aus dem
     Repository mit der Store-Adresse `repository_url`, und prueft die Mindestversion. Eine rohe SupervisorError wird
-    AddonError."""
+    AddonError, ebenso eine Version, die sich nicht vergleichen laesst (ohne die Version im Text: sie kommt vom
+    Supervisor)."""
     repository_slug = await async_repository_slug(hass, repository_url)
     try:
         installed = await get_supervisor_client(hass).addons.list()
@@ -141,7 +143,11 @@ async def async_resolve_addons(
         if len(matches) > 1:
             raise AmbiguousAddonMatchError(config_slug, [addon.slug for addon in matches])
         addon = matches[0]
-        if addon.version is None or AwesomeVersion(addon.version) < AwesomeVersion(required):
+        try:
+            veraltet = addon.version is None or AwesomeVersion(addon.version) < AwesomeVersion(required)
+        except AwesomeVersionException as error:
+            raise AddonError(f"Version von {config_slug} nicht vergleichbar: {type(error).__name__}") from None
+        if veraltet:
             raise AddonOutdatedError(config_slug, addon.version or "unbekannt", required)
         result[config_slug] = ResolvedAddon(addon.slug, addon.version)
     return result
