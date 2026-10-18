@@ -10,7 +10,10 @@ env:
   SELF: SmartHeat-Integration
 jobs:
   ci:
+    # Volle Stufe wie in allen Repos (hier dieselben Jobs wie im Push-Lauf, Spec Nr. 30).
     uses: ./.github/workflows/ci.yml
+    with:
+      stufe: voll
     secrets: inherit
     permissions:
       contents: read
