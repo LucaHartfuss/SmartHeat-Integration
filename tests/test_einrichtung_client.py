@@ -335,3 +335,157 @@ async def test_nicht_deklariertes_anfragefeld_ist_ein_programmfehler(aiohttp_cli
     with pytest.raises(ValueError):
         await client.pruefen({"kreis": "k", "profil": "p", "hebelsatz": "h", "rollen": {}, "raumfuehler": [],
                               "erfunden": 1})
+
+
+async def test_verschachtelte_fremde_felder_fallen_weg(aiohttp_client):
+    integration = {"plattform": "p", "label": "l", "hinweis": None, "neu": 1,
+                   "kreise": [{"schluessel": "s", "label": "k", "neu": 1}],
+                   "profile": [{"profile_id": "x", "label": "l", "erzeuger_typ": "e", "verteilsystem": "v",
+                                "shift_lever": None, "hebelsaetze": [{"id": "h", "hebel": [], "neu": 1}], "neu": 1}],
+                   "vorschlag": {"kreis": None, "profil": None, "neu": 1}}
+    client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag",
+                                             _antwort(200, {"integrationen": [integration], "neu": 1}))])
+    antwort = await client.vorschlag()
+    eintrag = antwort["integrationen"][0]
+    # Literale aus V3
+    assert set(antwort) == {"integrationen"}
+    assert set(eintrag) == {"plattform", "label", "hinweis", "kreise", "profile", "vorschlag"}
+    assert set(eintrag["kreise"][0]) == {"schluessel", "label"}
+    assert set(eintrag["profile"][0]) == {"profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
+                                          "hebelsaetze"}
+    assert set(eintrag["profile"][0]["hebelsaetze"][0]) == {"id", "hebel"}
+    assert set(eintrag["vorschlag"]) == {"kreis", "profil"}
+
+
+async def test_zuordnung_und_geraet_werden_verschachtelt_gefiltert(aiohttp_client):
+    rolle = {"rolle": "r", "pflicht": True, "vorschlag": None, "herkunft": None, "kandidaten": [], "neu": 1}
+    raum = {"kandidaten": [], "vorschlag": None, "neu": 1}
+    anlage = {"tenant_id": "t", "aktiv": True, "belegt": False, "ersetzbar": False, "neu": 1}
+    inventur = {"zustand": "fertig", "command_id": "c", "zeit": "z", "fehler": None, "neu": 1}
+    konfiguration = {"profil": "p", "hebel": [], "shift_lever": None, "unbekannt": 1}
+    client = await _client(aiohttp_client, [
+        ("POST", "/geraet/zuordnung", _antwort(200, {"rollen": [rolle], "raumfuehler": raum, "room_target": raum})),
+        ("GET", "/geraet", _antwort(200, {"anlagen": [anlage], "inventur": inventur,
+                                           "konfiguration": konfiguration}))])
+    zuordnung = await client.zuordnung("k", "p", "h")
+    assert set(zuordnung["rollen"][0]) == {"rolle", "pflicht", "vorschlag", "herkunft", "kandidaten"}
+    assert set(zuordnung["raumfuehler"]) == set(zuordnung["room_target"]) == {"kandidaten", "vorschlag"}
+    sicht = await client.geraet()
+    assert set(sicht["anlagen"][0]) == {"tenant_id", "aktiv", "belegt", "ersetzbar"}
+    assert set(sicht["inventur"]) == {"zustand", "command_id", "zeit", "fehler"}
+    assert sicht["konfiguration"] == konfiguration  # Auszug des V1-Dokuments: ungekuerzt
+
+
+@pytest.mark.parametrize("kaputt", [
+    {"integrationen": "kein Array"},
+    {"integrationen": [None, 3, "x"]},
+    {"integrationen": [{"kreise": "kein Array", "profile": [None], "vorschlag": "x"}]},
+    {"integrationen": [{"profile": [{"hebelsaetze": 5}]}]},
+    {},
+])
+async def test_verschachtelte_nicht_objekte_bleiben_unangetastet(aiohttp_client, kaputt):
+    """Der Filter wirft nie und ersetzt nichts: Nicht-Objekte und fehlende Teile bleiben, wie sie sind (der Assistent
+    prueft sie wie bisher)."""
+    client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag", _antwort(200, kaputt))])
+    assert await client.vorschlag() == kaputt
+
+
+async def test_geraet_ohne_inventur_bleibt_ohne_inventur(aiohttp_client):
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(200, {"inventur": None, "anlagen": []}))])
+    assert await client.geraet() == {"anlagen": [], "inventur": None}
+
+
+def test_felder_aus_nimmt_genau_die_konstanten_der_pfadtabelle_auf():
+    from custom_components.smartheat import antwort
+
+    namen = {pfad[-1] for pfade in antwort.VERSCHACHTELT.values() for pfad in pfade}
+    assert set(einrichtung_client._OBJEKT_FELDER) == namen
+    assert set(antwort.VERSCHACHTELT) <= set(einrichtung_client.EINRICHTUNG_ANTWORT_FELDER)
+    assert all(einrichtung_client._OBJEKT_FELDER[n] == getattr(einrichtung_client.const, f"EINRICHTUNG_{n}")
+               for n in namen)
+
+
+# Bruchtest (K2) je Route: die Felder der obersten Ebene als Literale aus V3 (nicht ueber die Konstanten). Die
+# Antwort traegt zusaetzlich ein fremdes Feld, das der Filter verwirft; fehlende Felder bleiben fehlend.
+_OBERSTE_EBENE = [
+    ("anmelden", {"token", "gueltig_bis"}),
+    ("uebernehmen", {"device_id"}),
+    ("geraet", {"device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
+                "konfiguration", "raum_soll"}),
+    ("inventur", {"command_id"}),
+    ("vorschlag", {"integrationen"}),
+    ("zuordnung", {"kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "room_target", "batterie_je_entity",
+                   "benachrichtigung", "hinweise", "raum_soll", "abfrage_s", "hinweis"}),
+    ("pruefen", {"fehler", "warnungen"}),
+    ("einrichten", {"job_id"}),
+    ("neu_konfigurieren", {"job_id"}),
+    ("entfernen", {"freigegeben", "job_id"}),
+    ("auftrag", {"job_id", "art", "zustand", "fehler", "ergebnis", "seit"}),
+]
+
+
+@pytest.mark.parametrize("route, felder", _OBERSTE_EBENE, ids=[route for route, _ in _OBERSTE_EBENE])
+async def test_filter_haelt_auf_oberster_ebene_genau_die_felder_aus_v3(aiohttp_client, route, felder):
+    methode, pfad = einrichtung_client.EINRICHTUNG_ROUTEN[route]
+    voll = {**dict.fromkeys(sorted(felder)), "fremd": 1}
+    client = await _client(aiohttp_client, [(methode, pfad.replace("<job_id>", "{job_id}"), _antwort(200, voll))])
+    kwargs = {"job_id": "j"} if route == "auftrag" else {}
+    assert set(await client._dict(route, **kwargs)) == felder
+
+
+# --- Randfaelle des Clients (Testoffensive T2, F-ha-host-37) -----------------------------------------------------
+
+_FEHLT = object()
+
+
+@pytest.mark.parametrize("wert", [7, "", None, ["c-1"], _FEHLT], ids=["zahl", "leer", "null", "liste", "fehlt"])
+@pytest.mark.parametrize("route, feld, aufruf", [
+    ("inventur", "command_id", lambda client: client.inventur()),
+    ("einrichten", "job_id", lambda client: client.einrichten({"tenant_id": "x"})),
+])
+async def test_id_mit_falschem_typ_leer_oder_fehlend_ist_invalid_response(aiohttp_client, route, feld, aufruf, wert):
+    pfad = einrichtung_client.EINRICHTUNG_ROUTEN[route][1]
+    body = {} if wert is _FEHLT else {feld: wert}
+    client = await _client(aiohttp_client, [("POST", pfad, _antwort(200, body))])
+    with pytest.raises(InvalidResponse) as caught:
+        await aufruf(client)
+    assert feld in caught.value.text and caught.value.status is None
+
+
+@pytest.mark.parametrize("status", [201, 202, 204])
+async def test_erfolgsstatus_ausser_200_ist_ein_fehler_mit_dem_status(aiohttp_client, status):
+    """Heutiges Verhalten: nur 200 gilt als Erfolg (der Server antwortet nie anders); 201/202/204 werden wie jeder
+    unbekannte Status zum `ApiError` mit Status, nicht zu einer Antwort."""
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(status, {"device_id": "d"}))])
+    with pytest.raises(ApiError) as caught:
+        await client.geraet()
+    assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
+
+
+@pytest.mark.parametrize("status", [201, 202, 204])
+async def test_erfolgsstatus_ausser_200_gilt_auch_fuer_ids(aiohttp_client, status):
+    pfad = einrichtung_client.EINRICHTUNG_ROUTEN["einrichten"][1]
+    client = await _client(aiohttp_client, [("POST", pfad, _antwort(status, {"job_id": "j-1"}))])
+    with pytest.raises(ApiError) as caught:
+        await client.einrichten({"tenant_id": "x"})
+    assert caught.value.status == status
+
+
+@pytest.mark.parametrize("fehler", [["raumfuehler"], "raumfuehler", 7, None, True],
+                         ids=["liste", "text", "zahl", "null", "bool"])
+async def test_400_mit_fehler_ohne_objekt_behaelt_den_text_und_hat_keine_feldfehler(aiohttp_client, fehler):
+    """5c-I-11: `fehler` kein Objekt -> leere Feldfehler, der Text des Servers bleibt, kein Absturz."""
+    body = {"error": "Zuordnung unvollständig", "fehler": fehler}
+    client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
+    with pytest.raises(Rejected) as caught:
+        await client.einrichten({})
+    assert caught.value.text == "Zuordnung unvollständig" and caught.value.fehler == {}
+    assert caught.value.status == 400
+
+
+async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_client):
+    body = {"error": "x", "fehler": {"raumfuehler": "required", "zahl": 3}}
+    client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
+    with pytest.raises(Rejected) as caught:
+        await client.einrichten({})
+    assert caught.value.fehler == {"raumfuehler": "required", "zahl": "3"}

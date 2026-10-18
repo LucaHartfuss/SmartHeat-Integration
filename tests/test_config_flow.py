@@ -18,6 +18,7 @@ from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DOMAIN
 from custom_components.smartheat.einrichtung_client import ApiError, InvalidResponse, NotFound, TooMany
 from custom_components.smartheat.supervisor_client import AddonOutdatedError
 
+from . import einrichtung_fakes
 from .einrichtung_fakes import (
     CLAIM_CODE,
     GERAET_ID,
@@ -178,6 +179,45 @@ async def test_discovery_flow_creates_the_entry(hass, server):
         "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "raum_soll": 21.0}
     assert ("addon_version", {"heizungsbruecke": "1.0.0"}) in server.calls
     assert server.calls[-1] == ("abmelden",)
+
+
+def _pin(name):
+    """Die Literale, die der Assistent aus der Antwort liest (config_flow._VERTRAG_GEPINNT)."""
+    return config_flow._VERTRAG_GEPINNT[name][1]
+
+
+def _nur(objekt, felder):
+    return {k: v for k, v in objekt.items() if k in felder}
+
+
+async def test_der_assistent_kommt_mit_genau_den_gepinnten_feldern_durch(hass, server, monkeypatch):
+    """F-ha-host-39 Zeile 1: Antworten des Servers, auf genau die gepinnten Literale gekuerzt (je Objekt nur sie),
+    reichen dem Assistenten bis `create_entry`: er liest kein Feld ausserhalb der Pins."""
+    sicht = _nur(server.geraet_sicht, _pin("ANTWORT_FELDER[geraet]"))
+    sicht["anlagen"] = [_nur(a, _pin("GERAET_ANLAGE_FELDER")) for a in sicht["anlagen"]]
+    sicht["inventur"] = _nur({"zustand": "keine", "fehler": None}, _pin("GERAET_INVENTUR_FELDER"))
+    server.geraet_sicht = sicht
+    server.inventur_ergebnis = _nur({"zustand": "fertig", "fehler": None}, _pin("GERAET_INVENTUR_FELDER"))
+    vorschlag = {"integrationen": [{
+        **_nur(i, _pin("VORSCHLAG_INTEGRATION_FELDER")),
+        "kreise": [_nur(k, _pin("VORSCHLAG_KREIS_FELDER")) for k in i["kreise"]],
+        "profile": [{**_nur(p, _pin("VORSCHLAG_PROFIL_FELDER")),
+                     "hebelsaetze": [_nur(h, _pin("VORSCHLAG_HEBELSATZ_FELDER")) for h in p["hebelsaetze"]]}
+                    for p in i["profile"]],
+        "vorschlag": _nur(i["vorschlag"], _pin("VORSCHLAG_AUSWAHL_FELDER"))} for i in einrichtung_fakes.VORSCHLAG[
+            "integrationen"]]}
+    zuordnung = {**_nur(ZUORDNUNG, _pin("ANTWORT_FELDER[zuordnung]")),
+                 "rollen": [_nur(r, _pin("ZUORDNUNG_ROLLE_FELDER")) for r in ZUORDNUNG["rollen"]],
+                 "raumfuehler": _nur(ZUORDNUNG["raumfuehler"], _pin("RAUMFUEHLER_FELDER")),
+                 "room_target": _nur(ZUORDNUNG["room_target"], _pin("RAUMFUEHLER_FELDER"))}
+    monkeypatch.setattr(einrichtung_fakes, "VORSCHLAG", vorschlag)
+    server.zuordnung_antwort = zuordnung
+    server.pruef_ergebnis = _nur(server.pruef_ergebnis, _pin("ANTWORT_FELDER[pruefen]"))
+    server.auftrag_ergebnis = _nur(server.auftrag_ergebnis, _pin("ANTWORT_FELDER[auftrag]"))
+
+    result = await _configure(hass, await _bis_zusammenfassung(hass), {})
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
 
 
 async def test_no_token_password_or_code_is_stored_or_logged(hass, server, caplog):
