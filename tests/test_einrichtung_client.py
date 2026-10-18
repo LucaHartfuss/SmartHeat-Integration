@@ -462,7 +462,7 @@ async def test_erfolgsstatus_ausser_200_ist_ein_fehler_mit_dem_status(aiohttp_cl
     assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
 
 
-@pytest.mark.parametrize("status", [201, 202])
+@pytest.mark.parametrize("status", [201, 202, 204])
 async def test_erfolgsstatus_ausser_200_gilt_auch_fuer_ids(aiohttp_client, status):
     pfad = einrichtung_client.EINRICHTUNG_ROUTEN["einrichten"][1]
     client = await _client(aiohttp_client, [("POST", pfad, _antwort(status, {"job_id": "j-1"}))])
