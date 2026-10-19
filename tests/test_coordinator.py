@@ -692,8 +692,7 @@ async def test_an_unresolvable_bridge_counts_as_stopped_for_good(hass, superviso
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="5c-I-4: async_remove_entry nimmt eine offene Waechter-Meldung nicht zurueck (Ziel, "
-                          "TO-ha-host-T8)")
+                   reason="5c-I-4: async_remove_entry nimmt eine offene Waechter-Meldung nicht zurueck (Ziel)")
 async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, supervisor, clock, notes):
     """Ziel (5c-I-4): nach dem Entfernen des Eintrags bleibt keine Meldung des Waechters stehen."""
     created, dismissed = notes

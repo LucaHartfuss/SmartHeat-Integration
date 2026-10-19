@@ -1030,7 +1030,7 @@ async def test_removal_of_an_offline_device_keeps_running(hass, server, monkeypa
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="5c-I-1 (TO-ha-host-T8): Ziel: wird das Entfernen nach den 300 s doch fertig, verschwindet "
+                   reason="5c-I-1: Ziel: wird das Entfernen nach den 300 s doch fertig, verschwindet "
                           "der Eintrag; heute bleibt er stehen")
 async def test_a_removal_that_finishes_after_the_wait_removes_the_entry(hass, server, monkeypatch):
     entry = await _eingerichtet(hass, server)
