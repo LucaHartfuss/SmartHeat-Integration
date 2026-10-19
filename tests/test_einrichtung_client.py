@@ -502,7 +502,7 @@ async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_c
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="5c-I-11: die fehler-Werte der Pruefung sind nicht in der Laenge begrenzt (Ziel, TO-ha-host-T8)")
+                   reason="5c-I-11: die fehler-Werte der Pruefung sind nicht in der Laenge begrenzt (Ziel)")
 async def test_ein_fehler_wert_mit_100000_zeichen_kommt_gekuerzt_an(aiohttp_client):
     """Ziel (5c-I-11): ein vom Server gesteuerter `fehler`-Wert mit 100000 Zeichen kommt in `Rejected.fehler` mit
     hoechstens 200 Zeichen an. Heute kommt er ungekuerzt an."""
