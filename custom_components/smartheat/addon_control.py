@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import urllib.parse
+from dataclasses import dataclass
 
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonBoot, AddonsOptions
@@ -21,7 +22,7 @@ from .const import (
     HEIZUNGSBRUECKE_ADDON_SLUG,
     OPTION_BOOTSTRAP_URL,
 )
-from .supervisor_client import async_repository_slug, matching_addons
+from .supervisor_client import async_repository_slug, async_repository_slugs, fremde_bruecken, matching_addons
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,27 +113,57 @@ def _valid_url(value) -> bool:
         return False
 
 
-async def async_bootstrap_url(hass: HomeAssistant) -> str | None:
-    """Bootstrap-Adresse, die das Add-on benutzt (Option bootstrap_url): gueltig = benutzt; fehlt oder null (oder das
-    Add-on ist noch nicht installiert) = Produktion; sonst None -- nie ein Rueckfall auf die Produktion, die Aufrufer
-    brechen mit einem Text ab (die Option laesst das Add-on im Ruhezustand). Wirft nie."""
+@dataclass(frozen=True)
+class BootstrapUrl:
+    """Ergebnis von async_bootstrap_url: entweder die Adresse (`url`) oder der Abbruchgrund (`grund` = Schluessel
+    unter config.abort in strings.json): "bootstrap_url_ungueltig", "repository_mehrdeutig" oder
+    "fremde_heizungsbruecke"; genau eines von beiden ist None."""
+
+    url: str | None
+    grund: str | None = None
+
+
+_UNGUELTIG = BootstrapUrl(None, "bootstrap_url_ungueltig")
+
+
+async def async_bootstrap_url(hass: HomeAssistant) -> BootstrapUrl:
+    """Bootstrap-Adresse, die das Add-on benutzt (Option bootstrap_url). Die Produktion gilt nur, wenn gar keine
+    Heizungsbruecke installiert ist oder die eigene eindeutig gefunden ist und keine (oder null als) Option hat;
+    eine gueltige Option wird benutzt. Sonst nie ein Rueckfall auf die Produktion, sondern ein Grund, mit dem die
+    Aufrufer abbrechen: unser Repository mehrfach im Store (`repository_mehrdeutig`), eine Heizungsbruecke ausserhalb
+    unseres Repositorys installiert (`fremde_heizungsbruecke`, auch neben der eigenen), ungueltige oder nicht lesbare
+    Option, doppelt installierte eigene Bruecke (`bootstrap_url_ungueltig`; die Option laesst das Add-on im
+    Ruhezustand). Wirft nie."""
     try:
         if not is_hassio(hass):
-            return DEFAULT_BASE_URL
-        slug = await async_bridge_slug(hass)
-        if slug is None:
-            return DEFAULT_BASE_URL
-        options = (await get_supervisor_client(hass).addons.addon_info(slug)).options
+            return BootstrapUrl(DEFAULT_BASE_URL)
+        repository_slugs = await async_repository_slugs(hass)
+        if len(repository_slugs) > 1:
+            _LOGGER.warning("Das SmartHeat-Repository ist mehrfach im Add-on-Store eingetragen")
+            return BootstrapUrl(None, "repository_mehrdeutig")
+        repository_slug = repository_slugs[0] if repository_slugs else None
+        client = get_supervisor_client(hass)
+        installed = await client.addons.list()
+        if fremde_bruecken(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG):
+            _LOGGER.warning("Eine Heizungsbruecke ausserhalb des SmartHeat-Repositorys ist installiert")
+            return BootstrapUrl(None, "fremde_heizungsbruecke")
+        own = matching_addons(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG)
+        if not own:
+            return BootstrapUrl(DEFAULT_BASE_URL)
+        if len(own) > 1:
+            _LOGGER.warning("Die Heizungsbruecke ist mehrfach installiert")
+            return _UNGUELTIG
+        options = (await client.addons.addon_info(own[0].slug)).options
         value = options.get(OPTION_BOOTSTRAP_URL) if isinstance(options, dict) else None
     except Exception as error:  # noqa: BLE001 - Optionen nicht lesbar: nicht raten
         _LOGGER.warning("Add-on-Optionen nicht lesbar (%s)", type(error).__name__)
-        return None
+        return _UNGUELTIG
     if value is None:
-        return DEFAULT_BASE_URL
+        return BootstrapUrl(DEFAULT_BASE_URL)
     if _valid_url(value):
-        return value.rstrip("/")
+        return BootstrapUrl(value.rstrip("/"))
     _LOGGER.warning("Option bootstrap_url des Add-ons ist ungueltig")
-    return None
+    return _UNGUELTIG
 
 
 async def async_discovery(hass: HomeAssistant) -> dict | None:
