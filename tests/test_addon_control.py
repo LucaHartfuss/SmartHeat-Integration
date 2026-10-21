@@ -13,6 +13,7 @@ from homeassistant.config_entries import SOURCE_USER
 from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.smartheat import addon_control
+from custom_components.smartheat.addon_control import BootstrapUrl
 from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DEFAULT_BASE_URL, DOMAIN
 
 from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon, repository
@@ -100,14 +101,14 @@ async def test_discovery_resolves_the_bridge_on_every_call(hass, supervisor):
 async def test_bootstrap_url_falls_back_to_production_only_when_missing(hass, supervisor):
     for options in ({}, {"bootstrap_url": None}, {"log_level": "info"}):
         supervisor.addon_options[SLUG] = options
-        assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
+        assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(DEFAULT_BASE_URL, None)
     supervisor.installed = []
-    assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(DEFAULT_BASE_URL, None)
 
 
 async def test_bootstrap_url_uses_only_https_values(hass, supervisor):
-    for value, expected in (("https://labor.example.test/", "https://labor.example.test"),
-                            ("http://192.168.1.20:5001", None)):
+    for value, expected in (("https://labor.example.test/", BootstrapUrl("https://labor.example.test", None)),
+                            ("http://192.168.1.20:5001", BootstrapUrl(None, "bootstrap_url_ungueltig"))):
         supervisor.addon_options[SLUG] = {"bootstrap_url": value}
         assert await addon_control.async_bootstrap_url(hass) == expected
 
@@ -115,13 +116,37 @@ async def test_bootstrap_url_uses_only_https_values(hass, supervisor):
 async def test_bootstrap_url_never_falls_back_on_an_invalid_value(hass, supervisor):
     for value in ("", "ftp://labor.example.test", "labor.example.test", "https://", 5, ["https://a.example"]):
         supervisor.addon_options[SLUG] = {"bootstrap_url": value}
-        assert await addon_control.async_bootstrap_url(hass) is None, value
+        assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "bootstrap_url_ungueltig"), value
 
 
-async def test_bootstrap_url_is_none_when_options_cannot_be_read(hass, supervisor):
+async def test_bootstrap_url_is_invalid_when_options_cannot_be_read(hass, supervisor):
     supervisor.addon_options[SLUG] = {"bootstrap_url": "https://labor.example.test"}
     supervisor.errors["addons.addon_info"] = SupervisorError("boom")
-    assert await addon_control.async_bootstrap_url(hass) is None
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "bootstrap_url_ungueltig")
+
+
+async def test_bootstrap_url_outside_supervisor_is_production(hass, supervisor):
+    supervisor.hassio = False
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(DEFAULT_BASE_URL, None)
+
+
+async def test_bootstrap_url_is_invalid_when_the_bridge_is_installed_twice(hass, supervisor):
+    """Wirft nie: die doppelte eigene Heizungsbruecke ist nicht eindeutig (wie bisher kein Rueckfall)."""
+    supervisor.installed = [installed_addon(SLUG), installed_addon(SLUG, version="0.9.0")]
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "bootstrap_url_ungueltig")
+
+
+async def test_bootstrap_url_is_ambiguous_with_two_entries_of_our_repository(hass, supervisor):
+    """L4-04 (Labor 2026-10-20): `main` und `#develop` eingetragen -> kein Rueckfall auf die Produktion, mit und ohne
+    installierte Heizungsbruecke, auch nicht mit einer Option."""
+    supervisor.repositories = [_repository("abc"), _repository("def", source=ADDON_REPOSITORY_URL + "#develop")]
+    supervisor.addon_options[SLUG] = {"bootstrap_url": "https://angreifer.example"}
+    expected = BootstrapUrl(None, "repository_mehrdeutig")
+
+    assert await addon_control.async_bootstrap_url(hass) == expected
+    supervisor.installed = []
+    assert await addon_control.async_bootstrap_url(hass) == expected
+    supervisor.client.addons.addon_info.assert_not_called()
 
 
 def _installable(supervisor):
@@ -248,7 +273,8 @@ async def test_an_addon_imitating_the_bridge_is_never_used(hass, supervisor, fak
 
     assert await addon_control.async_bridge_slug(hass) is None
     assert await addon_control.async_discovery(hass) is None
-    assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
+    # L4-04: keine eigene Bruecke, aber eine fremde installiert -> kein Rueckfall auf die Produktion
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "fremde_heizungsbruecke")
     supervisor.client.addons.addon_info.assert_not_called()
 
 
@@ -257,18 +283,34 @@ async def test_without_our_repository_no_addon_is_the_bridge(hass, supervisor):
     supervisor.repositories = []
 
     assert await addon_control.async_bridge_slug(hass) is None
-    assert await addon_control.async_bootstrap_url(hass) == DEFAULT_BASE_URL
+    # Das installierte Add-on gehoert zu keinem Repository von uns: fremd, nicht Produktion (L4-04)
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "fremde_heizungsbruecke")
     supervisor.client.addons.addon_info.assert_not_called()
 
 
-async def test_the_genuine_bridge_is_found_next_to_an_imitation(hass, supervisor):
+async def test_without_our_repository_and_without_any_bridge_the_production_is_used(hass, supervisor):
+    supervisor.repositories = []
+    supervisor.installed = []
+
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(DEFAULT_BASE_URL, None)
+
+
+async def test_the_genuine_bridge_is_found_next_to_an_imitation_but_the_wizard_refuses(hass, supervisor):
     supervisor.installed = [*_FAKES, installed_addon(SLUG)]
     for fake in _FAKES:
         supervisor.addon_options[fake.slug] = {"bootstrap_url": "https://angreifer.example"}
     supervisor.addon_options[SLUG] = {"bootstrap_url": "https://labor.example.test"}
 
     assert await addon_control.async_bridge_slug(hass) == SLUG
-    assert await addon_control.async_bootstrap_url(hass) == "https://labor.example.test"
+    # eine fremde Heizungsbruecke neben der eigenen: der Assistent bricht ab (L4-04), die Optionen werden nicht gelesen
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "fremde_heizungsbruecke")
+    supervisor.client.addons.addon_info.assert_not_called()
+
+
+async def test_the_own_bridge_alone_uses_its_option(hass, supervisor):
+    supervisor.addon_options[SLUG] = {"bootstrap_url": "https://labor.example.test"}
+
+    assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl("https://labor.example.test", None)
     supervisor.client.addons.addon_info.assert_awaited_once_with(SLUG)
 
 

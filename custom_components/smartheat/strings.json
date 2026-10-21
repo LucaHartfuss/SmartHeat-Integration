@@ -134,6 +134,8 @@
       "addon_veraltet": "Please update the Heizungsbrücke add-on to 1.0.0 and then start the setup again.",
       "addon_mehrdeutig": "The Heizungsbrücke add-on is installed more than once. Please remove one installation and try again.",
       "bootstrap_url_ungueltig": "The bootstrap_url option of the Heizungsbrücke add-on is invalid. Please correct or clear it and start the setup again.",
+      "repository_mehrdeutig": "The SmartHeat repository is registered more than once in the add-on store. Please remove the duplicate entries and start the setup again.",
+      "fremde_heizungsbruecke": "A Heizungsbrücke from another repository is installed. Please remove it and start the setup again.",
       "keine_discovery": "The add-on did not report. Please check the add-on log.",
       "discovery_ungueltig": "Invalid message from the add-on.",
       "geraet_nicht_gemeldet": "The Heizungsbrücke add-on does not report this device (any more). Please start the setup again.",

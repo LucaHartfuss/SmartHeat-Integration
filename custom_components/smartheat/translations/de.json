@@ -134,6 +134,8 @@
       "addon_veraltet": "Bitte das Add-on Heizungsbrücke auf 1.0.0 aktualisieren und die Einrichtung danach erneut starten.",
       "addon_mehrdeutig": "Das Add-on Heizungsbrücke ist mehrfach installiert. Bitte eine Installation entfernen und erneut versuchen.",
       "bootstrap_url_ungueltig": "Die Option bootstrap_url des Add-ons Heizungsbrücke ist ungültig. Bitte korrigieren oder leeren und die Einrichtung erneut starten.",
+      "repository_mehrdeutig": "Das SmartHeat-Repository ist mehrfach im Add-on-Store eingetragen. Bitte entferne die doppelten Einträge und starte die Einrichtung erneut.",
+      "fremde_heizungsbruecke": "Eine Heizungsbrücke aus einem anderen Repository ist installiert. Bitte entferne sie und starte die Einrichtung erneut.",
       "keine_discovery": "Das Add-on hat sich nicht gemeldet. Bitte das Add-on-Protokoll prüfen.",
       "discovery_ungueltig": "Ungültige Meldung des Add-ons.",
       "geraet_nicht_gemeldet": "Das Add-on Heizungsbrücke meldet dieses Gerät nicht (mehr). Bitte die Einrichtung neu starten.",

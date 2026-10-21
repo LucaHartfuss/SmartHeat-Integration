@@ -74,6 +74,9 @@ from .flow_progress import ProgressFlowMixin
 from .texts import async_hint, async_role_label
 
 _LOGGER = logging.getLogger(__name__)
+
+# Abbruchgruende von async_bootstrap_url, die schon vor dem Installieren der Heizungsbruecke gelten (L4-04)
+_VOR_DER_INSTALLATION = frozenset({"repository_mehrdeutig", "fremde_heizungsbruecke"})
 _RAEUME = ("raumfuehler", "room_target")
 _BENACHRICHTIGUNG = ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")
 _INVENTUR_FERTIG = "fertig"
@@ -290,6 +293,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return await self._run_progress("addon_starten", "addon_starten", self._addon_starten)
 
     async def _addon_starten(self) -> str:
+        # Vor der Installation (L4-04): neben einem mehrdeutigen Repository oder einer fremden Heizungsbruecke wird keine
+        # zweite Bruecke installiert; die uebrigen Gruende (Option) pruefen erst nach dem Start.
+        if (grund := (await addon_control.async_bootstrap_url(self.hass)).grund) in _VOR_DER_INSTALLATION:
+            return self._merken(_Abbruch(grund))
         try:
             await addon_control.async_install_and_start(self.hass)
         except AddonError as error:
@@ -297,8 +304,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return self._merken(_Abbruch("addon_fehler"))
         if (reason := await self._addon_version_fehler()) is not None:
             return self._merken(_Abbruch(reason))
-        if await addon_control.async_bootstrap_url(self.hass) is None:
-            return self._merken(_Abbruch("bootstrap_url_ungueltig"))
+        if (grund := (await addon_control.async_bootstrap_url(self.hass)).grund) is not None:
+            return self._merken(_Abbruch(grund))
         deadline = time.monotonic() + DISCOVERY_WAIT_SECONDS
         while True:
             found = _discovery(await addon_control.async_discovery(self.hass))
@@ -342,10 +349,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     async def async_step_anmelden(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self._client is None:
-            base_url = await addon_control.async_bootstrap_url(self.hass)
-            if base_url is None:
-                return self.async_abort(reason="bootstrap_url_ungueltig")
-            self._client = EinrichtungClient(async_get_clientsession(self.hass), base_url)
+            bootstrap = await addon_control.async_bootstrap_url(self.hass)
+            if bootstrap.url is None:
+                return self.async_abort(reason=bootstrap.grund or "bootstrap_url_ungueltig")
+            self._client = EinrichtungClient(async_get_clientsession(self.hass), bootstrap.url)
         if user_input is None:
             return self._anmelden_formular({})
         try:

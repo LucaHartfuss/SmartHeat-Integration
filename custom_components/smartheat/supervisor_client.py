@@ -100,15 +100,22 @@ def _same_repository(value: object, repository_url: str = ADDON_REPOSITORY_URL) 
     return normalized is not None and normalized == _normalized_repository(repository_url)
 
 
-async def async_repository_slug(hass: HomeAssistant, repository_url: str = ADDON_REPOSITORY_URL) -> str | None:
-    """Slug (Hash) unseres Repositorys im Add-on-Store, nur lesend. Erkannt nur an `source`, der Adresse, unter der
-    das Repository eingetragen ist; `url` kommt aus der repository.yaml des Autors und beweist nichts. None, wenn es
-    nicht (oder mehrdeutig) eingetragen ist: dann gehoert kein Add-on zu SmartHeat (fail closed). Wirft AddonError."""
+async def async_repository_slugs(hass: HomeAssistant, repository_url: str = ADDON_REPOSITORY_URL) -> list[str]:
+    """Slugs (Hashes) aller Eintraege unseres Repositorys im Add-on-Store, nur lesend. Erkannt nur an `source`, der
+    Adresse, unter der das Repository eingetragen ist; `url` kommt aus der repository.yaml des Autors und beweist
+    nichts. Mehr als ein Eintrag (z. B. `main` und `#develop`) ist mehrdeutig. Wirft AddonError."""
     try:
         repositories = await get_supervisor_client(hass).store.repositories_list()
     except SupervisorError as error:
         raise AddonError(f"Add-on-Store nicht lesbar: {type(error).__name__}") from None
-    slugs = [repository.slug for repository in repositories if _same_repository(repository.source, repository_url)]
+    return [repository.slug for repository in repositories if _same_repository(repository.source, repository_url)]
+
+
+async def async_repository_slug(hass: HomeAssistant, repository_url: str = ADDON_REPOSITORY_URL) -> str | None:
+    """Slug (Hash) unseres Repositorys im Add-on-Store (siehe async_repository_slugs). None, wenn es nicht (oder
+    mehrdeutig) eingetragen ist: dann gehoert kein Add-on zu SmartHeat (fail closed); wer beides unterscheiden muss
+    (addon_control.async_bootstrap_url), liest async_repository_slugs. Wirft AddonError."""
+    slugs = await async_repository_slugs(hass, repository_url)
     return slugs[0] if len(slugs) == 1 else None
 
 
@@ -121,6 +128,16 @@ def matching_addons(installed, repository_slug: str | None, config_slug: str) ->
         return []
     expected = f"{repository_slug}_{config_slug}"
     return [addon for addon in installed if addon.repository == repository_slug and addon.slug == expected]
+
+
+def fremde_bruecken(installed, repository_slug: str | None, config_slug: str) -> list:
+    """Installierte Add-ons, die wie unser `config_slug` heissen (Slug endet auf `_<config_slug>`, z. B.
+    local_heizungsbruecke oder <fremder-Hash>_heizungsbruecke), aber nicht in matching_addons zaehlen: aus einem
+    anderen Repository oder bei fehlendem/mehrdeutigem eigenen Repository (`repository_slug` None). Der Assistent
+    faellt neben ihnen nie auf die Produktion zurueck (Fixrunde A, L4-04)."""
+    own = matching_addons(installed, repository_slug, config_slug)
+    return [addon for addon in installed
+            if addon.slug.endswith(f"_{config_slug}") and not any(addon is match for match in own)]
 
 
 async def async_resolve_addons(

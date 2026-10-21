@@ -39,7 +39,7 @@ from .einrichtung_fakes import (
     Rejected,
     TokenUngueltig,
 )
-from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon
+from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon, repository
 
 DISCOVERY = HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen",
                                       "claim_code": CLAIM_CODE},
@@ -479,6 +479,55 @@ async def test_an_invalid_bootstrap_url_sends_nothing_to_any_server(hass, server
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "bootstrap_url_ungueltig")
     assert server.base_url is None and server.calls == []
+
+
+def _doppeltes_repository(supervisor) -> None:
+    supervisor.repositories = [repository("abc"), repository("def", source=ADDON_REPOSITORY_URL + "#develop")]
+
+
+def _fremde_bruecke(supervisor) -> None:
+    supervisor.installed = [installed_addon(BRIDGE_SLUG), installed_addon("0badc0de_heizungsbruecke")]
+    supervisor.repositories = [repository("abc"), repository("0badc0de", source="https://github.com/fremd/addons")]
+
+
+async def test_a_foreign_bridge_next_to_ours_aborts_the_login(hass, server, supervisor):
+    """L4-04: im Ablauf mit vorhandener Bruecke (Discovery der eigenen Bruecke) kein Rueckfall auf die Produktion und
+    kein Client. (Ein doppelter Repository-Eintrag verwirft schon die Discovery: `_von_der_heizungsbruecke`.)"""
+    _fremde_bruecke(supervisor)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+
+    result = await _configure(hass, result, {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "fremde_heizungsbruecke")
+    assert server.base_url is None and server.calls == []
+
+
+@pytest.mark.parametrize(("aufbau", "grund"), [
+    (_doppeltes_repository, "repository_mehrdeutig"), (_fremde_bruecke, "fremde_heizungsbruecke")])
+async def test_the_manual_start_checks_before_the_installation(hass, server, supervisor, aufbau, grund):
+    """L4-04: `_addon_starten` prueft vor `async_install_and_start`: nichts wird installiert, gestartet, gesetzt."""
+    aufbau(supervisor)
+    supervisor.installed = [addon for addon in supervisor.installed if addon.slug != BRIDGE_SLUG]  # noch nicht installiert
+    supervisor.store_addons = {BRIDGE_SLUG: "1.0.0"}
+
+    result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, grund)
+    assert supervisor.client.store.install_addon.await_count == 0
+    assert supervisor.client.store.add_repository.await_count == 0
+    assert supervisor.client.addons.start_addon.await_count == 0
+    assert supervisor.supervision == {} and supervisor.actions == []
+    assert server.base_url is None and server.calls == []
+
+
+async def test_the_manual_start_with_a_foreign_bridge_next_to_ours_aborts_before_any_start(hass, server, supervisor):
+    _fremde_bruecke(supervisor)
+    supervisor.installed[0].state = AddonState.STOPPED
+
+    result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "fremde_heizungsbruecke")
+    assert supervisor.actions == [] and supervisor.supervision == {}
 
 
 async def test_replace_needs_confirmation_and_uses_the_old_mapping(hass, server):
@@ -1103,6 +1152,7 @@ async def test_there_is_no_options_dialog(hass, server):
 
 _ABORTS = {
     "kein_supervisor", "addon_fehler", "addon_veraltet", "addon_mehrdeutig", "bootstrap_url_ungueltig",
+    "repository_mehrdeutig", "fremde_heizungsbruecke",
     "keine_discovery", "discovery_ungueltig", "geraet_nicht_gemeldet", "keine_anlage", "inventur_fehler", "keine_integration",
     "nicht_unterstuetzt", "rolle_ohne_kandidaten", "einrichten_fehler", "einrichten_zeit", "keine_konfiguration",
     "entfernen_fehler", "entfernen_laeuft", "entfernt", "cannot_connect", "abgelehnt", "geraet_unbekannt",

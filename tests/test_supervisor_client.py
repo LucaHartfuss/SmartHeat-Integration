@@ -9,7 +9,9 @@ from custom_components.smartheat.supervisor_client import (
     ResolvedAddon,
     async_find_addon_managers,
     async_repository_slug,
+    async_repository_slugs,
     async_resolve_addons,
+    fremde_bruecken,
 )
 
 from .supervisor_fakes import installed_addon, repository
@@ -336,3 +338,48 @@ async def test_an_invalid_branch_is_never_our_repository(supervisor, source):
     assert await async_repository_slug(None, REPO_URL) is None
     with pytest.raises(AddonNotFoundError):
         await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+
+
+async def test_repository_slugs_lists_every_entry_of_our_repository(supervisor):
+    """L4-04: Mehrdeutigkeit unterscheidbar -- die Liste aller Eintraege, `async_repository_slug` bleibt None."""
+    _setup(supervisor, [], repositories=[_repository(REPO, source=REPO_URL), _repository("0badc0de", source=REPO_URL + "#develop"),
+                                         _repository("fremd", "https://github.com/fremd/addons")])
+
+    assert await async_repository_slugs(None, REPO_URL) == [REPO, "0badc0de"]
+    assert await async_repository_slug(None, REPO_URL) is None
+    supervisor.repositories = [_repository()]
+    assert await async_repository_slugs(None, REPO_URL) == [REPO]
+    supervisor.repositories = []
+    assert await async_repository_slugs(None, REPO_URL) == []
+
+
+async def test_repository_slugs_raises_addon_error_when_the_store_is_unreadable(supervisor):
+    _setup(supervisor, [])
+    supervisor.errors["store.repositories_list"] = SupervisorError("boom")
+
+    with pytest.raises(AddonError):
+        await async_repository_slugs(None, REPO_URL)
+
+
+def test_fremde_bruecken_are_installed_bridges_outside_our_repository():
+    eigene = _installed_addon("f5f6325b_heizungsbruecke", repository=REPO)
+    local = _installed_addon("local_heizungsbruecke", repository="local")
+    fremd = _installed_addon("0badc0de_heizungsbruecke", repository="0badc0de")
+    falsches_repo = _installed_addon("f5f6325b_heizungsbruecke", repository="0badc0de")
+    anderes = _installed_addon("f5f6325b_cloudflared_access_mqtt", repository=REPO)
+    matter = _installed_addon("core_matter_server", repository="core")
+    installed = [eigene, local, fremd, falsches_repo, anderes, matter]
+
+    assert fremde_bruecken(installed, REPO, "heizungsbruecke") == [local, fremd, falsches_repo]
+    assert fremde_bruecken([eigene, anderes, matter], REPO, "heizungsbruecke") == []
+    assert fremde_bruecken([], REPO, "heizungsbruecke") == []
+
+
+def test_fremde_bruecken_without_a_repository_slug_counts_every_bridge():
+    eigene = _installed_addon("f5f6325b_heizungsbruecke", repository=REPO)
+    assert fremde_bruecken([eigene], None, "heizungsbruecke") == [eigene]
+
+
+def test_fremde_bruecken_matches_only_the_suffix_after_an_underscore():
+    kein_treffer = _installed_addon("f5f6325b_meineheizungsbruecke", repository=REPO)
+    assert fremde_bruecken([kein_treffer], REPO, "heizungsbruecke") == []
