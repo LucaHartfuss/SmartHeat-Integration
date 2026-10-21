@@ -199,18 +199,18 @@ async def async_entfernen_melden(hass: HomeAssistant, geraet_id: object) -> None
     Add-on gestoppt) ist eine WARNING ohne den Wert, der Eintrag wird trotzdem entfernt. `fullmatch`, damit kein
     Zeilenumbruch eine zweite Zeile einschmuggelt."""
     if not isinstance(geraet_id, str) or not GERAET_ID_RE.fullmatch(geraet_id):
-        _LOGGER.warning("Eintrag ohne gueltige Geraete-ID geloescht: Gerät im Portal abmelden")
+        _LOGGER.warning("Eintrag ohne gueltige Geraete-ID geloescht: Geraet im Portal abmelden")
         return
     try:
         if not is_hassio(hass):
-            _LOGGER.warning("Kein Supervisor: das Geraet laesst sich nicht lokal abmelden, Gerät im Portal abmelden")
+            _LOGGER.warning("Kein Supervisor: das Geraet laesst sich nicht lokal abmelden, Geraet im Portal abmelden")
             return
         slug = await async_bridge_slug(hass)
         if slug is None:
-            _LOGGER.warning("Heizungsbruecke nicht gefunden: Gerät im Portal abmelden")
+            _LOGGER.warning("Heizungsbruecke nicht gefunden: Geraet im Portal abmelden")
             return
         zeile = STDIN_ZEILE_FORMAT.format(befehl=STDIN_BEFEHL_ENTFERNEN, geraet_id=geraet_id)
         await get_supervisor_client(hass).addons.write_addon_stdin(slug, zeile.encode())
     except Exception as error:  # noqa: BLE001 - der Eintrag wird trotzdem entfernt
-        _LOGGER.warning("Abmelden des Geraets bei der Heizungsbruecke gescheitert (%s): Gerät im Portal abmelden",
+        _LOGGER.warning("Abmelden des Geraets bei der Heizungsbruecke gescheitert (%s): Geraet im Portal abmelden",
                         type(error).__name__)

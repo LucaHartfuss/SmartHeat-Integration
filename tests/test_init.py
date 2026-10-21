@@ -113,7 +113,9 @@ async def test_removing_the_entry_signs_the_device_off_through_stdin(hass, super
         await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert supervisor.stdin == [(BRIDGE_SLUG, b"entfernen shg-aaaaaaaaaaaaaaaa\n")]
+    # Zwei Zeilenumbrueche: einer aus STDIN_ZEILE_FORMAT, einer haengt der Supervisor selbst an (die Attrappe
+    # bildet das nach).
+    assert supervisor.stdin == [(BRIDGE_SLUG, b"entfernen shg-aaaaaaaaaaaaaaaa\n\n")]
     assert aioclient_mock.call_count == 0
     assert supervisor.actions == []
     assert [(addon.slug, addon.state) for addon in supervisor.installed] == [(BRIDGE_SLUG, AddonState.STARTED)]

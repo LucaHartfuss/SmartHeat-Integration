@@ -179,7 +179,9 @@ class FakeSupervisor:
         self._check("addons.write_addon_stdin", addon)
         if self._installed_or_404(addon).state != AddonState.STARTED:
             raise SupervisorBadRequestError(f"Add-on {addon} laeuft nicht")
-        self.stdin.append((addon, stdin))
+        # Der echte Supervisor haengt beim Schreiben selbst ein "\n" an (supervisor/docker/app.py write_stdin:
+        # `data + b"\n"`); die Attrappe bildet das nach.
+        self.stdin.append((addon, stdin + b"\n"))
 
     # --- discovery ---
 
