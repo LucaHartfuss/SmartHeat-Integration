@@ -1,5 +1,10 @@
 """Einrichten und Entfernen des Eintrags ab 1.0.0 (Spec 5c 2.2, 4, 8): stabile Entities fuer client1, verwaiste
-Entities weg, Entfernen ohne Server und ohne das Add-on anzuhalten."""
+Entities weg, Entfernen ohne Server und ohne das Add-on anzuhalten; seit L4-06 meldet das Entfernen das Geraet ueber
+das stdin der Heizungsbruecke ab."""
+import logging
+
+import pytest
+from aiohasupervisor.exceptions import SupervisorBadRequestError
 from aiohasupervisor.models import AddonState
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import device_registry as dr
@@ -9,7 +14,7 @@ from homeassistant.helpers import issue_registry as ir
 from custom_components.smartheat.const import DOMAIN, STATUS_EVENT
 
 from .addon_fakes import make_device_entry, make_entry, status_event
-from .supervisor_fakes import BRIDGE_SLUG
+from .supervisor_fakes import BRIDGE_SLUG, installed_addon
 
 # Was 0.16.1 fuer client1 (vaillant_vrc720, shift_lever room_setpoint) erzeugt: 5 feste Felder, Status, 4 Hebel,
 # 2 Lernwerte, Notbetrieb -- dazu neu die Wunschtemperatur. Die 13 alten IDs sind aus sensor.entity_keys und
@@ -85,22 +90,123 @@ async def test_setup_creates_no_repair_issue(hass):
     assert [issue_id for (domain, issue_id) in ir.async_get(hass).issues if domain == DOMAIN] == []
 
 
-async def test_removing_the_entry_calls_no_server(hass, supervisor, aioclient_mock):
-    """Spec 5c 4: das Geraet regelt weiter. Kein HTTP-Aufruf, das Add-on wird weder gestoppt noch
-    deinstalliert (Wirkung am Supervisor-Client); nur die eigenen Reparatur-Hinweise verschwinden."""
-    entry = await _setup(hass)
-    hass.bus.async_fire(STATUS_EVENT, status_event("wohnung1", "regelt", geraet_hinweise=[
+GUELTIG = "shg-aaaaaaaaaaaaaaaa"
+LOGGER_ADDON_CONTROL = "custom_components.smartheat.addon_control"
+
+
+async def _hinweis_setzen(hass):
+    """Das Status-Ereignis muss die Geraete-ID des Eintrags tragen (sonst ignoriert ihn der Koordinator)."""
+    hass.bus.async_fire(STATUS_EVENT, status_event("wohnung1", "regelt", geraet_id=GUELTIG, geraet_hinweise=[
         {"key": "geraet_doppelt", "stufe": "kritisch", "text": "Zweite Instanz"}]))
     await hass.async_block_till_done()
     assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_geraet_doppelt") is not None
 
-    await hass.config_entries.async_remove(entry.entry_id)
-    await hass.async_block_till_done()
 
+async def test_removing_the_entry_signs_the_device_off_through_stdin(hass, supervisor, aioclient_mock, caplog):
+    """L4-06 Variante C: Eintrag loeschen schreibt genau `entfernen <geraet_id>` mit Zeilenende an das stdin der einen
+    Heizungsbruecke; kein Server-Aufruf, das Add-on wird weder gestoppt noch deinstalliert; die Hinweise verschwinden."""
+    entry = await _setup(hass, geraet_id=GUELTIG)
+    await _hinweis_setzen(hass)
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger=LOGGER_ADDON_CONTROL):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Zwei Zeilenumbrueche: einer aus STDIN_ZEILE_FORMAT, einer haengt der Supervisor selbst an (die Attrappe
+    # bildet das nach).
+    assert supervisor.stdin == [(BRIDGE_SLUG, b"entfernen shg-aaaaaaaaaaaaaaaa\n\n")]
     assert aioclient_mock.call_count == 0
     assert supervisor.actions == []
     assert [(addon.slug, addon.state) for addon in supervisor.installed] == [(BRIDGE_SLUG, AddonState.STARTED)]
     assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_geraet_doppelt") is None
+    assert [r for r in caplog.records if r.name == LOGGER_ADDON_CONTROL] == []
+
+
+def _bruecke_fehlt(supervisor):
+    supervisor.installed = []
+
+
+def _bruecke_mehrfach(supervisor):
+    supervisor.installed = [installed_addon(BRIDGE_SLUG), installed_addon(BRIDGE_SLUG)]
+
+
+def _supervisor_fehler(supervisor):
+    supervisor.errors["addons.write_addon_stdin"] = SupervisorBadRequestError("Supervisor sagt nein")
+
+
+def _addon_gestoppt(supervisor):
+    supervisor.installed = [installed_addon(BRIDGE_SLUG, state=AddonState.STOPPED)]
+
+
+def _kein_hassio(supervisor):
+    supervisor.hassio = False
+
+
+@pytest.mark.parametrize("zustand", [_bruecke_fehlt, _bruecke_mehrfach, _supervisor_fehler, _addon_gestoppt,
+                                      _kein_hassio],
+                         ids=["bruecke_fehlt", "bruecke_mehrfach", "supervisor_fehler", "addon_gestoppt",
+                              "kein_hassio"])
+async def test_removing_the_entry_warns_and_still_removes_it(hass, supervisor, aioclient_mock, caplog, zustand):
+    """Spec 2.1: jeder Fehler auf dem Weg zum stdin ist eine WARNING; der Eintrag ist trotzdem weg."""
+    entry = await _setup(hass, geraet_id=GUELTIG)
+    await _hinweis_setzen(hass)
+    zustand(supervisor)
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger=LOGGER_ADDON_CONTROL):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    warnings = [r for r in caplog.records if r.name == LOGGER_ADDON_CONTROL and r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "Portal abmelden" in warnings[0].getMessage()
+    assert hass.config_entries.async_get_entry(entry.entry_id) is None
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_geraet_doppelt") is None
+    assert aioclient_mock.call_count == 0
+    assert supervisor.stdin == []
+
+
+def _ohne_feld_geraet_id(hass, entry):
+    hass.config_entries.async_update_entry(entry, data={k: v for k, v in entry.data.items() if k != "geraet_id"})
+
+
+def _id_ungueltig(hass, entry):
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "geraet_id": "shg-a"})
+
+
+def _id_mit_zeilenumbruch(hass, entry):
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "geraet_id": "shg-aaaaaaaaaaaaaaaa\nentfernen shg-bbbbbbbbbbbbbbbb"})
+
+
+def _id_mit_zeilenumbruch_am_ende(hass, entry):
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "geraet_id": "shg-aaaaaaaaaaaaaaaa\n"})
+
+
+@pytest.mark.parametrize("aendern", [_ohne_feld_geraet_id, _id_ungueltig, _id_mit_zeilenumbruch,
+                                      _id_mit_zeilenumbruch_am_ende],
+                         ids=["ohne_feld", "ungueltig", "zeilenumbruch_injektion", "zeilenumbruch_am_ende"])
+async def test_removing_an_entry_without_a_valid_device_id_writes_nothing(hass, supervisor, aioclient_mock, caplog,
+                                                                         aendern):
+    """L-3: Eintrag ohne (gueltige) Geraete-ID, auch mit Zeilenumbruch: eine WARNING ohne den Wert, nichts ans
+    stdin (kein eingeschmuggelter zweiter Befehl), Eintrag trotzdem weg."""
+    entry = await _setup(hass, geraet_id=GUELTIG)
+    await _hinweis_setzen(hass)
+    aendern(hass, entry)
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger=LOGGER_ADDON_CONTROL):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    warnings = [r for r in caplog.records if r.name == LOGGER_ADDON_CONTROL and r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "shg-" not in caplog.text and "bbbbbbbb" not in caplog.text and "entfernen shg" not in caplog.text
+    assert hass.config_entries.async_get_entry(entry.entry_id) is None
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_geraet_doppelt") is None
+    assert aioclient_mock.call_count == 0
+    assert supervisor.stdin == []
 
 
 async def test_unloaded_entry_no_longer_follows_events(hass):

@@ -43,8 +43,11 @@ Hinweise des Geraets (z. B. Update noetig, Geraet gesperrt, Einstellung abgelehn
 
 - **Neu konfigurieren** (mit Anmeldung): "Zuordnung aendern" fuehrt durch die Zuordnung der Anlagenwerte erneut,
   "Geraet entfernen" loest das Geraet beim Server.
-- **Eintrag loeschen** loest nichts beim Server und stoppt das Add-on nicht; das Geraet regelt weiter. Das Geraet
-  entfernen geht ueber "Neu konfigurieren" oder das Portal.
+- **Eintrag loeschen** meldet das Geraet lokal ab: die Integration schreibt eine Zeile an die Heizungsbruecke, die
+  Anlage geht auf ihre Ursprungswerte zurueck und das Portal zeigt "Abgemeldet". Das Add-on laeuft weiter und die
+  Integration ruft den Server nicht auf; aus dem Konto entfernen Sie das Geraet im Portal. Ist die Heizungsbruecke
+  nicht erreichbar, steht eine Warnung im Protokoll und der Eintrag ist trotzdem weg. Versehentlich geloescht: den
+  Eintrag neu einrichten und dann "Neu konfigurieren" > "Zuordnung aendern" durchlaufen, das hebt die Abmeldung auf.
 - Es gibt keinen Optionsdialog.
 
 ## Ueberwachung

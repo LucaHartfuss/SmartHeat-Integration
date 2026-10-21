@@ -52,6 +52,10 @@ DISCOVERY_FIELDS = ("geraet_id", "zustand", "claim_code")
 # Geraete-ID: "shg-" + 16 Zeichen Base32 (klein) des SHA-256 des oeffentlichen Schluessels (Add-on
 # smartheat_device/identity.device_id_for, Server device_protocol.DEVICE_ID_PREFIX/DEVICE_ID_HASH_CHARS).
 GERAET_ID_RE = re.compile(r"shg-[a-z2-7]{16}")
+# stdin-Zeile der Integration an die Heizungsbruecke beim Loeschen des Eintrags (L4-06): Kopie von
+# heizungsbruecke/stdin_befehl.py (Add-on), Contract-Check Vertrag V5 (tools/contract_check.py im Dev-Root).
+STDIN_BEFEHL_ENTFERNEN = "entfernen"
+STDIN_ZEILE_FORMAT = "{befehl} {geraet_id}\n"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
 

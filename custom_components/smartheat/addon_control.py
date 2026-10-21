@@ -19,8 +19,11 @@ from .const import (
     DEFAULT_BASE_URL,
     DISCOVERY_FIELDS,
     DISCOVERY_SERVICE,
+    GERAET_ID_RE,
     HEIZUNGSBRUECKE_ADDON_SLUG,
     OPTION_BOOTSTRAP_URL,
+    STDIN_BEFEHL_ENTFERNEN,
+    STDIN_ZEILE_FORMAT,
 )
 from .supervisor_client import async_repository_slug, async_repository_slugs, fremde_bruecken, matching_addons
 
@@ -186,3 +189,28 @@ async def async_discovery(hass: HomeAssistant) -> dict | None:
     if chosen is None:
         return None
     return {key: chosen[key] for key in DISCOVERY_FIELDS if key in chosen}
+
+
+async def async_entfernen_melden(hass: HomeAssistant, geraet_id: object) -> None:
+    """Meldet das Geraet beim Loeschen des Eintrags ab (L4-06 Variante C): schreibt `entfernen <geraet_id>` als
+    stdin-Zeile an die eigene Heizungsbruecke (Supervisor `write_addon_stdin`); die Bruecke meldet das Geraet lokal ab
+    (Markierung, Ursprungswerte). Kein Server-Aufruf; aus dem Konto entfernt der Kunde das Geraet im Portal. Wirft nie:
+    jeder Fehler (keine oder ungueltige Geraete-ID, kein Supervisor, Bruecke fehlt oder mehrfach, Supervisor-Fehler,
+    Add-on gestoppt) ist eine WARNING ohne den Wert, der Eintrag wird trotzdem entfernt. `fullmatch`, damit kein
+    Zeilenumbruch eine zweite Zeile einschmuggelt."""
+    if not isinstance(geraet_id, str) or not GERAET_ID_RE.fullmatch(geraet_id):
+        _LOGGER.warning("Eintrag ohne gueltige Geraete-ID geloescht: Geraet im Portal abmelden")
+        return
+    try:
+        if not is_hassio(hass):
+            _LOGGER.warning("Kein Supervisor: das Geraet laesst sich nicht lokal abmelden, Geraet im Portal abmelden")
+            return
+        slug = await async_bridge_slug(hass)
+        if slug is None:
+            _LOGGER.warning("Heizungsbruecke nicht gefunden: Geraet im Portal abmelden")
+            return
+        zeile = STDIN_ZEILE_FORMAT.format(befehl=STDIN_BEFEHL_ENTFERNEN, geraet_id=geraet_id)
+        await get_supervisor_client(hass).addons.write_addon_stdin(slug, zeile.encode())
+    except Exception as error:  # noqa: BLE001 - der Eintrag wird trotzdem entfernt
+        _LOGGER.warning("Abmelden des Geraets bei der Heizungsbruecke gescheitert (%s): Geraet im Portal abmelden",
+                        type(error).__name__)
