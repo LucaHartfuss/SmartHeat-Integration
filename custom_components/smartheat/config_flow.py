@@ -482,10 +482,14 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                          if isinstance(i, dict) and isinstance(i.get("plattform"), str)]
         if not integrationen:
             return await self._abbrechen("keine_integration", grund="-")
-        if user_input is None and len(integrationen) == 1:
-            user_input = {"integration": integrationen[0]["plattform"]}
-        if user_input is not None:
-            self._integration = next(i for i in integrationen if i["plattform"] == user_input["integration"])
+        # Ohne gezeigtes Formular kann HA die Eingabe des Clients weiterreichen (REST: {} nach dem Fortschritt der
+        # Inventur, L4-08): nur eine angebotene Plattform gilt als Auswahl, sonst Auswahl bzw. Formular.
+        wahl = (user_input or {}).get("integration")
+        if wahl is None and len(integrationen) == 1:
+            wahl = integrationen[0]["plattform"]
+        gewaehlt = next((i for i in integrationen if i["plattform"] == wahl), None)
+        if gewaehlt is not None:
+            self._integration = gewaehlt
             return await self.async_step_system()
         options = [{"value": i["plattform"], "label": _text(i.get("label"))} for i in integrationen]
         return self.async_show_form(step_id="integration",

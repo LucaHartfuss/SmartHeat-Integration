@@ -610,6 +610,31 @@ async def test_several_integrations_show_the_selection_step(hass, server):
     assert result["step_id"] == "system" and result["description_placeholders"]["integration"] == "ViCare"
 
 
+async def _anlage_waehlen_per_rest(hass, eingabe):
+    """Wie die REST-API von HA: der Client schickt waehrend des Fortschritts der Inventur `eingabe` statt keiner
+    Eingabe; HA reicht sie an den naechsten Schritt (integration) weiter, der kein Formular gezeigt hat (Labor
+    2026-10-20, L4-08)."""
+    result = await hass.config_entries.flow.async_configure((await _bis_anlage(hass))["flow_id"], {"anlage": TENANT})
+    assert result["type"] == FlowResultType.SHOW_PROGRESS
+    while result["type"] in (FlowResultType.SHOW_PROGRESS, FlowResultType.SHOW_PROGRESS_DONE):
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], eingabe)
+    return result
+
+
+async def test_an_empty_input_after_the_inventory_selects_the_only_integration(hass, server):
+    result = await _anlage_waehlen_per_rest(hass, {})
+    assert result["step_id"] == "system"
+
+
+@pytest.mark.parametrize("eingabe", [{}, {"integration": "fremd"}, {"integration": None}],
+                         ids=["leer", "unbekannt", "none"])
+async def test_an_input_that_names_no_offered_integration_shows_the_selection(hass, server, eingabe):
+    server.vorschlag_antwort = {"integrationen": [_integration(), _integration("vicare", "ViCare")]}
+    result = await _anlage_waehlen_per_rest(hass, eingabe)
+    assert result["step_id"] == "integration" and _optionen(result, "integration") == ["mypyllant", "vicare"]
+
+
 async def test_one_integration_and_one_lever_set_skip_their_steps(hass, server):
     """Genau eine Integration und ein Hebelsatz: der Assistent geht ohne Auswahlschritt weiter (nach `system` direkt
     in `raeume`, die Zuordnung mit dem einzigen Hebelsatz)."""
