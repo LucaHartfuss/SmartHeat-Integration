@@ -16,7 +16,7 @@ import pytest
 from aiohasupervisor import SupervisorClient
 from aiohasupervisor.addons import AddonsClient
 from aiohasupervisor.discovery import DiscoveryClient
-from aiohasupervisor.exceptions import SupervisorNotFoundError
+from aiohasupervisor.exceptions import SupervisorBadRequestError, SupervisorNotFoundError
 from aiohasupervisor.models import AddonsOptions, AddonState, Discovery, Repository, StoreAddRepository
 from aiohasupervisor.models.base import DEFAULT
 from aiohasupervisor.store import StoreClient
@@ -64,6 +64,7 @@ class FakeSupervisor:
         self.discovery: list = []
         self.errors: dict = {}
         self.actions: list[tuple[str, str]] = []  # (start|restart|stop|uninstall, Slug) in Aufrufreihenfolge
+        self.stdin: list[tuple[str, bytes]] = []  # (Slug, Bytes) je write_addon_stdin in Aufrufreihenfolge
 
         self.client = create_autospec(SupervisorClient, instance=True)
         self.client.addons = create_autospec(AddonsClient, instance=True)
@@ -81,6 +82,7 @@ class FakeSupervisor:
         addons.restart_addon.side_effect = self._restart_addon
         addons.stop_addon.side_effect = self._stop_addon
         addons.uninstall_addon.side_effect = self._uninstall_addon
+        addons.write_addon_stdin.side_effect = self._write_addon_stdin
         self.client.discovery.list.side_effect = self._discovery_list
 
     def get_supervisor_client(self, hass):
@@ -170,6 +172,14 @@ class FakeSupervisor:
         self._check("addons.uninstall_addon", addon)
         self.installed.remove(self._installed_or_404(addon))
         self.actions.append(("uninstall", addon))
+
+    def _write_addon_stdin(self, addon: str, stdin: bytes) -> None:
+        """Der Supervisor schreibt nur in das stdin eines laufenden Containers; sonst 400 (Annahme nach der
+        Supervisor-Quelle, im Labor zu bestaetigen, L4-21)."""
+        self._check("addons.write_addon_stdin", addon)
+        if self._installed_or_404(addon).state != AddonState.STARTED:
+            raise SupervisorBadRequestError(f"Add-on {addon} laeuft nicht")
+        self.stdin.append((addon, stdin))
 
     # --- discovery ---
 

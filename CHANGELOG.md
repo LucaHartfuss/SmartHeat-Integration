@@ -5,6 +5,12 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Das Löschen des Eintrags meldet das Gerät jetzt lokal ab: die Integration schreibt `entfernen <Geräte-ID>` an
+  die Heizungsbrücke (Supervisor-stdin), die Anlage geht auf ihre Ursprungswerte zurück und das Portal zeigt
+  „Abgemeldet“ (vorher regelte das Gerät still weiter). Kein Server-Aufruf; aus dem Konto entfernt man das Gerät im
+  Portal. Ist die Brücke nicht erreichbar oder der Eintrag ohne gültige Geräte-ID, steht eine Warnung im Protokoll
+  und der Eintrag ist trotzdem weg. Setzt eine Heizungsbrücke mit stdin-Befehl voraus (Add-on-Änderung desselben
+  Pakets). Versehentlich gelöscht: neu einrichten, dann „Neu konfigurieren“ > „Zuordnung ändern“.
 - Eine riesige Ganzzahl (etwa 10^400) im Status-Ereignis löst keinen Fehler in der Entity-Aktualisierung mehr aus;
   die Wunschtemperatur und die Hebel- und Lernwert-Sensoren zeigen dann „unbekannt“.
 - Einträge aus 0.16 (ohne Geräte-ID) bekommen keinen eigenen Text und keinen Reparatur-Hinweis mehr; Home Assistant

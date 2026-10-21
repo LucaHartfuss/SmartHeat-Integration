@@ -1,6 +1,6 @@
 """SmartHeat-Integration ab 1.0.0 (Spec 5c 2.2): richtet das Add-on als Geraet ueber die Einrichtungs-API des Servers
 ein, zeigt seinen Status als Entities, macht seine Hinweise zu Reparatur-Hinweisen, bietet die Wunschtemperatur an
-und ueberwacht die Heizungsbruecke (zweiter Waechter)."""
+und ueberwacht die Heizungsbruecke (zweiter Waechter); das Loeschen des Eintrags meldet das Geraet lokal ab (L4-06)."""
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
@@ -8,7 +8,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from . import binary_sensor, number, repairs, sensor
+from . import addon_control, binary_sensor, number, repairs, sensor
 from .const import DOMAIN
 from .coordinator import SmartHeatCoordinator
 
@@ -44,6 +44,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Spec 5c 4: das Geraet regelt weiter (kein Server-Aufruf, das Add-on laeuft weiter); Entfernen der Anlage geht
-    ueber das Portal oder "Neu konfigurieren". Nur die eigenen Reparatur-Hinweise verschwinden."""
+    """L4-06 Variante C (aendert Spec 5c 4): das Loeschen des Eintrags meldet das Geraet ueber das stdin der
+    Heizungsbruecke lokal ab (Ursprungswerte, Portal "Abgemeldet"); kein Server-Aufruf, das Add-on laeuft weiter, aus
+    dem Konto entfernt der Kunde das Geraet im Portal. Fehler sind nur eine WARNING. Dazu verschwinden die eigenen
+    Reparatur-Hinweise."""
+    await addon_control.async_entfernen_melden(hass, entry.data.get("geraet_id"))
     repairs.async_clear(hass)
