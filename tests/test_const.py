@@ -59,3 +59,15 @@ def test_entity_ids_are_unchanged_for_client1():
     assert const.entity_id("number", "client1", "wunschtemperatur") == "number.smartheat_client1_wunschtemperatur"
     assert const.entity_id("binary_sensor", "Smoke-Test 01", "notbetrieb") == "binary_sensor.smartheat_smoke_test_01_notbetrieb"
     assert const.watchdog_notification_id("client1") == "smartheat_client1_addon"
+
+
+def test_the_outdated_addon_text_names_the_minimum_version():
+    """Der Abbruch `addon_veraltet` nennt dem Nutzer die Version, auf die er aktualisieren soll: genau die Mindestversion."""
+    import json
+    from pathlib import Path
+
+    paket = Path(const.__file__).parent
+    minimum = const.MIN_ADDON_VERSIONS[const.HEIZUNGSBRUECKE_ADDON_SLUG]
+    for datei in ("strings.json", "translations/en.json", "translations/de.json"):
+        text = json.loads((paket / datei).read_text(encoding="utf-8"))["config"]["abort"]["addon_veraltet"]
+        assert f" {minimum} " in text, datei

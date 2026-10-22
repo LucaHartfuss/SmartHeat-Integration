@@ -3,8 +3,10 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
-## Unveröffentlicht
+## 1.1.0
 
+- Das Abmelden beim Löschen des Eintrags (unten) braucht die Heizungsbrücke 1.1.0: erst das Add-on aktualisieren,
+  dann die Integration. Mit einem älteren Add-on bleibt es bei der Warnung im Protokoll.
 - Das Löschen des Eintrags meldet das Gerät jetzt lokal ab: die Integration schreibt `entfernen <Geräte-ID>` an
   die Heizungsbrücke (Supervisor-stdin), die Anlage geht auf ihre Ursprungswerte zurück und das Portal zeigt
   „Abgemeldet“ (vorher regelte das Gerät still weiter). Kein Server-Aufruf; aus dem Konto entfernt man das Gerät im
