@@ -24,7 +24,7 @@ from .supervisor_fakes import BRIDGE_SLUG, installed_addon, repository
 CO = "custom_components.smartheat.coordinator"
 TENANT = "wohnung1"
 STATUS = "sensor.smartheat_wohnung1_status"
-RUNNING = {"heizungsbruecke": True}
+RUNNING = True  # laeuft laut Supervisor; False: laeuft nicht; None: Bruecke nicht aufloesbar
 
 
 # --- reine Waechter-Logik ---
@@ -32,53 +32,75 @@ RUNNING = {"heizungsbruecke": True}
 def test_watchdog_needs_two_checks_before_an_addon_counts_as_stopped():
     watchdog = Watchdog(started_at=0)
     watchdog.event_received(0)
-    stopped = {"heizungsbruecke": False}
+    stopped = False
 
-    assert watchdog.check(300, stopped) == (None, [])
-    assert watchdog.check(600, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
+    assert watchdog.check(300, stopped) == (None, False)
+    assert watchdog.check(600, stopped) == ("addon_gestoppt", True)
 
 
 def test_watchdog_running_again_resets_the_count():
     watchdog = Watchdog(started_at=0)
     watchdog.event_received(0)
-    stopped = {**RUNNING, "heizungsbruecke": False}
+    stopped = False
 
     watchdog.check(300, stopped)
     watchdog.check(400, RUNNING)
 
-    assert watchdog.check(500, stopped) == (None, [])
+    assert watchdog.check(500, stopped) == (None, False)
 
 
 def test_watchdog_restarts_at_most_three_times_per_hour():
     watchdog = Watchdog(started_at=0)
-    stopped = {**RUNNING, "heizungsbruecke": False}
+    stopped = False
 
     restarts = [watchdog.check(300 * n, stopped)[1] for n in range(1, 8)]
 
-    assert restarts == [[], ["heizungsbruecke"], ["heizungsbruecke"], ["heizungsbruecke"], [], [], []]
-    assert watchdog.check(600 + 3600, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
+    assert restarts == [False, True, True, True, False, False, False]
+    assert watchdog.check(600 + 3600, stopped) == ("addon_gestoppt", True)
 
 
 def test_watchdog_no_silence_alarm_within_900_s_after_setup():
     watchdog = Watchdog(started_at=1000)
 
-    assert watchdog.check(1300, RUNNING) == (None, [])
-    assert watchdog.check(1600, RUNNING) == (None, [])
-    assert watchdog.check(1900, RUNNING) == ("reagiert_nicht", ["heizungsbruecke"])
+    assert watchdog.check(1300, RUNNING) == (None, False)
+    assert watchdog.check(1600, RUNNING) == (None, False)
+    assert watchdog.check(1900, RUNNING) == ("reagiert_nicht", True)
 
 
 def test_watchdog_silence_counts_from_the_last_event():
     watchdog = Watchdog(started_at=0)
     watchdog.event_received(500)
 
-    assert watchdog.check(1200, RUNNING) == (None, [])
-    assert watchdog.check(1400, RUNNING) == ("reagiert_nicht", ["heizungsbruecke"])
+    assert watchdog.check(1200, RUNNING) == (None, False)
+    assert watchdog.check(1400, RUNNING) == ("reagiert_nicht", True)
 
 
 def test_watchdog_silence_does_not_count_while_the_bridge_is_stopped():
     watchdog = Watchdog(started_at=0)
 
-    assert watchdog.check(1000, {**RUNNING, "heizungsbruecke": False}) == (None, [])
+    assert watchdog.check(1000, False) == (None, False)
+
+
+def test_watchdog_an_unresolvable_bridge_is_no_stopped_count_and_never_restarted():
+    """5c-I-4: `None` (Bruecke nicht aufloesbar) zaehlt nie als „laeuft nicht“ und startet nichts; erst die Stille
+    meldet „reagiert nicht“, ohne Neustart."""
+    watchdog = Watchdog(started_at=0)
+
+    ergebnisse = [watchdog.check(300 * n, None) for n in (1, 2, 3)]
+    assert ergebnisse == [(None, False), (None, False), ("reagiert_nicht", False)]
+    assert watchdog.not_running == 0 and not watchdog.restarts
+
+
+def test_watchdog_an_unresolvable_bridge_with_events_stays_silent_and_clears_an_incident():
+    watchdog = Watchdog(started_at=0)
+    for n in range(1, 4):
+        watchdog.event_received(300 * n)
+        assert watchdog.check(300 * n + 1, None) == (None, False)
+    watchdog.check(300 * 3 + 1000, None)  # Stille: Vorfall
+    assert watchdog.incident_status == "reagiert_nicht"
+    watchdog.event_received(5000)
+
+    assert watchdog.check(5001, None) == (None, False)
 
 
 # --- Vorfall bleibt aktiv bis Event + alle Add-ons laufen (Review-Fund 1, Fix-Runde 1) ---
@@ -88,43 +110,43 @@ def test_incident_continues_when_a_responding_bridge_then_stops():
     (auf Watchdog-Ebene: Status bleibt reagiert_nicht, kein neuer Startversuch vor dem 2.
     bestaetigten Ausfall)."""
     watchdog = Watchdog(started_at=0)
-    assert watchdog.check(900, RUNNING) == ("reagiert_nicht", ["heizungsbruecke"])
+    assert watchdog.check(900, RUNNING) == ("reagiert_nicht", True)
 
-    stopped = {**RUNNING, "heizungsbruecke": False}
-    assert watchdog.check(1200, stopped) == ("reagiert_nicht", [])
+    stopped = False
+    assert watchdog.check(1200, stopped) == ("reagiert_nicht", False)
 
 
 def test_incident_continues_when_a_stopped_addon_starts_without_an_event():
     """gestoppt -> gestartet -> naechste Pruefung laeuft, aber kein Event -> weiterhin gestoppt,
     keine Entwarnung."""
     watchdog = Watchdog(started_at=0)
-    stopped = {**RUNNING, "heizungsbruecke": False}
+    stopped = False
     watchdog.check(300, stopped)
-    assert watchdog.check(600, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
+    assert watchdog.check(600, stopped) == ("addon_gestoppt", True)
 
-    assert watchdog.check(900, RUNNING) == ("addon_gestoppt", [])
+    assert watchdog.check(900, RUNNING) == ("addon_gestoppt", False)
 
 
 def test_incident_continues_when_an_event_arrives_but_an_addon_is_still_stopped():
     """Ein Event kommt, aber ein Add-on ist noch gestoppt -> keine Entwarnung."""
     watchdog = Watchdog(started_at=0)
-    stopped = {**RUNNING, "heizungsbruecke": False}
+    stopped = False
     watchdog.check(300, stopped)
     watchdog.check(600, stopped)
     watchdog.event_received(700)
 
-    assert watchdog.check(900, stopped) == ("addon_gestoppt", ["heizungsbruecke"])
+    assert watchdog.check(900, stopped) == ("addon_gestoppt", True)
 
 
 def test_incident_clears_once_an_event_arrives_with_everything_running():
     """Event nach Vorfallsbeginn + alle Add-ons laufen -> genau eine Entwarnung."""
     watchdog = Watchdog(started_at=0)
-    stopped = {**RUNNING, "heizungsbruecke": False}
+    stopped = False
     watchdog.check(300, stopped)
     watchdog.check(600, stopped)
     watchdog.event_received(700)
 
-    assert watchdog.check(800, RUNNING) == (None, [])
+    assert watchdog.check(800, RUNNING) == (None, False)
 
 
 def test_a_fresh_restart_does_not_immediately_trigger_reagiert_nicht():
@@ -133,11 +155,11 @@ def test_a_fresh_restart_does_not_immediately_trigger_reagiert_nicht():
     gemeldet wird -- sonst waere Szenario B aus der Review sofort ein zweiter kritischer
     Vorfall."""
     watchdog = Watchdog(started_at=0)
-    stopped = {**RUNNING, "heizungsbruecke": False}
+    stopped = False
     watchdog.check(300, stopped)
     watchdog.check(600, stopped)  # addon_gestoppt, Start bei t=600 vermerkt
 
-    assert watchdog.check(900, RUNNING) == ("addon_gestoppt", [])  # 300s seit Start: keine Eskalation
+    assert watchdog.check(900, RUNNING) == ("addon_gestoppt", False)  # 300s seit Start: keine Eskalation
 
 
 # --- Coordinator in HA ---
@@ -667,34 +689,59 @@ async def test_time_tick_and_event_recheck_never_check_at_the_same_time(hass, su
     assert notes[1] == ["smartheat_wohnung1_addon"]
 
 
-@pytest.mark.parametrize("source", [
+_NICHT_AUFLOESBAR = pytest.mark.parametrize("source", [
     "http://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant",
     "https://github.com/jemand/SmartHeat-for-HomeAssistant",
 ], ids=["http", "fork"])
-async def test_an_unresolvable_bridge_counts_as_stopped_for_good(hass, supervisor, clock, notes, source):
-    """5c-I-4, heutiges Verhalten festgehalten: ist das Repository unter einer anderen Adresse eingetragen (`http://`
-    oder ein Fork), loest der Waechter die laufende Heizungsbruecke nicht auf und meldet dauerhaft „Add-on gestoppt“,
-    auch wenn Ereignisse eintreffen; er startet nichts."""
+
+
+@_NICHT_AUFLOESBAR
+async def test_unaufloesbare_bruecke_mit_ereignissen_meldet_nichts(hass, supervisor, clock, notes, source):
+    """5c-I-4: ist das Repository unter einer anderen Adresse eingetragen (`http://` oder ein Fork), loest der
+    Waechter die laufende Heizungsbruecke nicht auf. Solange Ereignisse eintreffen, meldet er nichts (frueher
+    dauerhaft „Add-on gestoppt“) und startet nichts."""
     supervisor.repositories = [repository(source=source)]
     entry = await _setup(hass)
     coordinator = entry.runtime_data
 
-    for _ in range(3):
+    for _ in range(4):
         await coordinator.async_check()
         clock["t"] += 300
         _fire(hass, status_event(TENANT, "regelt"))
         await hass.async_block_till_done()
 
-    assert _bridge(supervisor).state == AddonState.STARTED  # laeuft, sendet Ereignisse
-    assert hass.states.get(STATUS).state == "addon_gestoppt"
-    assert notes == ([("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])], [])
+    assert _bridge(supervisor).state == AddonState.STARTED
+    assert hass.states.get(STATUS).state == "regelt"
+    assert coordinator.watchdog_status is None
+    assert notes == ([], [])
     assert supervisor.actions == []
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="5c-I-4: async_remove_entry nimmt eine offene Waechter-Meldung nicht zurueck (Ziel)")
+@_NICHT_AUFLOESBAR
+async def test_unaufloesbare_bruecke_ohne_ereignisse_meldet_reagiert_nicht_ohne_neustart(
+        hass, supervisor, clock, notes, source):
+    """5c-I-4: ohne Ereignisse meldet die Stille (SILENCE_SECONDS = 900) „reagiert nicht“; ohne aufgeloeste Bruecke
+    gibt es keinen Neustart und nie „Add-on gestoppt“."""
+    supervisor.repositories = [repository(source=source)]
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+
+    for _ in range(2):  # 300 s und 600 s: noch keine Stille, kein „gestoppt“-Zaehler
+        clock["t"] += 300
+        await coordinator.async_check()
+        assert coordinator.watchdog_status is None
+    for _ in range(3):
+        clock["t"] += 300
+        await coordinator.async_check()
+        await hass.async_block_till_done()
+
+    assert hass.states.get(STATUS).state == "reagiert_nicht"
+    assert notes == ([("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["reagiert_nicht"])], [])
+    assert supervisor.actions == []
+
+
 async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, supervisor, clock, notes):
-    """Ziel (5c-I-4): nach dem Entfernen des Eintrags bleibt keine Meldung des Waechters stehen."""
+    """5c-I-4: nach dem Entfernen des Eintrags bleibt keine Meldung des Waechters stehen."""
     created, dismissed = notes
     _bridge(supervisor).state = AddonState.STOPPED
     entry = await _setup(hass)
@@ -702,7 +749,7 @@ async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, 
     clock["t"] += 300
     await entry.runtime_data.async_check()
     if created != [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])]:
-        # Failed statt AssertionError: eine kaputte Vorbedingung darf nicht still als xfail durchgehen.
+        # Failed statt AssertionError: eine kaputte Vorbedingung soll als solche auffallen.
         pytest.fail(f"Vorbedingung: der Waechter meldet addon_gestoppt genau einmal, gemeldet: {created}")
 
     await hass.config_entries.async_remove(entry.entry_id)

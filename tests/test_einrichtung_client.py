@@ -2,6 +2,7 @@
 import asyncio
 import datetime
 import ipaddress
+import json
 import logging
 import ssl
 
@@ -472,6 +473,16 @@ async def test_erfolgsstatus_ausser_200_ist_ein_fehler_mit_dem_status(aiohttp_cl
     assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
 
 
+async def test_201_ist_ein_fehler(aiohttp_client, caplog):
+    """5c-I-11: nur 200 gilt als Erfolg; 201 mit gueltigem Body ist ein `ApiError` mit Status (kein Erfolg, keine
+    Antwort) und, weil nicht erwartet, eine WARNING."""
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(201, {"device_id": "d"}))])
+    with caplog.at_level(logging.INFO, logger=einrichtung_client.__name__), pytest.raises(ApiError) as caught:
+        await client.geraet()
+    assert type(caught.value) is ApiError and caught.value.status == 201
+    assert [r.levelno for r in caplog.records if r.name == einrichtung_client.__name__] == [logging.WARNING]
+
+
 @pytest.mark.parametrize("status", [201, 202, 204])
 async def test_erfolgsstatus_ausser_200_gilt_auch_fuer_ids(aiohttp_client, status):
     pfad = einrichtung_client.EINRICHTUNG_ROUTEN["einrichten"][1]
@@ -483,7 +494,7 @@ async def test_erfolgsstatus_ausser_200_gilt_auch_fuer_ids(aiohttp_client, statu
 
 @pytest.mark.parametrize("fehler", [["raumfuehler"], "raumfuehler", 7, None, True],
                          ids=["liste", "text", "zahl", "null", "bool"])
-async def test_400_mit_fehler_ohne_objekt_behaelt_den_text_und_hat_keine_feldfehler(aiohttp_client, fehler):
+async def test_fehler_kein_objekt_ergibt_keine_feldfehler(aiohttp_client, fehler):
     """5c-I-11: `fehler` kein Objekt -> leere Feldfehler, der Text des Servers bleibt, kein Absturz."""
     body = {"error": "Zuordnung unvollständig", "fehler": fehler}
     client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
@@ -501,16 +512,106 @@ async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_c
     assert caught.value.fehler == {"raumfuehler": "required", "zahl": "3"}
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="5c-I-11: die fehler-Werte der Pruefung sind nicht in der Laenge begrenzt (Ziel)")
-async def test_ein_fehler_wert_mit_100000_zeichen_kommt_gekuerzt_an(aiohttp_client):
-    """Ziel (5c-I-11): ein vom Server gesteuerter `fehler`-Wert mit 100000 Zeichen kommt in `Rejected.fehler` mit
-    hoechstens 200 Zeichen an. Heute kommt er ungekuerzt an."""
-    body = {"error": "x", "fehler": {"raumfuehler": "y" * 100000}}
+@pytest.mark.parametrize("body", ["[1, 2]", '"fehler"', "7", "null", '{"fehler": ["a"]}'],
+                         ids=["liste", "text", "zahl", "null", "fehler_liste"])
+async def test_fehler_body_kein_objekt_ergibt_weder_text_noch_feldfehler(aiohttp_client, body):
+    """5c-I-11: ein 400 mit JSON, das kein Objekt ist (oder `fehler` ohne Objekt), gibt leeren Text und keine
+    Feldfehler."""
+    async def handler(request):
+        return web.Response(text=body, status=400, content_type="application/json")
+
+    client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", handler)])
+    with pytest.raises(Rejected) as caught:
+        await client.einrichten({})
+    assert caught.value.text == "" and caught.value.fehler == {} and caught.value.status == 400
+
+
+async def test_ein_fehler_wert_wird_auf_200_zeichen_gekuerzt(aiohttp_client):
+    """5c-I-11: ein vom Server gesteuerter `fehler`-Wert kommt in `Rejected.fehler` mit hoechstens 200 Zeichen an (der
+    Body bleibt unter der Grenze von 64 KiB, sonst wird er gar nicht gelesen)."""
+    body = {"error": "x", "fehler": {"raumfuehler": "y" * 20000, "kurz": "required"}}
     client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
     with pytest.raises(Rejected) as caught:
         await client.einrichten({})
-    assert len(caught.value.fehler["raumfuehler"]) <= 200
+    assert caught.value.fehler == {"raumfuehler": "y" * 200, "kurz": "required"}
+    assert einrichtung_client.FEHLER_WERT_MAX == 200
+
+
+class _Antwortkoerper:
+    """Antwort mit einem Body, der stueckweise kommt und mitzaehlt, wie viel gelesen wurde."""
+
+    def __init__(self, status, daten, stueck=8192):
+        self.status = status
+        self.gelesen = 0
+        self._stuecke = [daten[i:i + stueck] for i in range(0, len(daten), stueck)]
+        self.content = self
+
+    async def read(self, n=-1):
+        if not self._stuecke:
+            return b""
+        stueck = self._stuecke.pop(0)[:n if n > 0 else None]
+        self.gelesen += len(stueck)
+        return stueck
+
+    async def json(self, **kwargs):
+        raise AssertionError("der Body darf nicht ueber response.json gelesen werden")
+
+
+async def test_uebergrosser_fehlerbody_wird_nicht_gelesen():
+    """5c-I-11: ein Fehler-Body ueber 64 KiB wird hoechstens bis zur Grenze gelesen (kein JSON, Text leer, keine
+    Feldfehler); ein Body knapp darunter wird noch ausgewertet."""
+    zu_gross = json.dumps({"error": "gross", "fehler": {"a": "b"}, "fuell": "z" * 200000}).encode()
+    antwort = _Antwortkoerper(400, zu_gross)
+    with pytest.raises(Rejected) as caught:
+        await EinrichtungClient._fehler("einrichten", antwort, True)
+    assert caught.value.text == "" and caught.value.fehler == {}
+    assert einrichtung_client.FEHLER_BODY_MAX_BYTES == 65536
+    assert einrichtung_client.FEHLER_BODY_MAX_BYTES < antwort.gelesen <= einrichtung_client.FEHLER_BODY_MAX_BYTES + 1
+
+    knapp = json.dumps({"error": "knapp", "fehler": {"a": "b"}, "fuell": "z" * 60000}).encode()
+    assert len(knapp) < einrichtung_client.FEHLER_BODY_MAX_BYTES
+    with pytest.raises(Rejected) as caught:
+        await EinrichtungClient._fehler("einrichten", _Antwortkoerper(400, knapp), True)
+    assert caught.value.text == "knapp" and caught.value.fehler == {"a": "b"}
+
+
+@pytest.mark.parametrize(("laenge", "gelesen"), [
+    (einrichtung_client.FEHLER_BODY_MAX_BYTES, True),
+    (einrichtung_client.FEHLER_BODY_MAX_BYTES + 1, False),
+], ids=["genau_an_der_grenze", "ein_byte_darueber"])
+async def test_fehlerbody_grenze_genau_ein_byte(laenge, gelesen):
+    """5c-I-11, Grenzfall: ein Fehler-Body von genau FEHLER_BODY_MAX_BYTES Bytes wird noch ausgewertet (Text und
+    Feldfehler), einer mit einem Byte mehr nicht (Text leer, keine Feldfehler)."""
+    rumpf = {"error": "grenze", "fehler": {"a": "b"}, "fuell": ""}
+    rumpf["fuell"] = "z" * (laenge - len(json.dumps(rumpf).encode()))
+    daten = json.dumps(rumpf).encode()
+    assert len(daten) == laenge
+
+    with pytest.raises(Rejected) as caught:
+        await EinrichtungClient._fehler("einrichten", _Antwortkoerper(400, daten), True)
+
+    assert (caught.value.text, caught.value.fehler) == (("grenze", {"a": "b"}) if gelesen else ("", {}))
+
+
+@pytest.mark.parametrize(("status", "ausnahme"), [(401, InvalidAuth), (404, NotFound), (409, Conflict), (429, TooMany)])
+async def test_erwartete_ablehnungen_loggen_info(aiohttp_client, caplog, status, ausnahme):
+    """5c-I-11: 401/404/409/429 sind erwartete Antworten des Servers (Token abgelaufen, Geraet unbekannt, Konflikt,
+    Sperre): INFO. Gegenprobe: 400, 405 und 500 bleiben WARNING."""
+    def stufen():
+        return [r.levelno for r in caplog.records if r.name == einrichtung_client.__name__]
+
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(status, {"error": "Text"}))])
+    with caplog.at_level(logging.INFO, logger=einrichtung_client.__name__), pytest.raises(ausnahme):
+        await client.geraet()
+    assert stufen() == [logging.INFO]
+    assert f"HTTP {status}" in caplog.text and "Text" not in caplog.text
+
+    for unerwartet in (400, 405, 500):
+        caplog.clear()
+        client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(unerwartet, {"error": "Text"}))])
+        with caplog.at_level(logging.INFO, logger=einrichtung_client.__name__), pytest.raises(ApiError):
+            await client.geraet()
+        assert stufen() == [logging.WARNING], unerwartet
 
 
 # --- Angreifer im LAN: Zertifikat des Servers (F-ha-host-32) ---------------------------------------------------------

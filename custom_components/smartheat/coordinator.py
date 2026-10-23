@@ -22,10 +22,7 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from . import repairs
 from .const import (
-    ADDON_DISPLAY_NAMES,
-    ADDON_SPECS,
     ADDON_STATUS_VALUES,
-    HEIZUNGSBRUECKE_ADDON_SLUG,
     MAX_RESTARTS_PER_WINDOW,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
@@ -41,7 +38,7 @@ from .const import (
     signal_update,
     watchdog_notification_id,
 )
-from .supervisor_client import async_find_addon_managers
+from .supervisor_client import async_find_bridge_manager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,93 +54,71 @@ class Watchdog:
 
     Waehrend ein Befund aktiv ist (`incident_since` gesetzt), bleibt der zuletzt ermittelte Status
     aktiv -- auch wenn zwischenzeitlich wieder alles laeuft --, bis NACH dem Beginn des Vorfalls ein
-    Event kam UND alle Add-ons laufen. Ohne diese Regel gaebe es eine falsche Entwarnung, sobald der
-    Supervisor-Neustart selbst schon "laeuft" meldet, obwohl das Add-on sich noch nicht gemeldet
-    hat."""
+    Event kam UND die Heizungsbruecke nicht als gestoppt gilt. Ohne diese Regel gaebe es eine falsche
+    Entwarnung, sobald der Supervisor-Neustart selbst schon "laeuft" meldet, obwohl das Add-on sich
+    noch nicht gemeldet hat."""
     started_at: float
     last_event_at: float | None = None
-    not_running: dict[str, int] = field(default_factory=dict)
-    restarts: dict[str, deque] = field(default_factory=dict)
+    not_running: int = 0
+    restarts: deque = field(default_factory=deque)
     incident_since: float | None = None
     incident_status: str | None = None
-    incident_addons: list[str] = field(default_factory=list)
 
     def event_received(self, now: float) -> None:
         self.last_event_at = now
 
-    def check(self, now: float, running: dict[str, bool]) -> tuple[str | None, list[str]]:
-        """(Waechter-Status oder None, config-Slugs, die jetzt (neu) gestartet werden). `running`:
-        config-Slug -> laeuft laut Supervisor. "Laeuft nicht" zaehlt erst ab STOPPED_AFTER_CHECKS
-        Pruefungen in Folge (der Supervisor-Watchdog hat Vortritt); Stille zaehlt ab dem spaeteren
-        von letztem Event und letztem eigenen (Neu-)Start eines Add-ons -- ein frisch gestartetes
-        Add-on bekommt so eine Schonfrist, bevor es erneut als "reagiert nicht" gilt, statt sofort
-        wieder gemeldet zu werden. Ohne Event und ohne eigenen Start zaehlt die
-        Stille ab dem Setup (Anlaufschutz nach einem HA-Neustart). Ein einmal begonnener Vorfall
-        bleibt aktiv, bis er nach `_incident_resolved` beendet ist (siehe dort)."""
-        for config_slug, is_running in running.items():
-            self.not_running[config_slug] = 0 if is_running else self.not_running.get(config_slug, 0) + 1
+    def check(self, now: float, running: bool | None) -> tuple[str | None, bool]:
+        """(Waechter-Status oder None, ob die Heizungsbruecke jetzt (neu) gestartet wird). `running`: laeuft laut
+        Supervisor; `None`, wenn sich die Bruecke nicht aufloesen laesst (nicht oder mehrfach installiert, Repository
+        unter anderer Adresse): das zaehlt nie als "laeuft nicht" und fuehrt nie zu einem Start, nur die Stille
+        meldet dann "reagiert nicht" (5c-I-4). "Laeuft nicht" zaehlt erst ab STOPPED_AFTER_CHECKS Pruefungen in
+        Folge (der Supervisor-Watchdog hat Vortritt); Stille zaehlt ab dem spaeteren von letztem Event und letztem
+        eigenen (Neu-)Start -- ein frisch gestartetes Add-on bekommt so eine Schonfrist, bevor es erneut als
+        "reagiert nicht" gilt, statt sofort wieder gemeldet zu werden. Ohne Event und ohne eigenen Start zaehlt die
+        Stille ab dem Setup (Anlaufschutz nach einem HA-Neustart). Ein einmal begonnener Vorfall bleibt aktiv, bis
+        er nach `_incident_resolved` beendet ist (siehe dort)."""
+        self.not_running = self.not_running + 1 if running is False else 0
         if self._incident_resolved(running):
             self.incident_since = None
             self.incident_status = None
-            self.incident_addons = []
-            return None, []
-        stopped = self.stopped_addons()
-        if stopped:
-            status, revive, addons = STATUS_ADDON_GESTOPPT, stopped, stopped
+            return None, False
+        if self.not_running >= STOPPED_AFTER_CHECKS:
+            status, revive = STATUS_ADDON_GESTOPPT, True
+        elif running is not False and now - self._silence_reference() >= SILENCE_SECONDS:
+            status, revive = STATUS_REAGIERT_NICHT, running is True
+        elif self.incident_since is not None:
+            # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der zuletzt ermittelte
+            # Status bleibt bestehen, ohne neuen Startversuch.
+            status, revive = self.incident_status, False
         else:
-            silent_since = self._silence_reference()
-            if running.get(HEIZUNGSBRUECKE_ADDON_SLUG) and now - silent_since >= SILENCE_SECONDS:
-                status, revive, addons = STATUS_REAGIERT_NICHT, [HEIZUNGSBRUECKE_ADDON_SLUG], [HEIZUNGSBRUECKE_ADDON_SLUG]
-            elif self.incident_since is not None:
-                # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der
-                # zuletzt ermittelte Status UND die dazugehoerigen Add-on-Namen bleiben bestehen
-                # (sonst waere der Grund leer, sobald der Zaehler zurueckgesetzt ist), ohne neuen
-                # Startversuch.
-                status, revive, addons = self.incident_status, [], self.incident_addons
-            else:
-                return None, []
+            return None, False
         if self.incident_since is None:
             self.incident_since = now
         self.incident_status = status
-        self.incident_addons = addons
-        return status, self._allowed(now, revive)
+        return status, revive and self._restart_allowed(now)
 
-    def _incident_resolved(self, running: dict[str, bool]) -> bool:
-        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam und dabei (bzw. seither)
-        alle Add-ons laufen (Spec 1.3: "Kommt wieder ein Event und laufen beide Add-ons")."""
+    def _incident_resolved(self, running: bool | None) -> bool:
+        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam und die Bruecke dabei (bzw. seither) nicht
+        als gestoppt gilt (Spec 1.3: "Kommt wieder ein Event und laeuft das Add-on")."""
         if self.incident_since is None:
             return False
         if self.last_event_at is None or self.last_event_at <= self.incident_since:
             return False
-        return all(running.values())
-
-    def stopped_addons(self) -> list[str]:
-        return [config_slug for config_slug, count in self.not_running.items() if count >= STOPPED_AFTER_CHECKS]
-
-    def incident_addon_slugs(self) -> list[str]:
-        """Die Add-on-Slugs, um die es im aktuell aktiven Vorfall geht -- fuer den Meldungstext.
-        Anders als `stopped_addons()` bleibt das erhalten, waehrend der Vorfall (noch ohne
-        bestaetigendes Event) weiterlaeuft, auch wenn das Add-on zwischenzeitlich wieder laeuft
-        und der Zaehler dafuer schon zurueckgesetzt ist."""
-        return list(self.incident_addons)
+        return running is not False
 
     def _silence_reference(self) -> float:
         reference = self.started_at if self.last_event_at is None else self.last_event_at
-        own_restarts = self.restarts.get(HEIZUNGSBRUECKE_ADDON_SLUG)
-        if own_restarts:
-            reference = max(reference, own_restarts[-1])
+        if self.restarts:
+            reference = max(reference, self.restarts[-1])
         return reference
 
-    def _allowed(self, now: float, config_slugs: list[str]) -> list[str]:
-        allowed = []
-        for config_slug in config_slugs:
-            recent = self.restarts.setdefault(config_slug, deque())
-            while recent and now - recent[0] >= RESTART_WINDOW_SECONDS:
-                recent.popleft()
-            if len(recent) < MAX_RESTARTS_PER_WINDOW:
-                recent.append(now)
-                allowed.append(config_slug)
-        return allowed
+    def _restart_allowed(self, now: float) -> bool:
+        while self.restarts and now - self.restarts[0] >= RESTART_WINDOW_SECONDS:
+            self.restarts.popleft()
+        if len(self.restarts) < MAX_RESTARTS_PER_WINDOW:
+            self.restarts.append(now)
+            return True
+        return False
 
 
 class SmartHeatCoordinator:
@@ -218,39 +193,31 @@ class SmartHeatCoordinator:
         self._checking = True
         try:
             try:
-                managers = await async_find_addon_managers(self.hass, ADDON_SPECS)
+                manager = await async_find_bridge_manager(self.hass)
             except AddonError as error:
                 # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)
                 return
-            running: dict[str, bool] = {}
-            for config_slug, manager in managers.items():
-                info = await self._async_info(manager)
-                if info is False:
+            running: bool | None = None  # None: Bruecke nicht aufloesbar (5c-I-4, siehe Watchdog.check)
+            if manager is not None:
+                try:
+                    info = await manager.async_get_addon_info()
+                except AddonError as error:
+                    _LOGGER.warning(
+                        "Waechter: Zustand von %s nicht abfragbar: %s", manager.addon_slug, type(error).__name__,
+                    )
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
-                running[config_slug] = info is not None and info.state == AddonState.RUNNING
+                running = info.state == AddonState.RUNNING
             status, revive = self._watchdog.check(_now(), running)
-            for config_slug in revive:
-                await self._async_revive(managers[config_slug], running[config_slug])
+            if revive:
+                await self._async_revive(manager, bool(running))
             self._set_watchdog_status(status)
         finally:
             self._checking = False
 
-    async def _async_info(self, manager):
-        """Add-on-Info des Managers; None, wenn nicht (oder mehrfach) installiert, False, wenn der
-        Zustand nicht abfragbar ist."""
-        if manager is None:
-            return None
-        try:
-            return await manager.async_get_addon_info()
-        except AddonError as error:
-            _LOGGER.warning("Waechter: Zustand von %s nicht abfragbar: %s", manager.addon_slug, type(error).__name__)
-            return False
-
     async def _async_revive(self, manager, running: bool) -> None:
-        if manager is None:
-            _LOGGER.warning("Waechter: Add-on nicht (eindeutig) installiert, kein Start moeglich")
-            return
+        """Startet die Heizungsbruecke (laeuft sie, aber meldet sich nicht: neu). `manager` ist hier nie None: ohne
+        aufgeloeste Bruecke gibt `Watchdog.check` keinen Start frei."""
         try:
             if running:
                 await manager.async_restart_addon()
@@ -265,13 +232,7 @@ class SmartHeatCoordinator:
         (kritisch -> None). Eskaliert ein laufender Vorfall (z. B. gestoppt -> reagiert nicht oder umgekehrt), wird
         nur der Text der bestehenden Meldung aktualisiert (gleiche notification_id, kein neuer Eintrag): es ist
         derselbe Vorfall, keine zweite Stoerung."""
-        if status == STATUS_ADDON_GESTOPPT:
-            names = ", ".join(ADDON_DISPLAY_NAMES.get(s, s) for s in self._watchdog.incident_addon_slugs())
-            reason = WATCHDOG_REASONS[status].format(addons=names)
-        else:
-            # status kann hier None sein (Entwarnung); WATCHDOG_REASONS kennt nur echte
-            # Waechter-Status als Schluessel, ein None-Lookup ergaebe ohnehin None.
-            reason = WATCHDOG_REASONS.get(status) if status is not None else None
+        reason = None if status is None else WATCHDOG_REASONS[status]  # None = Entwarnung
         previous = self.watchdog_status
         changed = (status, reason) != (previous, self._watchdog_reason)
         self.watchdog_status, self._watchdog_reason = status, reason

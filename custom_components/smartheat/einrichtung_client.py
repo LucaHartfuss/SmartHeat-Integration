@@ -16,6 +16,7 @@ Fehler, wie der Assistent sie unterscheidet:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 from urllib.parse import quote
@@ -31,6 +32,8 @@ from .const import (
     EINRICHTUNG_PREFIX,
     EINRICHTUNG_ROUTEN,
     ERROR_TEXT_MAX,
+    FEHLER_BODY_MAX_BYTES,
+    FEHLER_WERT_MAX,
     REQUEST_TIMEOUT_SECONDS,
 )
 
@@ -98,6 +101,9 @@ class Rejected(ApiError):
 
 
 _ERRORS: dict[int, type[ApiError]] = {404: NotFound, 409: Conflict, 429: TooMany}
+# Antworten, die der Server im Normalbetrieb gibt (Token abgelaufen oder falsche Zugangsdaten, Geraet unbekannt,
+# Konflikt, Sperre): nur INFO; alles andere ist unerwartet und eine WARNING.
+_ERWARTETE_STATUS = frozenset({401, 404, 409, 429})
 
 
 class EinrichtungClient:
@@ -203,25 +209,38 @@ class EinrichtungClient:
             raise CannotConnect("Der SmartHeat-Dienst ist nicht erreichbar.") from error
 
     @staticmethod
+    async def _fehler_body(response: aiohttp.ClientResponse) -> dict:
+        """Body einer Fehlerantwort als Objekt; hoechstens `FEHLER_BODY_MAX_BYTES` werden gelesen (ein groesserer Body
+        ist kein JSON im Sinne des Clients: leeres Objekt), ebenso bei Nicht-JSON oder einem anderen JSON-Typ."""
+        daten = bytearray()
+        try:
+            while chunk := await response.content.read(FEHLER_BODY_MAX_BYTES + 1 - len(daten)):
+                daten += chunk
+                if len(daten) > FEHLER_BODY_MAX_BYTES:
+                    return {}
+            parsed = json.loads(daten)
+        except (aiohttp.ClientError, ValueError, RecursionError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
     async def _fehler(route: str, response: aiohttp.ClientResponse, auth: bool) -> None:
         """Wirft je Status den passenden Fehler; der Body kann Nicht-JSON sein (Routing-404/405 als HTML). Eine
         Weiterleitung (3xx) wird nie verfolgt (der Body mit dem Passwort ginge sonst an das Ziel) und ist ein
-        Fehler ohne Text."""
+        Fehler ohne Text. Erwartete Ablehnungen (401/404/409/429) loggt der Client als INFO, alles andere als WARNING;
+        nie den Text des Servers."""
         if 300 <= response.status < 400:
             _LOGGER.warning("Einrichtung: %s abgelehnt (HTTP %s, Weiterleitung)", route, response.status)
             raise ApiError("", response.status)
-        try:
-            parsed = await response.json(content_type=None)
-        except (aiohttp.ClientError, ValueError, RecursionError):
-            parsed = None
-        body: dict = parsed if isinstance(parsed, dict) else {}
+        body = await EinrichtungClient._fehler_body(response)
         status = response.status
         text = body["error"] if isinstance(body.get("error"), str) else ""
         text = text[:ERROR_TEXT_MAX]
-        _LOGGER.warning("Einrichtung: %s abgelehnt (HTTP %s)", route, status)
+        _LOGGER.log(logging.INFO if status in _ERWARTETE_STATUS else logging.WARNING,
+                    "Einrichtung: %s abgelehnt (HTTP %s)", route, status)
         if status == 400:
             fehler = body["fehler"] if isinstance(body.get("fehler"), dict) else {}
-            raise Rejected(text, {str(k): str(v) for k, v in fehler.items()}, status)
+            raise Rejected(text, {str(k): str(v)[:FEHLER_WERT_MAX] for k, v in fehler.items()}, status)
         if status == 401:
             raise (TokenUngueltig if auth else InvalidAuth)(text, status)
         if status >= 500:

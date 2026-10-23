@@ -48,8 +48,6 @@ def test_setup_api_routes_match_the_server():
 def test_addon_and_wait_constants():
     assert const.DEFAULT_BASE_URL == "https://accounts.hartfussha.org"
     assert const.OPTION_BOOTSTRAP_URL == "bootstrap_url"
-    assert const.ADDON_SPECS == [("Heizungsbruecke", "heizungsbruecke")]
-    assert const.ADDON_DISPLAY_NAMES == {"heizungsbruecke": "Heizungsbrücke"}
     assert (const.DISCOVERY_WAIT_SECONDS, const.INVENTUR_WAIT_SECONDS, const.AUFTRAG_WAIT_SECONDS,
             const.ENTFERNEN_WAIT_SECONDS, const.POLL_SECONDS) == (300, 120, 900, 300, 2)
 
@@ -71,3 +69,11 @@ def test_the_outdated_addon_text_names_the_minimum_version():
     for datei in ("strings.json", "translations/en.json", "translations/de.json"):
         text = json.loads((paket / datei).read_text(encoding="utf-8"))["config"]["abort"]["addon_veraltet"]
         assert f" {minimum} " in text, datei
+
+
+def test_die_waechter_meldung_reagiert_nicht_verspricht_keinen_neustart():
+    """Fix-Runde 1: bei einer nicht aufloesbaren Bruecke (5c-I-4) gibt es keinen Neustart; die Meldung muss fuer beide
+    Faelle stimmen und den Nutzer zur Pruefung auffordern."""
+    text = const.WATCHDOG_MESSAGES["reagiert_nicht"]
+    assert "startet es neu" not in text
+    assert "prüf" in text and "Heizungsbrücke" in text

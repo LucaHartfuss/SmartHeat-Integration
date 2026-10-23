@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
 from homeassistant.components.hassio import AddonError
@@ -7,17 +9,17 @@ from custom_components.smartheat.supervisor_client import (
     AddonOutdatedError,
     AmbiguousAddonMatchError,
     ResolvedAddon,
-    async_find_addon_managers,
+    async_find_bridge_manager,
     async_repository_slug,
     async_repository_slugs,
-    async_resolve_addons,
+    async_resolve_bridge,
     fremde_bruecken,
 )
 
 from .supervisor_fakes import installed_addon, repository
 
 REPO_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
-MIN = {"heizungsbruecke": "0.19.0", "cloudflared_access_mqtt": "1.0.0"}
+MIN = "0.19.0"
 
 
 REPO = "f5f6325b"
@@ -41,23 +43,22 @@ def _setup(supervisor, installed=None, error=None, repositories=None):
         supervisor.errors["addons.list"] = error
 
 
-def _both(hb_version="0.19.0", cf_version="1.0.0"):
+def _both(hb_version="0.19.0"):
+    """Die Heizungsbruecke aus unserem Repository neben zwei fremden Add-ons (ein Schwester-Add-on desselben
+    Repositorys, ein Add-on aus dem Core-Repository)."""
     return [
         _installed_addon("f5f6325b_heizungsbruecke", REPO_URL, hb_version),
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL, cf_version),
+        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL, "1.0.0"),
         _installed_addon("core_matter_server", "https://github.com/home-assistant/addons"),
     ]
 
 
-async def test_resolves_repo_hash_prefixed_slugs_with_versions(supervisor):
+async def test_resolves_the_repo_hash_prefixed_slug_with_its_version(supervisor):
     _setup(supervisor, _both())
 
-    result = await async_resolve_addons(None, REPO_URL, MIN)
+    result = await async_resolve_bridge(None, MIN)
 
-    assert result == {
-        "heizungsbruecke": ResolvedAddon("f5f6325b_heizungsbruecke", "0.19.0"),
-        "cloudflared_access_mqtt": ResolvedAddon("f5f6325b_cloudflared_access_mqtt", "1.0.0"),
-    }
+    assert result == ResolvedAddon("f5f6325b_heizungsbruecke", "0.19.0")
     supervisor.client.addons.list.assert_awaited_once()
 
 
@@ -65,7 +66,7 @@ async def test_missing_addon_names_the_slug(supervisor):
     _setup(supervisor, _both()[1:])
 
     with pytest.raises(AddonNotFoundError) as info:
-        await async_resolve_addons(None, REPO_URL, MIN)
+        await async_resolve_bridge(None, MIN)
 
     assert info.value.config_slug == "heizungsbruecke"
 
@@ -74,7 +75,7 @@ async def test_ambiguous_match_names_the_slug(supervisor):
     _setup(supervisor, _both() + [_installed_addon("f5f6325b_heizungsbruecke", REPO_URL)])
 
     with pytest.raises(AmbiguousAddonMatchError) as info:
-        await async_resolve_addons(None, REPO_URL, MIN)
+        await async_resolve_bridge(None, MIN)
 
     assert info.value.config_slug == "heizungsbruecke"
 
@@ -86,7 +87,7 @@ async def test_a_version_that_cannot_be_compared_is_an_addon_error_without_its_t
     _setup(supervisor, _both(hb_version=version))
 
     with pytest.raises(AddonError) as info:
-        await async_resolve_addons(None, REPO_URL, MIN)
+        await async_resolve_bridge(None, MIN)
 
     assert "heizungsbruecke" in str(info.value)
     assert version == "" or version not in str(info.value)
@@ -97,7 +98,7 @@ async def test_outdated_addon_reports_installed_and_required(supervisor, install
     _setup(supervisor, _both(hb_version=installed))
 
     with pytest.raises(AddonOutdatedError) as info:
-        await async_resolve_addons(None, REPO_URL, MIN)
+        await async_resolve_bridge(None, MIN)
 
     assert (info.value.config_slug, info.value.required) == ("heizungsbruecke", "0.19.0")
     assert info.value.installed == (installed or "unbekannt")
@@ -106,72 +107,66 @@ async def test_outdated_addon_reports_installed_and_required(supervisor, install
 async def test_newer_addon_is_accepted(supervisor):
     _setup(supervisor, _both(hb_version="0.20.1"))
 
-    result = await async_resolve_addons(None, REPO_URL, MIN)
+    result = await async_resolve_bridge(None, MIN)
 
-    assert result["heizungsbruecke"].version == "0.20.1"
+    assert result.version == "0.20.1"
 
 
 async def test_supervisor_error_becomes_addon_error(supervisor):
     _setup(supervisor, error=SupervisorError("weg"))
 
     with pytest.raises(AddonError) as error:
-        await async_resolve_addons(None, REPO_URL, MIN)
+        await async_resolve_bridge(None, MIN)
     assert "weg" not in str(error.value)
     assert "SupervisorError" in str(error.value)
 
 
-async def test_find_addon_managers_resolves_each_slug_without_a_minimum_version(supervisor):
+async def test_find_bridge_manager_resolves_the_slug_without_a_minimum_version(supervisor):
     _setup(supervisor, _both(hb_version="0.18.0"))
 
-    managers = await async_find_addon_managers(
-        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
-    )
+    manager = await async_find_bridge_manager(None)
 
-    assert {slug: m.addon_slug for slug, m in managers.items()} == {
-        "heizungsbruecke": "f5f6325b_heizungsbruecke", "cloudflared_access_mqtt": "f5f6325b_cloudflared_access_mqtt",
-    }
+    assert manager.addon_slug == "f5f6325b_heizungsbruecke"
 
 
-async def test_find_addon_managers_gives_none_for_missing_or_ambiguous(supervisor):
-    _setup(supervisor, _both()[1:] + [
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),  # zweites cloudflared
-    ])
+async def test_find_bridge_manager_gives_none_for_missing_or_ambiguous(supervisor):
+    _setup(supervisor, _both()[1:])
+    assert await async_find_bridge_manager(None) is None
 
-    managers = await async_find_addon_managers(
-        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
-    )
-
-    assert managers == {"heizungsbruecke": None, "cloudflared_access_mqtt": None}
+    _setup(supervisor, _both() + [_installed_addon("f5f6325b_heizungsbruecke", REPO_URL)])  # zweite Bruecke
+    assert await async_find_bridge_manager(None) is None
 
 
-async def test_find_addon_managers_turns_a_supervisor_error_into_addon_error(supervisor):
+async def test_find_bridge_manager_turns_a_supervisor_error_into_addon_error(supervisor):
     _setup(supervisor, error=SupervisorError("weg"))
 
     with pytest.raises(AddonError) as error:
-        await async_find_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])
+        await async_find_bridge_manager(None)
     assert "weg" not in str(error.value)
     assert "SupervisorError" in str(error.value)
 
 
-async def test_find_addon_managers_logs_missing_and_ambiguous_reasons_separately(supervisor, caplog):
-    _setup(supervisor, _both()[1:] + [
-        _installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL),  # zweites cloudflared
-    ])
-
-    await async_find_addon_managers(
-        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")],
-    )
-
+async def test_find_bridge_manager_logs_missing_and_ambiguous_reasons_separately(supervisor, caplog):
+    _setup(supervisor, _both()[1:])
+    with caplog.at_level(logging.WARNING):
+        await async_find_bridge_manager(None)
     assert "heizungsbruecke" in caplog.text and "nicht installiert" in caplog.text
-    assert "cloudflared_access_mqtt" in caplog.text and "mehrfach installiert" in caplog.text
+    assert "mehrfach installiert" not in caplog.text
+
+    caplog.clear()
+    _setup(supervisor, _both() + [_installed_addon("f5f6325b_heizungsbruecke", REPO_URL)])
+    with caplog.at_level(logging.WARNING):
+        await async_find_bridge_manager(None)
+    assert "heizungsbruecke" in caplog.text and "mehrfach installiert" in caplog.text
+    assert "nicht installiert" not in caplog.text
 
 
-async def test_find_addon_managers_without_hassio_raises_addon_error(hass):
+async def test_find_bridge_manager_without_hassio_raises_addon_error(hass):
     # Fehlt Hass.io ganz (Core/Container-Installation, aus einem Backup wiederhergestellt), bricht
     # der rohe get_supervisor_client() mit einem KeyError ab -- der Aufrufer soll aber eine
     # reguläre AddonError sehen, um sauber zu degradieren (z.B. der Waechter).
     with pytest.raises(AddonError):
-        await async_find_addon_managers(hass, [("Heizungsbruecke", "heizungsbruecke")])
+        await async_find_bridge_manager(hass)
 
 
 # --- Nur Add-ons aus unserem Repository (Herkunft an Store-Adresse und exaktem Slug) ---
@@ -190,9 +185,8 @@ async def test_addon_outside_our_repository_never_matches(supervisor, fake):
         _repository(), _repository("0badc0de", "https://github.com/fremd/addons")])
 
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
-    managers = await async_find_addon_managers(None, [("Heizungsbruecke", "heizungsbruecke")])
-    assert managers == {"heizungsbruecke": None}
+        await async_resolve_bridge(None, "0.19.0")
+    assert await async_find_bridge_manager(None) is None
 
 
 async def test_repository_whose_url_claims_ours_is_not_ours(supervisor):
@@ -201,16 +195,13 @@ async def test_repository_whose_url_claims_ours_is_not_ours(supervisor):
            repositories=[_repository("0badc0de", source="https://github.com/fremd/addons")])
 
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+        await async_resolve_bridge(None, "0.19.0")
 
 
 async def test_without_our_repository_nothing_matches(supervisor):
     _setup(supervisor, _both(), repositories=[])
 
-    managers = await async_find_addon_managers(
-        None, [("Heizungsbruecke", "heizungsbruecke"), ("Cloudflared", "cloudflared_access_mqtt")])
-
-    assert managers == {"heizungsbruecke": None, "cloudflared_access_mqtt": None}
+    assert await async_find_bridge_manager(None) is None
 
 
 @pytest.mark.parametrize("source", [
@@ -220,9 +211,9 @@ async def test_without_our_repository_nothing_matches(supervisor):
 async def test_repository_source_is_normalised(supervisor, source):
     _setup(supervisor, _both(), repositories=[_repository(source=source)])
 
-    result = await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+    result = await async_resolve_bridge(None, "0.19.0")
 
-    assert result["heizungsbruecke"].slug == "f5f6325b_heizungsbruecke"
+    assert result.slug == "f5f6325b_heizungsbruecke"
 
 
 async def test_a_repository_over_plain_http_is_not_ours(supervisor):
@@ -230,7 +221,7 @@ async def test_a_repository_over_plain_http_is_not_ours(supervisor):
     _setup(supervisor, _both(), repositories=[_repository(source=REPO_URL.replace("https://", "http://"))])
 
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+        await async_resolve_bridge(None, "0.19.0")
 
 
 async def test_store_error_becomes_addon_error(supervisor):
@@ -238,7 +229,7 @@ async def test_store_error_becomes_addon_error(supervisor):
     supervisor.errors["store.repositories_list"] = SupervisorError("geheim")
 
     with pytest.raises(AddonError) as error:
-        await async_resolve_addons(None, REPO_URL, MIN)
+        await async_resolve_bridge(None, MIN)
     assert "geheim" not in str(error.value)
 
 
@@ -262,8 +253,8 @@ async def test_a_branch_of_our_repository_is_our_repository(supervisor, source):
     _setup(supervisor, _both(), repositories=[_repository(source=source)])
 
     assert await async_repository_slug(None, REPO_URL) == REPO
-    result = await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
-    assert result["heizungsbruecke"].slug == "f5f6325b_heizungsbruecke"
+    result = await async_resolve_bridge(None, "0.19.0")
+    assert result.slug == "f5f6325b_heizungsbruecke"
 
 
 @pytest.mark.parametrize("fake", [
@@ -280,7 +271,7 @@ async def test_a_branch_entry_keeps_the_slug_check(supervisor, fake):
 
     assert await async_repository_slug(None, REPO_URL) == REPO  # der Branch-Eintrag ist erkannt
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+        await async_resolve_bridge(None, "0.19.0")
 
 
 @pytest.mark.parametrize("source", [
@@ -299,7 +290,7 @@ async def test_a_similar_address_is_never_our_repository(supervisor, source):
 
     assert await async_repository_slug(None, REPO_URL) is None
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+        await async_resolve_bridge(None, "0.19.0")
 
 
 @pytest.mark.parametrize("sources", [
@@ -313,7 +304,7 @@ async def test_two_entries_of_our_repository_give_no_slug(supervisor, sources):
 
     assert await async_repository_slug(None, REPO_URL) is None
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+        await async_resolve_bridge(None, "0.19.0")
 
 
 async def test_two_invalid_addresses_are_not_the_same_repository(supervisor):
@@ -337,7 +328,7 @@ async def test_an_invalid_branch_is_never_our_repository(supervisor, source):
 
     assert await async_repository_slug(None, REPO_URL) is None
     with pytest.raises(AddonNotFoundError):
-        await async_resolve_addons(None, REPO_URL, {"heizungsbruecke": "0.19.0"})
+        await async_resolve_bridge(None, "0.19.0")
 
 
 async def test_repository_slugs_lists_every_entry_of_our_repository(supervisor):

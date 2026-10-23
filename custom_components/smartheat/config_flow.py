@@ -9,7 +9,10 @@ Menue "Zuordnung aendern" (Auftrag neu_konfigurieren) bzw. "Geraet entfernen" (A
 
 Fehler der Einrichtungs-API: abgelaufenes Token -> zurueck zur Anmeldung; Feldfehler der Pruefung -> zurueck ins
 Formular mit dem Feld; nicht erreichbar -> Abbruch cannot_connect; alles andere -> Abbruch mit dem Text des Servers.
-Vom Supervisor wird nie ein Fehlertext gezeigt oder geloggt (er kann Optionswerte zitieren), nur die Fehlerart."""
+Mehr als 8 Raumfuehler, 16 Batterien oder 10 Handys markiert der Assistent selbst (`zu_viele`), ohne Kandidaten fuer
+Raumfuehler oder Raum-Soll bricht er ab. Antwortet das Geraet beim "Geraet entfernen" nicht, ist der Eintrag trotzdem
+entfernt. Vom Supervisor wird nie ein Fehlertext gezeigt oder geloggt (er kann Optionswerte zitieren), nur die
+Fehlerart."""
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +23,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components.hassio import AddonError
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import SOURCE_HASSIO, ConfigFlow, ConfigFlowResult
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -30,7 +33,6 @@ from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from . import addon_control, supervisor_client, vertrag_pin
 from . import anfrage as v3_anfrage
 from .const import (
-    ADDON_REPOSITORY_URL,
     AUFTRAG_FEHLGESCHLAGEN,
     AUFTRAG_FERTIG,
     AUFTRAG_WAIT_SECONDS,
@@ -41,6 +43,9 @@ from .const import (
     EINRICHTUNG_GERAET_ANLAGE_FELDER,
     EINRICHTUNG_GERAET_INVENTUR_FELDER,
     EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ,
+    EINRICHTUNG_MAX_BATTERIEN,
+    EINRICHTUNG_MAX_HANDYS,
+    EINRICHTUNG_MAX_RAUMFUEHLER,
     EINRICHTUNG_RAUMFUEHLER_FELDER,
     EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER,
     EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER,
@@ -50,6 +55,7 @@ from .const import (
     EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER,
     ENTFERNEN_WAIT_SECONDS,
     GERAET_ID_RE,
+    HEIZUNGSBRUECKE_ADDON_SLUG,
     INVENTUR_WAIT_SECONDS,
     MIN_ADDON_VERSIONS,
     POLL_SECONDS,
@@ -79,6 +85,9 @@ _LOGGER = logging.getLogger(__name__)
 _VOR_DER_INSTALLATION = frozenset({"repository_mehrdeutig", "fremde_heizungsbruecke"})
 _RAEUME = ("raumfuehler", "room_target")
 _BENACHRICHTIGUNG = ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")
+# Obergrenzen der Auswahl je Feld (5c-I-3; der Server lehnt mehr ab)
+_MAXIMUM = {"raumfuehler": EINRICHTUNG_MAX_RAUMFUEHLER, "batterien": EINRICHTUNG_MAX_BATTERIEN,
+            "benachrichtigung": EINRICHTUNG_MAX_HANDYS}
 _INVENTUR_FERTIG = "fertig"
 _INVENTUR_FEHLGESCHLAGEN = "fehlgeschlagen"
 # Pin (Spec Stufe 3 S5 4): je Objekt der Einrichtungs-Antworten die Literale, die dieser Assistent liest, gegen die
@@ -261,6 +270,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="discovery_ungueltig")
         await self.async_set_unique_id(config["geraet_id"])
         self._abort_if_unique_id_configured()
+        # Meldet die Heizungsbruecke ein anderes Geraet (etwa nach einer Neuinstallation), ist der offene Flow des alten
+        # tot: er wuerde dessen Code und Geraete-ID anzeigen.
+        for offen in self._async_in_progress(include_uninitialized=True):
+            kontext = offen.get("context") or {}
+            if kontext.get("source") == SOURCE_HASSIO and kontext.get("unique_id") != config["geraet_id"]:
+                self.hass.config_entries.flow.async_abort(offen["flow_id"])
         self._discovery = config
         self.context["title_placeholders"] = {"geraet": config["geraet_id"]}
         return await self.async_step_bestaetigen()
@@ -319,7 +334,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     async def _addon_version_fehler(self) -> str | None:
         """Mindestversion der Heizungsbruecke (aelter meldet sich nie per Discovery); None = in Ordnung."""
         try:
-            await supervisor_client.async_resolve_addons(self.hass, ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS)
+            await supervisor_client.async_resolve_bridge(
+                self.hass, MIN_ADDON_VERSIONS[HEIZUNGSBRUECKE_ADDON_SLUG])
         except supervisor_client.AddonOutdatedError:
             return "addon_veraltet"
         except supervisor_client.AmbiguousAddonMatchError:
@@ -472,7 +488,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                     self._vorschlag = await self._api(self._client.vorschlag, konflikt="keine_integration")
                     return "integration"
                 if stand.get("zustand") == _INVENTUR_FEHLGESCHLAGEN:
-                    raise _Abbruch("inventur_fehler", grund=_text(stand.get("fehler")))
+                    fehler = stand.get("fehler")
+                    # Ein abgelaufener Befehl hat keinen Text: dann sagen, dass das Geraet nicht erreichbar war.
+                    grund = fehler if isinstance(fehler, str) and fehler else await async_hint(
+                        self.hass, "geraet_nicht_erreichbar")
+                    raise _Abbruch("inventur_fehler", grund=grund)
                 if time.monotonic() >= deadline:
                     return "inventur_zeit"
                 await asyncio.sleep(POLL_SECONDS)
@@ -543,6 +563,12 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             if rolle.get("pflicht") and not rolle.get("kandidaten"):
                 bezeichnung = await async_role_label(self.hass, _text(rolle.get("rolle")))
                 return await self._abbrechen("rolle_ohne_kandidaten", rolle=bezeichnung)
+        # Raumfuehler und Raum-Soll sind Pflichtfelder des Schritts `raeume`: ohne Kandidaten gabe es nur einen leeren
+        # Selektor, den niemand ausfuellen kann.
+        for feld in _RAEUME:
+            if not (self._zuordnung.get(feld) or {}).get("kandidaten"):
+                return await self._abbrechen("rolle_ohne_kandidaten",
+                                             rolle=await async_role_label(self.hass, feld, schritt="raeume"))
         return await self.async_step_raeume()
 
     # --- Zuordnung ---
@@ -551,6 +577,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         z = self._zuordnung
         if user_input is not None:
             self._eingaben.update({key: user_input[key] for key in _RAEUME if key in user_input})
+            if self._grenzen_verletzt(("raumfuehler",)):
+                return await self.async_step_raeume()
             return await self.async_step_anlagenwerte()
         schema = vol.Schema({
             _vorbelegt("raumfuehler", self._eingaben.get("raumfuehler") or z["raumfuehler"]["vorschlag"]): _entities(
@@ -582,6 +610,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         z = self._zuordnung
         if user_input is not None:
             self._eingaben.update({key: user_input.get(key) for key in _BENACHRICHTIGUNG})
+            if self._grenzen_verletzt(("batterien", "benachrichtigung")):
+                return await self.async_step_benachrichtigung()
             return await self.async_step_zusammenfassung()
         je_entity = z.get("batterie_je_entity") or {}
         gewaehlt = [*(self._eingaben.get("raumfuehler") or []), self._eingaben.get("room_target")]
@@ -624,6 +654,17 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     def _noch_angeboten(werte: object, angebot: set) -> list:
         return [w for w in dict.fromkeys(werte if isinstance(werte, list) else []) if w in angebot]
 
+    def _zu_viele(self, felder: tuple[str, ...]) -> dict[str, str]:
+        """Felder der Auswahl mit mehr Eintraegen, als der Server annimmt (`zu_viele`, 5c-I-3)."""
+        return {feld: "zu_viele" for feld in felder if len(self._eingaben.get(feld) or []) > _MAXIMUM[feld]}
+
+    def _grenzen_verletzt(self, felder: tuple[str, ...]) -> bool:
+        """Setzt die Feldfehler `zu_viele` der Felder (alte Fehler dieser Felder entfallen); True, wenn es welche
+        gibt."""
+        zu_viele = self._zu_viele(felder)
+        self._fehler = {key: value for key, value in self._fehler.items() if key not in felder} | zu_viele
+        return bool(zu_viele)
+
     def _fehler_fuer(self, felder: tuple[str, ...]) -> dict[str, str]:
         return {key: value for key, value in self._fehler.items() if key in felder}
 
@@ -658,6 +699,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return await self.async_step_einrichten()
         try:
+            if zu_viele := self._zu_viele(tuple(_MAXIMUM)):
+                # Der Server wuerde mit 400 ohne Feldfehler ablehnen; hier zurueck in das Formular des Felds.
+                raise _Feldfehler(zu_viele)
             ergebnis = await self._api(self._client.pruefen, self._anfrage())
             fehler = ergebnis.get("fehler") or {}
             if fehler:
@@ -776,12 +820,17 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             await asyncio.sleep(POLL_SECONDS)
 
     async def async_step_entfernt(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._eintrag_entfernen("entfernt")
+
+    async def async_step_entfernen_laeuft(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Das Geraet hat in der Wartezeit nicht geantwortet: der Eintrag wird trotzdem entfernt (5c-I-1). Das Loeschen
+        meldet das Geraet lokal ab (stdin der Heizungsbruecke); der Server gibt es frei, sobald es erreichbar ist."""
+        return await self._eintrag_entfernen("entfernen_laeuft")
+
+    async def _eintrag_entfernen(self, reason: str) -> ConfigFlowResult:
         await self._abmelden()
         entry = self._get_reconfigure_entry()
         # Nicht eager: der Eintrag verschwindet erst, wenn dieser Flow beendet ist.
         self.hass.async_create_task(self.hass.config_entries.async_remove(entry.entry_id),
                                     "smartheat_eintrag_entfernen", eager_start=False)
-        return self.async_abort(reason="entfernt")
-
-    async def async_step_entfernen_laeuft(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return await self._abbrechen("entfernen_laeuft")
+        return self.async_abort(reason=reason)

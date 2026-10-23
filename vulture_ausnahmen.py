@@ -5,7 +5,6 @@ nicht: ein Treffer dort ist ein Befund (der Contract-Check liest sie, die Integr
 # HA-Hooks der Integration (__init__.py): HA ruft sie ueber den Modulnamen auf.
 async_setup_entry  # HA-Hook: Integration und jede Plattform (binary_sensor, number, sensor)
 async_unload_entry  # HA-Hook: Eintrag entladen
-async_migrate_entry  # HA-Hook: Eintrag auf eine neue VERSION migrieren
 async_remove_entry  # HA-Hook: Eintrag entfernt
 
 # Config-Flow (config_flow.py): HA registriert den Flow ueber domain= und ruft Schritte als async_step_<step_id>.

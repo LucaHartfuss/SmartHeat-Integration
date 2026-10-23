@@ -10,7 +10,7 @@ Repository und haben stabile, unpraefigierte Slugs (z.B. "core_zwave_js"). Das S
 kommt aus einem eigenen Custom-Repository -- ein Supervisor praefigiert einen von dort installierten
 Add-on-Slug mit einem Repository-Hash (verifiziert gegen einen echten Supervisor: "heizungsbruecke"
 wird dort zu "f5f6325b_heizungsbruecke"). AddonManager selbst loest das nicht auf -- sein addon_slug
-muss bereits der echte, installationsspezifische Slug sein. async_resolve_addons() schliesst genau
+muss bereits der echte, installationsspezifische Slug sein. async_resolve_bridge() schliesst genau
 diese Luecke und folgt dabei dieser Regel (Sicherheitsfix 0f34d56): Das Store-Repository wird allein
 an seiner Eintragsadresse (`source`, auch mit `#<branch>`) erkannt und liefert den Repository-Slug;
 ein installiertes Add-on zaehlt nur, wenn es zu diesem Repository gehoert und genau den Slug
@@ -30,7 +30,7 @@ from homeassistant.components.hassio import AddonError, AddonManager, get_superv
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.hassio import is_hassio
 
-from .const import ADDON_REPOSITORY_URL
+from .const import ADDON_NAME, ADDON_REPOSITORY_URL, HEIZUNGSBRUECKE_ADDON_SLUG
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,8 +122,8 @@ async def async_repository_slug(hass: HomeAssistant, repository_url: str = ADDON
 def matching_addons(installed, repository_slug: str | None, config_slug: str) -> list:
     """Installierte Add-ons genau aus unserem Repository (`repository` = dessen Slug, Slug = "<Repo-Slug>_<config_slug>").
     Weder die `url` eines Add-ons (aus dessen config.yaml, frei waehlbar) noch ein Slug-Suffix (auch
-    local_heizungsbruecke oder ein fremdes Repository) zaehlen. Gemeinsame Zuordnung fuer async_resolve_addons,
-    async_find_addon_managers und addon_control.async_bridge_slug."""
+    local_heizungsbruecke oder ein fremdes Repository) zaehlen. Gemeinsame Zuordnung fuer async_resolve_bridge,
+    async_find_bridge_manager und addon_control.async_bridge_slug."""
     if not repository_slug:
         return []
     expected = f"{repository_slug}_{config_slug}"
@@ -140,43 +140,36 @@ def fremde_bruecken(installed, repository_slug: str | None, config_slug: str) ->
             if addon.slug.endswith(f"_{config_slug}") and not any(addon is match for match in own)]
 
 
-async def async_resolve_addons(
-    hass: HomeAssistant, repository_url: str, min_versions: dict[str, str],
-) -> dict[str, ResolvedAddon]:
-    """Loest alle `min_versions`-Schluessel (bare config.yaml-Slugs) aus EINEM addons.list() auf, nur Add-ons aus dem
-    Repository mit der Store-Adresse `repository_url`, und prueft die Mindestversion. Eine rohe SupervisorError wird
-    AddonError, ebenso eine Version, die sich nicht vergleichen laesst (ohne die Version im Text: sie kommt vom
-    Supervisor)."""
-    repository_slug = await async_repository_slug(hass, repository_url)
+async def async_resolve_bridge(hass: HomeAssistant, min_version: str) -> ResolvedAddon:
+    """Loest die Heizungsbruecke aus EINEM addons.list() auf, nur aus dem Repository mit der Store-Adresse
+    ADDON_REPOSITORY_URL, und prueft die Mindestversion `min_version`. Eine rohe SupervisorError wird AddonError,
+    ebenso eine Version, die sich nicht vergleichen laesst (ohne die Version im Text: sie kommt vom Supervisor)."""
+    repository_slug = await async_repository_slug(hass)
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
         raise AddonError(f"Supervisor nicht erreichbar bei der Add-on-Aufloesung: {type(error).__name__}") from None
 
-    result: dict[str, ResolvedAddon] = {}
-    for config_slug, required in min_versions.items():
-        matches = matching_addons(installed, repository_slug, config_slug)
-        if not matches:
-            raise AddonNotFoundError(config_slug)
-        if len(matches) > 1:
-            raise AmbiguousAddonMatchError(config_slug, [addon.slug for addon in matches])
-        addon = matches[0]
-        try:
-            veraltet = addon.version is None or AwesomeVersion(addon.version) < AwesomeVersion(required)
-        except AwesomeVersionException as error:
-            raise AddonError(f"Version von {config_slug} nicht vergleichbar: {type(error).__name__}") from None
-        if veraltet:
-            raise AddonOutdatedError(config_slug, addon.version or "unbekannt", required)
-        result[config_slug] = ResolvedAddon(addon.slug, addon.version)
-    return result
+    matches = matching_addons(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG)
+    if not matches:
+        raise AddonNotFoundError(HEIZUNGSBRUECKE_ADDON_SLUG)
+    if len(matches) > 1:
+        raise AmbiguousAddonMatchError(HEIZUNGSBRUECKE_ADDON_SLUG, [addon.slug for addon in matches])
+    addon = matches[0]
+    try:
+        veraltet = addon.version is None or AwesomeVersion(addon.version) < AwesomeVersion(min_version)
+    except AwesomeVersionException as error:
+        raise AddonError(
+            f"Version von {HEIZUNGSBRUECKE_ADDON_SLUG} nicht vergleichbar: {type(error).__name__}") from None
+    if veraltet:
+        raise AddonOutdatedError(HEIZUNGSBRUECKE_ADDON_SLUG, addon.version or "unbekannt", min_version)
+    return ResolvedAddon(addon.slug, addon.version)
 
 
-async def async_find_addon_managers(
-    hass: HomeAssistant, addon_specs: list[tuple[str, str]],
-) -> dict[str, AddonManager | None]:
-    """Fuer den Waechter: jeder config-Slug einzeln aus EINEM addons.list() (Zuordnung wie in der Modul-Doku:
-    Repository per `source`, genauer Slug), ohne Mindestversion. Nicht oder mehrfach installiert -> None (mit
-    einer Warnung, die die beiden Faelle unterscheidet). Ist Hass.io gar nicht geladen (Core/Container-
+async def async_find_bridge_manager(hass: HomeAssistant) -> AddonManager | None:
+    """Fuer den Waechter: der AddonManager der Heizungsbruecke aus EINEM addons.list() (Zuordnung wie in der
+    Modul-Doku: Repository per `source`, genauer Slug), ohne Mindestversion. Nicht oder mehrfach installiert -> None
+    (mit einer Warnung, die die beiden Faelle unterscheidet). Ist Hass.io gar nicht geladen (Core/Container-
     Installation, aus einem Backup wiederhergestellt) wuerde get_supervisor_client() mit einem rohen
     KeyError abbrechen -- das wird hier zu einer regulaeren AddonError, damit der Aufrufer sauber degradiert
     statt mittendrin abzubrechen. Eine SupervisorError beim eigentlichen Abruf wird ebenfalls AddonError."""
@@ -187,13 +180,9 @@ async def async_find_addon_managers(
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
         raise AddonError(f"Supervisor nicht erreichbar bei der Add-on-Aufloesung: {type(error).__name__}") from None
-    managers: dict[str, AddonManager | None] = {}
-    for name, config_slug in addon_specs:
-        matches = matching_addons(installed, repository_slug, config_slug)
-        if len(matches) == 1:
-            managers[config_slug] = AddonManager(hass, _LOGGER, name, matches[0].slug)
-            continue
-        reason = "nicht installiert" if not matches else "mehrfach installiert"
-        _LOGGER.warning("Add-on %s (%s) ist %s, wird uebersprungen", name, config_slug, reason)
-        managers[config_slug] = None
-    return managers
+    matches = matching_addons(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG)
+    if len(matches) == 1:
+        return AddonManager(hass, _LOGGER, ADDON_NAME, matches[0].slug)
+    reason = "nicht installiert" if not matches else "mehrfach installiert"
+    _LOGGER.warning("Add-on %s (%s) ist %s, wird uebersprungen", ADDON_NAME, HEIZUNGSBRUECKE_ADDON_SLUG, reason)
+    return None

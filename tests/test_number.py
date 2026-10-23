@@ -56,11 +56,51 @@ async def test_setting_fires_only_the_local_event(hass, aioclient_mock, hass_adm
     assert [e.data for e in events] == [{"raum_soll": 22.5}]
     assert (events[0].context.id, events[0].context.user_id) == (context.id, hass_admin_user.id)
     assert aioclient_mock.call_count == 0
-    # Bis zum naechsten Status-Ereignis zeigt die Entity den gesetzten Wert, danach den wirksamen.
-    assert float(hass.states.get(WUNSCH).state) == 22.5
+    # A6-41: die Anzeige folgt nur dem Status-Ereignis, nicht dem Setzen (siehe test_wert_erscheint_erst_...).
+    assert hass.states.get(WUNSCH).state == "unknown"
+
+
+async def test_wert_erscheint_erst_mit_dem_status_ereignis(hass):
+    """A6-41: nach dem Setzen zeigt die Entity weiter den wirksamen Soll aus dem Status-Ereignis; der gesetzte Wert
+    erscheint erst, wenn das Add-on ihn uebernommen und gemeldet hat (es sendet je Geraete-Takt ein Ereignis). Wurde
+    er nicht uebernommen (hier 22,0 statt 22,5), steht der wirksame Wert da, nie der nur gewuenschte."""
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event(raum_soll=21.5))
+    await hass.async_block_till_done()
+
+    await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 22.5}, blocking=True)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(WUNSCH).state) == 21.5  # noch das alte Ereignis
+
     hass.bus.async_fire(STATUS_EVENT, _event(raum_soll=22.0))
     await hass.async_block_till_done()
-    assert float(hass.states.get(WUNSCH).state) == 22.0
+    assert float(hass.states.get(WUNSCH).state) == 22.0  # was das Add-on wirklich anwendet
+
+    hass.bus.async_fire(STATUS_EVENT, _event(raum_soll=22.5))
+    await hass.async_block_till_done()
+    assert float(hass.states.get(WUNSCH).state) == 22.5
+
+
+@pytest.mark.parametrize("watchdog_status", ["addon_gestoppt", "reagiert_nicht"])
+async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status):
+    """A6-41: meldet der Waechter das Add-on als gestoppt oder nicht reagierend, nimmt die Entity keinen Wunsch an
+    (er ginge ins Leere): `addon_nicht_bereit`, kein Ereignis, die Anzeige bleibt. Mit der Entwarnung geht es wieder."""
+    entry = await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    events = _listen(hass)
+    entry.runtime_data.watchdog_status = watchdog_status
+
+    with pytest.raises(ServiceValidationError) as error:
+        await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
+    assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, "addon_nicht_bereit")
+    await hass.async_block_till_done()
+    assert events == [] and float(hass.states.get(WUNSCH).state) == 21.5
+
+    entry.runtime_data.watchdog_status = None
+    await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
+    await hass.async_block_till_done()
+    assert [e.data["raum_soll"] for e in events] == [23.0]
 
 
 async def test_an_automation_context_is_passed_on(hass):
@@ -83,7 +123,6 @@ async def test_the_value_is_rounded_to_the_half_degree_step(hass, value, sent):
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": value}, blocking=True)
     await hass.async_block_till_done()
     assert [e.data for e in events] == [{"raum_soll": sent}]
-    assert float(hass.states.get(WUNSCH).state) == sent
 
 
 async def test_a_non_finite_value_is_refused_without_an_event(hass):

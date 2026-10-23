@@ -38,7 +38,7 @@ neuesten `main`-Commit.
 - Den Gerätezustand gibt `geraet_zustand` im Status-Ereignis, nicht `status` (der Laufzeit-Teil sagt „startet“, solange
   das Add-on nicht konfiguriert ist).
 - Add-on-Slugs tragen einen Repo-Hash-Präfix (z. B. `f5f6325b_heizungsbruecke`):
-  `supervisor_client.async_resolve_addons`.
+  `supervisor_client.async_resolve_bridge`.
 - `manifest.json`-Repo-URL = Name des GitHub-Repos (`SmartHeat-Integration`), nicht der lokale Ordnername.
 - Einträge ohne `geraet_id` (VERSION 2) bleiben ohne Migration im Zustand `MIGRATION_ERROR` (seit Stufe 4; kein eigener
   Text mehr); „Neu konfigurieren“ bricht bei ihnen mit `unknown` ab. Die Entity-IDs und `unique_id`s von `client1` (13)
