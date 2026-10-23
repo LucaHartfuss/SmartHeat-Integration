@@ -152,7 +152,8 @@ WATCHDOG_MESSAGES = {
     STATUS_ADDON_GESTOPPT: ("SmartHeat: Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. "
                             "SmartHeat startet es neu."),
     STATUS_REAGIERT_NICHT: ("SmartHeat: Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die "
-                            "Heizungssteuerung ist unterbrochen. SmartHeat startet es neu."),
+                            "Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons prüfen; "
+                            "wenn möglich, startet SmartHeat es neu."),
 }
 WATCHDOG_REASONS = {
     STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: Heizungsbrücke",

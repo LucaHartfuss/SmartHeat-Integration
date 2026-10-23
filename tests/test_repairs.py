@@ -173,6 +173,40 @@ def test_gewoehnlicher_deutscher_text_bleibt_lesbar(hass):
     assert _angezeigt(hass, text) == text
 
 
+@pytest.mark.parametrize("text, erwartet", [
+    ("- Punkt", "\\- Punkt"),
+    ("+ Punkt", "\\+ Punkt"),
+    ("* Punkt", "\\* Punkt"),
+    ("1. Punkt", "1\\. Punkt"),
+    ("2) Punkt", "2\\) Punkt"),
+    ("    Code", "Code"),
+    ("\t\n  Text", "Text"),
+    ("---", "\\---"),
+    ("===", "\\==="),
+    ("> Zitat", "\\> Zitat"),
+    ("# Titel", "\\# Titel"),
+    ("-5 K", "\\-5 K"),
+])
+def test_servertext_beginnt_keinen_markdown_block(hass, text, erwartet):
+    """Security-Nachtrag A6-42, Fix-Runde 1: steht der Text am Anfang der Beschreibung, wuerde fuehrende Block-Syntax
+    (Liste, Codeblock, Linie, Ueberschrift, Zitat) eine Darstellung erzeugen. Fuehrender Leerraum faellt weg, ein
+    fuehrendes `-`, `+`, `=` wird maskiert (Ziffer mit Punkt und `*`, `>`, `#` maskiert schon die Zeichenliste)."""
+    assert _angezeigt(hass, text) == erwartet
+
+
+def test_ein_bindestrich_mitten_im_text_bleibt_unveraendert(hass):
+    """Gegenprobe: nur am Anfang wird maskiert (`SmartHeat-Dienst` bleibt lesbar)."""
+    assert _angezeigt(hass, "Der SmartHeat-Dienst - 5 K") == "Der SmartHeat-Dienst - 5 K"
+
+
+def test_servertext_ohne_bidi_und_zero_width_zeichen(hass):
+    """Security-Nachtrag A6-42, Fix-Runde 1: Zero-width- und Bidi-Steuerzeichen (U+200B-200F, U+202A-202E,
+    U+2066-2069, U+FEFF) koennten den Text optisch umdrehen oder Zeichen verstecken: sie fallen weg."""
+    zeichen = [chr(c) for c in (*range(0x200B, 0x2010), *range(0x202A, 0x202F), *range(0x2066, 0x206A), 0xFEFF)]
+    assert _angezeigt(hass, "a" + "".join(zeichen) + "b\u202Ec\u200Bd") == "abcd"
+    assert _angezeigt(hass, "ä ö ü ß – 21,5 °C") == "ä ö ü ß – 21,5 °C"  # Gegenprobe: Umlaute usw. bleiben
+
+
 def test_servertext_wird_gekuerzt(hass):
     """A6-42: der Text eines Hinweises hat hoechstens ERROR_TEXT_MAX Zeichen (vor der Maskierung); danach stehen
     keine halben Maskierungen am Ende."""

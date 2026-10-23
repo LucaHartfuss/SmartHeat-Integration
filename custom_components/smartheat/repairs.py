@@ -26,15 +26,20 @@ GERAET_HINWEIS = "geraet_hinweis"
 # (`https://…`, `www.…`, E-Mail-Adressen). Ein Backslash vor einem ASCII-Satzzeichen zeigt dieses woertlich.
 _MARKDOWN = re.compile(r"([\\`*_\[\]()<>#!|~&:.@])")
 _STEUERZEICHEN = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+# Zero-width- und Bidi-Steuerzeichen: sie verstecken Zeichen oder drehen den Text optisch um.
+_UNSICHTBAR = re.compile("[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+_BLOCKANFANG = re.compile(r"^[-+=]")  # Liste, Linie, Setext-Ueberschrift; `*`, `>`, `#`, Ziffer mit Punkt maskiert _MARKDOWN
 
 
 def _klartext(text: object) -> str:
-    """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues (A6-42): auf ERROR_TEXT_MAX
-    Zeichen gekuerzt, Zeilenumbrueche und andere Steuerzeichen zu Leerzeichen (kein eigener Block), dann jedes
-    Markdown-Zeichen sowie `&`, `:`, `.` und `@` mit `\\` maskiert -- weder ein Link (auch kein automatisch erkannter)
-    noch Formatierung kommt durch."""
-    gekuerzt = _STEUERZEICHEN.sub(" ", str(text or "")[:ERROR_TEXT_MAX])
-    return _MARKDOWN.sub(r"\\\1", gekuerzt)
+    """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues (A6-42): Zeilenumbrueche und andere
+    Steuerzeichen zu Leerzeichen, Zero-width- und Bidi-Zeichen weg, fuehrender Leerraum weg (sonst Codeblock), auf
+    ERROR_TEXT_MAX Zeichen gekuerzt, dann jedes Markdown-Zeichen sowie `&`, `:`, `.` und `@` mit `\\` maskiert und ein
+    fuehrendes `-`, `+`, `=` ebenso -- weder ein Link (auch kein automatisch erkannter) noch Formatierung noch ein
+    Block (Liste, Linie, Ueberschrift) kommt durch."""
+    sauber = _UNSICHTBAR.sub("", _STEUERZEICHEN.sub(" ", str(text or ""))).lstrip()
+    maskiert = _MARKDOWN.sub(r"\\\1", sauber[:ERROR_TEXT_MAX])
+    return _BLOCKANFANG.sub(r"\\\g<0>", maskiert)
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
