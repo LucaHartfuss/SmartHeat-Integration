@@ -1,4 +1,4 @@
-"""Sensoren der SmartHeat-Integration (Spec TP7 1.2; Spec 5c 8: Hebel aus entry.data, Schluessel wie bis 0.16)."""
+"""Sensoren der SmartHeat-Integration (Hebel aus entry.data, Schluessel stabil fuer die Entity-IDs von client1)."""
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -75,7 +75,7 @@ FIELDS = (
 )
 
 
-# Stabile Schluessel je Hebel (Plan 3c, Praezisierung 8): die Entity-IDs von client1 bleiben gleich.
+# Stabile Schluessel je Hebel: die Entity-IDs von client1 bleiben gleich.
 _LEVER_KEYS = {"curve": "heizkurve", "level": "niveau", "heat_limit": "heizgrenze", "min_flow": "mindestvorlauf"}
 _TEMPERATURE_LEVERS = frozenset({"room_setpoint", "heat_limit", "min_flow"})
 
@@ -107,7 +107,7 @@ LEARNED_FIELDS = (
 )
 
 
-# Reihenfolge der Hebel wie bis 0.16 (LEVER_OPTIONS): gleiche Entity-Reihenfolge fuer client1.
+# Feste Reihenfolge der Hebel (LEVER_OPTIONS): gleiche Entity-Reihenfolge fuer client1.
 _LEVER_ORDER = ("curve", "room_setpoint", "level", "heat_limit", "min_flow")
 
 

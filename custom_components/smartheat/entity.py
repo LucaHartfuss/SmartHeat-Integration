@@ -1,5 +1,5 @@
 """Basis der SmartHeat-Entities: ein Geraet je Tenant, Wert aus dem Coordinator, bis dahin der
-zuletzt gespeicherte Stand (RestoreEntity, Spec TP7 1.2)."""
+zuletzt gespeicherte Stand (RestoreEntity)."""
 from __future__ import annotations
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN

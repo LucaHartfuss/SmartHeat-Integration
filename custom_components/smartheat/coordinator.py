@@ -1,4 +1,4 @@
-"""Status und zweiter Waechter je Config-Entry (Spec TP7 1.2, 1.3; Spec 5c 2.2). Die Integration laeuft im
+"""Status und zweiter Waechter je Config-Entry. Die Integration laeuft im
 HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte Status-Ereignis (Schema 3) ihres Geraets
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
@@ -71,7 +71,7 @@ class Watchdog:
         """(Waechter-Status oder None, ob die Heizungsbruecke jetzt (neu) gestartet wird). `running`: laeuft laut
         Supervisor; `None`, wenn sich die Bruecke nicht aufloesen laesst (nicht oder mehrfach installiert, Repository
         unter anderer Adresse): das zaehlt nie als "laeuft nicht" und fuehrt nie zu einem Start, nur die Stille
-        meldet dann "reagiert nicht" (5c-I-4). "Laeuft nicht" zaehlt erst ab STOPPED_AFTER_CHECKS Pruefungen in
+        meldet dann "reagiert nicht". "Laeuft nicht" zaehlt erst ab STOPPED_AFTER_CHECKS Pruefungen in
         Folge (der Supervisor-Watchdog hat Vortritt); Stille zaehlt ab dem spaeteren von letztem Event und letztem
         eigenen (Neu-)Start -- ein frisch gestartetes Add-on bekommt so eine Schonfrist, bevor es erneut als
         "reagiert nicht" gilt, statt sofort wieder gemeldet zu werden. Ohne Event und ohne eigenen Start zaehlt die
@@ -99,7 +99,7 @@ class Watchdog:
 
     def _incident_resolved(self, running: bool | None) -> bool:
         """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam und die Bruecke dabei (bzw. seither) nicht
-        als gestoppt gilt (Spec 1.3: "Kommt wieder ein Event und laeuft das Add-on")."""
+        als gestoppt gilt."""
         if self.incident_since is None:
             return False
         if self.last_event_at is None or self.last_event_at <= self.incident_since:
@@ -173,7 +173,7 @@ class SmartHeatCoordinator:
                 "Status-Event mit unbekanntem schema/status ignoriert: %r/%r", data.get("schema"), data.get("status"),
             )
             return
-        # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, A5-85); fehlende bleiben fehlend.
+        # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS); fehlende bleiben fehlend.
         self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data}
         self._watchdog.event_received(_now())
         hinweise = data.get("geraet_hinweise")
@@ -195,10 +195,10 @@ class SmartHeatCoordinator:
             try:
                 manager = await async_find_bridge_manager(self.hass)
             except AddonError as error:
-                # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
+                # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren.
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)
                 return
-            running: bool | None = None  # None: Bruecke nicht aufloesbar (5c-I-4, siehe Watchdog.check)
+            running: bool | None = None  # None: Bruecke nicht aufloesbar (siehe Watchdog.check)
             if manager is not None:
                 try:
                     info = await manager.async_get_addon_info()

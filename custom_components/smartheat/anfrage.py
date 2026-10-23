@@ -1,4 +1,4 @@
-"""Bodies der Einrichtungs-API (V3, Spec Stufe 3 S5 4): ohne jeden Import, damit Contract-Check und E2E die Datei per
+"""Bodies der Einrichtungs-API (V3): ohne jeden Import, damit Contract-Check und E2E die Datei per
 Pfad laden und dieselben Anfragen bauen wie der Assistent (config_flow)."""
 
 

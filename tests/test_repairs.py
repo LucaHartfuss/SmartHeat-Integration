@@ -1,4 +1,4 @@
-"""Spec 5c 1.3/2.2: Hinweise des Geraets werden HA-Reparatur-Hinweise; verschwindet ein Hinweis, verschwindet das
+"""Hinweise des Geraets werden HA-Reparatur-Hinweise; verschwindet ein Hinweis, verschwindet das
 Issue. Je Schluessel ein nicht behebbares Issue, bekannte Schluessel mit eigenem Text."""
 import json
 import re
@@ -113,7 +113,7 @@ _MARKDOWN_ZEICHEN = "\\`*_[]()<>#!|~&:.@"
 
 
 def test_servertext_erscheint_als_klartext(hass):
-    """A6-42: HA stellt die Beschreibung eines Hinweises als Markdown dar; der Text kommt vom Geraet (und damit
+    """HA stellt die Beschreibung eines Hinweises als Markdown dar; der Text kommt vom Geraet (und damit
     mittelbar vom Server) und darf weder einen Link noch Formatierung einschleusen: jedes Markdown-Zeichen wird mit
     `\\` maskiert, der Nutzer liest den Text unveraendert."""
     text = "[Link](https://x) **fett** `code` <b>x</b> a_b # h ! i | t ~ s \\ ende"
@@ -148,7 +148,7 @@ _AUTOLINK = re.compile(r"(?<!\\)(?:[a-z][a-z0-9+.-]*://|www\.|[\w.+-]+@[\w-]+\.)
     "Mail an angreifer@evil.example", "ftp://evil.example/x",
 ])
 def test_servertext_enthaelt_keine_automatisch_verlinkte_adresse(hass, text):
-    """Security-Nachtrag A6-42: auch ohne Link-Syntax verlinkt Markdown nackte Adressen; `:`, `.` und `@` sind
+    """Auch ohne Link-Syntax verlinkt Markdown nackte Adressen; `:`, `.` und `@` sind
     maskiert, damit keine anklickbare Adresse entsteht (ein manipulierter Server koennte sonst einen Phishing-Link in
     einen Hinweis legen)."""
     assert text != _angezeigt(hass, text)
@@ -188,7 +188,7 @@ def test_gewoehnlicher_deutscher_text_bleibt_lesbar(hass):
     ("-5 K", "\\-5 K"),
 ])
 def test_servertext_beginnt_keinen_markdown_block(hass, text, erwartet):
-    """Security-Nachtrag A6-42, Fix-Runde 1: steht der Text am Anfang der Beschreibung, wuerde fuehrende Block-Syntax
+    """Steht der Text am Anfang der Beschreibung, wuerde fuehrende Block-Syntax
     (Liste, Codeblock, Linie, Ueberschrift, Zitat) eine Darstellung erzeugen. Fuehrender Leerraum faellt weg, ein
     fuehrendes `-`, `+`, `=` wird maskiert (Ziffer mit Punkt und `*`, `>`, `#` maskiert schon die Zeichenliste)."""
     assert _angezeigt(hass, text) == erwartet
@@ -200,7 +200,7 @@ def test_ein_bindestrich_mitten_im_text_bleibt_unveraendert(hass):
 
 
 def test_servertext_ohne_bidi_und_zero_width_zeichen(hass):
-    """Security-Nachtrag A6-42, Fix-Runde 1: Zero-width- und Bidi-Steuerzeichen (U+200B-200F, U+202A-202E,
+    """Zero-width- und Bidi-Steuerzeichen (U+200B-200F, U+202A-202E,
     U+2066-2069, U+FEFF) koennten den Text optisch umdrehen oder Zeichen verstecken: sie fallen weg."""
     zeichen = [chr(c) for c in (*range(0x200B, 0x2010), *range(0x202A, 0x202F), *range(0x2066, 0x206A), 0xFEFF)]
     assert _angezeigt(hass, "a" + "".join(zeichen) + "b\u202Ec\u200Bd") == "abcd"
@@ -208,7 +208,7 @@ def test_servertext_ohne_bidi_und_zero_width_zeichen(hass):
 
 
 def test_servertext_wird_gekuerzt(hass):
-    """A6-42: der Text eines Hinweises hat hoechstens ERROR_TEXT_MAX Zeichen (vor der Maskierung); danach stehen
+    """Der Text eines Hinweises hat hoechstens ERROR_TEXT_MAX Zeichen (vor der Maskierung); danach stehen
     keine halben Maskierungen am Ende."""
     repairs.async_update(hass, [{"key": "gesperrt", "text": "x" * 1000},
                                 {"key": "wunsch_begrenzt", "text": "*" * 1000}])
@@ -224,9 +224,9 @@ _ABGELEHNT_TEXT = "Die Einrichtung wurde abgelehnt (Code rolle_fehlt). Die Begr√
 
 
 async def test_hint_issues_keep_todays_ids_and_texts(hass):
-    """5c-I-14, heutiges Verhalten festgehalten: die Issue-ID ist nur `hinweis_<schluessel>` (nicht je Eintrag, passt zu
-    `single_config_entry`); die Beschreibung von `update_noetig` wiederholt nach dem Geraetetext dessen Anweisung; die
-    deutschen Geraetetexte stehen auch in den englischen Beschreibungen. Seit A6-42 stehen die Geraetetexte mit
+    """Heutiges Verhalten festgehalten (offene-punkte.md 5c-I-14): die Issue-ID ist nur `hinweis_<schluessel>` (nicht je
+    Eintrag, passt zu `single_config_entry`); die Beschreibung von `update_noetig` wiederholt nach dem Geraetetext dessen Anweisung; die
+    deutschen Geraetetexte stehen auch in den englischen Beschreibungen. Die Geraetetexte stehen mit
     maskierten Zeichen darin (`(`, `)`, `_`, `.`); HA stellt sie als Klartext dar."""
     entry = await _setup(hass)
     hass.bus.async_fire(STATUS_EVENT, {**EVENT, "geraet_hinweise": [

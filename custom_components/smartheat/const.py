@@ -1,4 +1,4 @@
-"""Konstanten der SmartHeat-Integration ab 1.0.0 (Spec 5c): Oberflaeche ueber der Einrichtungs-API des Servers, Status
+"""Konstanten der SmartHeat-Integration: Oberflaeche ueber der Einrichtungs-API des Servers, Status
 und Wunschtemperatur ueber das lokale Add-on. Ereignis-, Discovery- und Routen-Werte sind Cross-Repo-Vertrag
 (tools/contract_check.py im Dev-Root)."""
 import re
@@ -8,11 +8,11 @@ DEFAULT_BASE_URL = "https://accounts.hartfussha.org"
 OPTION_BOOTSTRAP_URL = "bootstrap_url"
 REQUEST_TIMEOUT_SECONDS = 30
 ERROR_TEXT_MAX = 300
-# Fehlerantworten der Einrichtungs-API (5c-I-11): Body hoechstens 64 KiB gelesen, `fehler`-Werte hoechstens 200 Zeichen.
+# Fehlerantworten der Einrichtungs-API: Body hoechstens 64 KiB gelesen, `fehler`-Werte hoechstens 200 Zeichen.
 FEHLER_BODY_MAX_BYTES = 65536
 FEHLER_WERT_MAX = 200
 
-# Status-Ereignis des Add-ons (Plan D Task 7): Schema 2 der Laufzeit plus Geraete-Felder.
+# Status-Ereignis des Add-ons: Schema 2 der Laufzeit plus Geraete-Felder.
 STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 3
 STATUS_EVENT_FIELDS = (
@@ -20,7 +20,7 @@ STATUS_EVENT_FIELDS = (
     "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
     "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise",
 )
-# Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen (A5-85).
+# Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen.
 HINWEIS_FIELDS = ("key", "stufe", "text")
 HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = HINWEIS_FIELDS
 HINWEIS_SOLL_QUELLE_AUS = "soll_quelle_aus"
@@ -49,25 +49,25 @@ DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
 HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")
 
-# Supervisor-Discovery des Add-ons (Plan D Task 8) und lokales Wunsch-Ereignis (Plan D Task 5).
+# Supervisor-Discovery des Add-ons und lokales Wunsch-Ereignis.
 DISCOVERY_SERVICE = "smartheat"
 DISCOVERY_FIELDS = ("geraet_id", "zustand", "claim_code")
 # Geraete-ID: "shg-" + 16 Zeichen Base32 (klein) des SHA-256 des oeffentlichen Schluessels (Add-on
 # smartheat_device/identity.device_id_for, Server device_protocol.DEVICE_ID_PREFIX/DEVICE_ID_HASH_CHARS).
 GERAET_ID_RE = re.compile(r"shg-[a-z2-7]{16}")
-# stdin-Zeile der Integration an die Heizungsbruecke beim Loeschen des Eintrags (L4-06): Kopie von
+# stdin-Zeile der Integration an die Heizungsbruecke beim Loeschen des Eintrags: Kopie von
 # heizungsbruecke/stdin_befehl.py (Add-on), Contract-Check Vertrag V5 (tools/contract_check.py im Dev-Root).
 STDIN_BEFEHL_ENTFERNEN = "entfernen"
 STDIN_ZEILE_FORMAT = "{befehl} {geraet_id}\n"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
-# Grenzen der Auswahl im Assistenten (5c-I-3): Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER,
+# Grenzen der Auswahl im Assistenten: Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER,
 # MAX_BATTERIEN, MAX_HANDYS (V3, Contract-Check 76); mehr lehnt der Server mit 400 ab.
 EINRICHTUNG_MAX_RAUMFUEHLER = 8
 EINRICHTUNG_MAX_BATTERIEN = 16
 EINRICHTUNG_MAX_HANDYS = 10
 
-# Einrichtungs-API (Server einrichtung_api.ROUTEN, Plan S Task 8).
+# Einrichtungs-API (Server einrichtung/api.py ROUTEN).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"
 EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
     "anmelden": ("POST", "/anmelden"),
@@ -83,7 +83,7 @@ EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
     "entfernen": ("POST", "/geraet/entfernen"),
     "auftrag": ("GET", "/geraet/auftraege/<job_id>"),
 }
-# V3-Felder der Einrichtungs-API (Spec Stufe 3 S5 4): Kopie von einrichtung/api.py (Server), Contract-Check (Vertrag
+# V3-Felder der Einrichtungs-API: Kopie von einrichtung/api.py (Server), Contract-Check (Vertrag
 # V3). Je Route (Pflicht, optional) bzw. die Felder der Antwort; die Werte stehen ausgeschrieben, damit der Vergleich
 # wortlich bleibt.
 EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
@@ -142,7 +142,7 @@ AUFTRAG_WAIT_SECONDS = 900
 ENTFERNEN_WAIT_SECONDS = 300
 POLL_SECONDS = 2
 
-# Waechter (Spec TP7 1.3), nur noch die Heizungsbruecke.
+# Waechter (nur die Heizungsbruecke).
 WATCHDOG_INTERVAL_SECONDS = 300
 STOPPED_AFTER_CHECKS = 2
 SILENCE_SECONDS = 900
@@ -171,7 +171,7 @@ def slug(tenant_id: str) -> str:
 
 
 def entity_id(platform: str, tenant_id: str, key: str) -> str:
-    """Feste Entity-IDs: sensor.smartheat_<slug>_status wie seit TP6 (client1-Dashboards)."""
+    """Feste Entity-IDs: sensor.smartheat_<slug>_status, unveraendert fuer die Dashboards von client1."""
     return f"{platform}.smartheat_{slug(tenant_id)}_{key}"
 
 

@@ -1,5 +1,5 @@
-"""Status-Ereignisse und Eintraege fuer die Integrationstests (Spec TP7, 5c). Add-ons und Supervisor bildet
-`supervisor_fakes.FakeSupervisor` an der Grenze nach (A5-25: kein Ersatz des `AddonManager` mehr)."""
+"""Status-Ereignisse und Eintraege fuer die Integrationstests. Add-ons und Supervisor bildet
+`supervisor_fakes.FakeSupervisor` an der Grenze nach; der `AddonManager` wird nicht ersetzt."""
 from __future__ import annotations
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -11,8 +11,7 @@ VAILLANT_HEBEL = ["curve", "room_setpoint", "heat_limit", "min_flow"]
 
 
 def status_event(tenant_id, status, *, grund=None, **overrides) -> dict:
-    """Volles Status-Ereignis Schema 3 (Laufzeit-Teil wie Spec TP7 1.1/Plan 3c, dazu die Geraete-Felder aus Plan D;
-    Geraet GERAET_ID)."""
+    """Volles Status-Ereignis Schema 3 (Laufzeit-Teil plus die Geraete-Felder; Geraet GERAET_ID)."""
     event = {
         "schema": STATUS_EVENT_SCHEMA, "tenant_id": tenant_id, "addon_version": "0.20.0",
         "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
@@ -28,7 +27,7 @@ def status_event(tenant_id, status, *, grund=None, **overrides) -> dict:
 
 def make_device_entry(hass, *, tenant_id="wohnung1", geraet_id=GERAET_ID, lever_set="vaillant_vrc720",
                       hebel=None, shift_lever="room_setpoint", profile_id="vaillant_gastherme_heizkoerper"):
-    """Eintrag ab 1.0.0 wie nach dem neuen Assistenten (Plan 5c I Task 4): Geraete-ID, Anlage, Profil, Hebel des
+    """Eintrag ab 1.0.0 wie nach dem Assistenten: Geraete-ID, Anlage, Profil, Hebel des
     Server-Vorschlags; keine Optionen."""
     entry = MockConfigEntry(
         domain=DOMAIN, version=3, unique_id=geraet_id, title=tenant_id,
@@ -41,7 +40,7 @@ def make_device_entry(hass, *, tenant_id="wohnung1", geraet_id=GERAET_ID, lever_
 
 def make_entry(hass, *, tenant_id="wohnung1", circuit_entry_id="mypyllant-entry", options=None, data=None, version=2,
                data_without=()):
-    """Vollstaendiger v2-Eintrag, wie ihn 0.16 anlegte (Spec TP7 2.1, Plan 3c: mit Hebelsatz). data_without: diese
+    """Vollstaendiger v2-Eintrag, wie ihn 0.16 anlegte (mit Hebelsatz). data_without: diese
     Schluessel fehlen (z. B. lever_set/shift_lever wie bei client1 vor dem Update)."""
     if data is None:
         data = {

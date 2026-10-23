@@ -1,4 +1,4 @@
-"""Spec 5c 2.2: Wunschtemperatur als number; Setzen feuert nur das lokale Ereignis smartheat_wunsch."""
+"""Wunschtemperatur als number; Setzen feuert nur das lokale Ereignis smartheat_wunsch."""
 from unittest.mock import patch
 
 import pytest
@@ -56,12 +56,12 @@ async def test_setting_fires_only_the_local_event(hass, aioclient_mock, hass_adm
     assert [e.data for e in events] == [{"raum_soll": 22.5}]
     assert (events[0].context.id, events[0].context.user_id) == (context.id, hass_admin_user.id)
     assert aioclient_mock.call_count == 0
-    # A6-41: die Anzeige folgt nur dem Status-Ereignis, nicht dem Setzen (siehe test_wert_erscheint_erst_...).
+    # Die Anzeige folgt nur dem Status-Ereignis, nicht dem Setzen (siehe test_wert_erscheint_erst_...).
     assert hass.states.get(WUNSCH).state == "unknown"
 
 
 async def test_wert_erscheint_erst_mit_dem_status_ereignis(hass):
-    """A6-41: nach dem Setzen zeigt die Entity weiter den wirksamen Soll aus dem Status-Ereignis; der gesetzte Wert
+    """Nach dem Setzen zeigt die Entity weiter den wirksamen Soll aus dem Status-Ereignis; der gesetzte Wert
     erscheint erst, wenn das Add-on ihn uebernommen und gemeldet hat (es sendet je Geraete-Takt ein Ereignis). Wurde
     er nicht uebernommen (hier 22,0 statt 22,5), steht der wirksame Wert da, nie der nur gewuenschte."""
     await _setup(hass)
@@ -83,7 +83,7 @@ async def test_wert_erscheint_erst_mit_dem_status_ereignis(hass):
 
 @pytest.mark.parametrize("watchdog_status", ["addon_gestoppt", "reagiert_nicht"])
 async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status):
-    """A6-41: meldet der Waechter das Add-on als gestoppt oder nicht reagierend, nimmt die Entity keinen Wunsch an
+    """Meldet der Waechter das Add-on als gestoppt oder nicht reagierend, nimmt die Entity keinen Wunsch an
     (er ginge ins Leere): `addon_nicht_bereit`, kein Ereignis, die Anzeige bleibt. Mit der Entwarnung geht es wieder."""
     entry = await _setup(hass)
     hass.bus.async_fire(STATUS_EVENT, _event())

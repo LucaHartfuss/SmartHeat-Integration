@@ -1,4 +1,4 @@
-"""Add-on-Steuerung der Integration (Spec 5c 2.1): Heizungsbruecke finden, bei Bedarf installieren und ohne Optionen
+"""Add-on-Steuerung der Integration: Heizungsbruecke finden, bei Bedarf installieren und ohne Optionen
 starten, Watchdog/Autostart, Discovery und die Option bootstrap_url lesen. Die Integration schreibt keine Optionen;
 nur das Add-on schreibt auf die Anlage."""
 from __future__ import annotations
@@ -88,14 +88,14 @@ async def async_install_and_start(hass: HomeAssistant) -> AddonManager:
 
 
 async def async_set_supervision(hass: HomeAssistant, slug: str) -> bool:
-    """Watchdog und Boot der Heizungsbruecke an (Spec TP7 2.6): watchdog + boot auto. True, wenn es gesetzt wurde;
+    """Watchdog und Boot der Heizungsbruecke an: watchdog + boot auto. True, wenn es gesetzt wurde;
     scheitert es, ist das nur eine Warnung des Aufrufers."""
     try:
         await get_supervisor_client(hass).addons.set_addon_options(
             slug, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO),
         )
     except SupervisorError as error:
-        # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
+        # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren.
         _LOGGER.warning("Watchdog/Boot fuer Add-on %s nicht gesetzt: %s", slug, type(error).__name__)
         return False
     return True
@@ -188,7 +188,7 @@ async def async_discovery(hass: HomeAssistant) -> dict | None:
 
 
 async def async_entfernen_melden(hass: HomeAssistant, geraet_id: object) -> None:
-    """Meldet das Geraet beim Loeschen des Eintrags ab (L4-06 Variante C): schreibt `entfernen <geraet_id>` als
+    """Meldet das Geraet beim Loeschen des Eintrags ab: schreibt `entfernen <geraet_id>` als
     stdin-Zeile an die eigene Heizungsbruecke (Supervisor `write_addon_stdin`); die Bruecke meldet das Geraet lokal ab
     (Markierung, Ursprungswerte). Kein Server-Aufruf; aus dem Konto entfernt der Kunde das Geraet im Portal. Wirft nie:
     jeder Fehler (keine oder ungueltige Geraete-ID, kein Supervisor, Bruecke fehlt oder mehrfach, Supervisor-Fehler,

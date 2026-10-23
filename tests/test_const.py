@@ -1,4 +1,4 @@
-"""Spec 5c: Konstanten der schlanken Integration (Ereignis Schema 3, Discovery, Routen, Bedienbereich)."""
+"""Konstanten der schlanken Integration (Ereignis Schema 3, Discovery, Routen, Bedienbereich)."""
 from custom_components.smartheat import const
 
 
@@ -72,7 +72,7 @@ def test_the_outdated_addon_text_names_the_minimum_version():
 
 
 def test_die_waechter_meldung_reagiert_nicht_verspricht_keinen_neustart():
-    """Fix-Runde 1: bei einer nicht aufloesbaren Bruecke (5c-I-4) gibt es keinen Neustart; die Meldung muss fuer beide
+    """Bei einer nicht aufloesbaren Bruecke gibt es keinen Neustart; die Meldung muss fuer beide
     Faelle stimmen und den Nutzer zur Pruefung auffordern."""
     text = const.WATCHDOG_MESSAGES["reagiert_nicht"]
     assert "startet es neu" not in text

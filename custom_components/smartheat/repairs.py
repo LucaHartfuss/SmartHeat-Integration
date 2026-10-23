@@ -1,4 +1,4 @@
-"""Reparatur-Hinweise aus den Hinweisen des Geraets (Spec 5c 1.3/2.2): je Schluessel ein nicht behebbares Issue;
+"""Reparatur-Hinweise aus den Hinweisen des Geraets: je Schluessel ein nicht behebbares Issue;
 bekannte Schluessel mit eigenem Text, andere mit dem Text des Geraets. Verschwindet ein Schluessel, verschwindet das
 Issue. Kein Fix-Flow (alle Issues sind nicht behebbar); HA laedt dieses Modul als repairs-Plattform nur fuer
 behebbare Issues."""
@@ -33,7 +33,7 @@ _BLOCKANFANG = re.compile(r"^[-+=]")
 
 
 def _klartext(text: object) -> str:
-    """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues (A6-42): Zeilenumbrueche und andere
+    """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues: Zeilenumbrueche und andere
     Steuerzeichen zu Leerzeichen, Zero-width- und Bidi-Zeichen weg, fuehrender Leerraum weg (sonst Codeblock), auf
     ERROR_TEXT_MAX Zeichen gekuerzt, dann jedes Markdown-Zeichen sowie `&`, `:`, `.` und `@` mit `\\` maskiert und ein
     fuehrendes `-`, `+`, `=` ebenso -- weder ein Link (auch kein automatisch erkannter) noch Formatierung noch ein

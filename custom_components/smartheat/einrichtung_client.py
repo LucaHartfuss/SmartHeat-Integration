@@ -1,4 +1,4 @@
-"""HTTP-Client der Einrichtungs-API (Spec 5c 2.1/3, Server einrichtung_api.py). Das Einrichtungs-Token lebt nur in
+"""HTTP-Client der Einrichtungs-API (Server: einrichtung/api.py). Das Einrichtungs-Token lebt nur in
 dieser Instanz, also im laufenden Assistenten; es wird nie gespeichert und nie geloggt (Regel 6), ebenso wenig
 Passwort und Uebernahme-Code. Logs nennen nur Route, Status und Fehlerart.
 
@@ -38,7 +38,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-# Pin (Spec Stufe 3 S5 4): die Felder, die dieser Client direkt liest (Token, Auftrags- und Befehls-ID).
+# Pin: die Felder, die dieser Client direkt liest (Token, Auftrags- und Befehls-ID).
 _VERTRAG_GEPINNT = {
     "ANTWORT_FELDER[anmelden]": (EINRICHTUNG_ANTWORT_FELDER["anmelden"], ("token",)),
     "ANTWORT_FELDER[inventur]": (EINRICHTUNG_ANTWORT_FELDER["inventur"], ("command_id",)),

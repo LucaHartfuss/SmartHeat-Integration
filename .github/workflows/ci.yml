@@ -1,5 +1,5 @@
 name: CI
-# Pruefstufen (Root-Runbook Abschnitt 3, Spec Testoffensive Nr. 30/35): alle Jobs gehoeren zur Standardstufe und laufen
+# Pruefstufen (Root-Runbook Abschnitt 3): alle Jobs gehoeren zur Standardstufe und laufen
 # bei Push (alle Branches, oeffentliches Repo ohne Minutenkosten), im Tageslauf und im Release (stufe: voll) gleich; die
 # Eingabe stufe ist deklariert, damit der Release-Workflow und workflow_dispatch sie wie in den anderen Repos uebergeben.
 # hassfest und hacs sind Container-Actions, gehoeren als Pflicht-Checks des Rulesets aber ausdruecklich zur

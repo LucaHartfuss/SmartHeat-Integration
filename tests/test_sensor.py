@@ -1,4 +1,4 @@
-"""Sensor-Felder je Hebel (Plan 3c Task 12; Spec 5c 8: Hebel aus entry.data["hebel"]): stabile Entity-Schluessel,
+"""Sensor-Felder je Hebel (Hebel aus entry.data["hebel"]): stabile Entity-Schluessel,
 Werte aus hebel/gelernt."""
 import pytest
 

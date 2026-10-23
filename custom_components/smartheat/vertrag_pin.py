@@ -1,4 +1,4 @@
-"""Pin gegen den Einrichtungs-Vertrag (Spec Stufe 3 S5 4): Ein Modul, das Felder einer Antwort als Literale liest,
+"""Pin gegen den Einrichtungs-Vertrag: Ein Modul, das Felder einer Antwort als Literale liest,
 pinnt sie hier beim Import gegen die Konstanten des Vertrags (`const.EINRICHTUNG_*_FELDER`); liest es ein Feld, das der
 Vertrag nicht nennt, ist das ein RuntimeError beim Import statt ein stilles None im Betrieb (kein assert: das
 verschwindet unter -O). Rein, ohne Home-Assistant-Import; gleiche Form wie geraete/vertrag_pin.py des Servers."""
