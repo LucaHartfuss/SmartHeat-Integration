@@ -72,7 +72,7 @@ def test_the_outdated_addon_text_names_the_minimum_version():
 
 
 def test_die_waechter_meldung_reagiert_nicht_verspricht_keinen_neustart():
-    """Fix-Runde 1: bei einer nicht aufloesbaren Bruecke gibt es keinen Neustart; die Meldung muss fuer beide
+    """Bei einer nicht aufloesbaren Bruecke gibt es keinen Neustart; die Meldung muss fuer beide
     Faelle stimmen und den Nutzer zur Pruefung auffordern."""
     text = const.WATCHDOG_MESSAGES["reagiert_nicht"]
     assert "startet es neu" not in text
