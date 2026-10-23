@@ -52,9 +52,9 @@ else
   PYEXE="$PWD/.venv/bin/python"
 fi
 # Dev-Root: in CI aus siblings.sh (DEV_ROOT), lokal der Ordner ueber dem Haupt-Checkout - auch aus einem
-# Worktree unter .devtools/wt/ (git-common-dir zeigt auf .git des Haupt-Checkouts; Audit 5, A5-08).
+# Worktree unter .devtools/wt/ (git-common-dir zeigt auf .git des Haupt-Checkouts).
 DEV="${DEV_ROOT:-$(cd "$(git rev-parse --git-common-dir)/../.." && pwd)}"
-# Toter Code (Stufe 3 S8b, A5-87): Ausnahmen mit Grund in vulture_ausnahmen.py.
+# Toter Code: Ausnahmen mit Grund in vulture_ausnahmen.py.
 lint() {
   py -m ruff check . && py -m pyright --pythonpath "$PYEXE" && py scripts/ci/pin_check.py --repo "$PWD" &&
     py -m vulture custom_components vulture_ausnahmen.py --min-confidence 60

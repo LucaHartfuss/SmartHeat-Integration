@@ -1,5 +1,5 @@
-"""Attrappe des Supervisor-Clients (`aiohasupervisor.SupervisorClient`) fuer die Integrationstests (Testoffensive
-T5', Spec Nr. 23: Attrappen nur an der Grenze und nur mit Spec). Die Integration und der HA-`AddonManager` holen ihren
+"""Attrappe des Supervisor-Clients (`aiohasupervisor.SupervisorClient`) fuer die Integrationstests (Attrappen nur
+an der Grenze). Die Integration und der HA-`AddonManager` holen ihren
 Client ueber `get_supervisor_client`; die Fixture `supervisor` setzt dort und bei `is_hassio` an. Eigene Funktionen der
 Integration werden nicht ersetzt.
 
@@ -175,7 +175,7 @@ class FakeSupervisor:
 
     def _write_addon_stdin(self, addon: str, stdin: bytes) -> None:
         """Der Supervisor schreibt nur in das stdin eines laufenden Containers; sonst 400 (Annahme nach der
-        Supervisor-Quelle, im Labor zu bestaetigen, L4-21)."""
+        Supervisor-Quelle, im Labor zu bestaetigen, offene-punkte.md L4-21)."""
         self._check("addons.write_addon_stdin", addon)
         if self._installed_or_404(addon).state != AddonState.STARTED:
             raise SupervisorBadRequestError(f"Add-on {addon} laeuft nicht")

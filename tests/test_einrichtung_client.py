@@ -1,4 +1,4 @@
-"""Spec 5c 2.1: Client der Einrichtungs-API (Token nur im Speicher, Fehler je Status)."""
+"""Client der Einrichtungs-API (Token nur im Speicher, Fehler je Status)."""
 import asyncio
 import datetime
 import ipaddress
@@ -396,7 +396,7 @@ async def test_zuordnung_und_geraet_werden_verschachtelt_gefiltert(aiohttp_clien
 ])
 async def test_verschachtelte_nicht_objekte_bleiben_unangetastet(aiohttp_client, kaputt):
     """Der Filter wirft nie und ersetzt nichts: Nicht-Objekte und fehlende Teile bleiben, wie sie sind (der Assistent
-    prueft sie wie bisher)."""
+    prueft sie selbst)."""
     client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag", _antwort(200, kaputt))])
     assert await client.vorschlag() == kaputt
 
@@ -444,7 +444,7 @@ async def test_filter_haelt_auf_oberster_ebene_genau_die_felder_aus_v3(aiohttp_c
     assert set(await client._dict(route, **kwargs)) == felder
 
 
-# --- Randfaelle des Clients (Testoffensive T2, F-ha-host-37) -----------------------------------------------------
+# --- Randfaelle des Clients -----------------------------------------------------
 
 _FEHLT = object()
 
@@ -474,7 +474,7 @@ async def test_erfolgsstatus_ausser_200_ist_ein_fehler_mit_dem_status(aiohttp_cl
 
 
 async def test_201_ist_ein_fehler(aiohttp_client, caplog):
-    """5c-I-11: nur 200 gilt als Erfolg; 201 mit gueltigem Body ist ein `ApiError` mit Status (kein Erfolg, keine
+    """Nur 200 gilt als Erfolg; 201 mit gueltigem Body ist ein `ApiError` mit Status (kein Erfolg, keine
     Antwort) und, weil nicht erwartet, eine WARNING."""
     client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(201, {"device_id": "d"}))])
     with caplog.at_level(logging.INFO, logger=einrichtung_client.__name__), pytest.raises(ApiError) as caught:
@@ -495,7 +495,7 @@ async def test_erfolgsstatus_ausser_200_gilt_auch_fuer_ids(aiohttp_client, statu
 @pytest.mark.parametrize("fehler", [["raumfuehler"], "raumfuehler", 7, None, True],
                          ids=["liste", "text", "zahl", "null", "bool"])
 async def test_fehler_kein_objekt_ergibt_keine_feldfehler(aiohttp_client, fehler):
-    """5c-I-11: `fehler` kein Objekt -> leere Feldfehler, der Text des Servers bleibt, kein Absturz."""
+    """`fehler` kein Objekt -> leere Feldfehler, der Text des Servers bleibt, kein Absturz."""
     body = {"error": "Zuordnung unvollständig", "fehler": fehler}
     client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
     with pytest.raises(Rejected) as caught:
@@ -515,7 +515,7 @@ async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_c
 @pytest.mark.parametrize("body", ["[1, 2]", '"fehler"', "7", "null", '{"fehler": ["a"]}'],
                          ids=["liste", "text", "zahl", "null", "fehler_liste"])
 async def test_fehler_body_kein_objekt_ergibt_weder_text_noch_feldfehler(aiohttp_client, body):
-    """5c-I-11: ein 400 mit JSON, das kein Objekt ist (oder `fehler` ohne Objekt), gibt leeren Text und keine
+    """Ein 400 mit JSON, das kein Objekt ist (oder `fehler` ohne Objekt), gibt leeren Text und keine
     Feldfehler."""
     async def handler(request):
         return web.Response(text=body, status=400, content_type="application/json")
@@ -527,7 +527,7 @@ async def test_fehler_body_kein_objekt_ergibt_weder_text_noch_feldfehler(aiohttp
 
 
 async def test_ein_fehler_wert_wird_auf_200_zeichen_gekuerzt(aiohttp_client):
-    """5c-I-11: ein vom Server gesteuerter `fehler`-Wert kommt in `Rejected.fehler` mit hoechstens 200 Zeichen an (der
+    """Ein vom Server gesteuerter `fehler`-Wert kommt in `Rejected.fehler` mit hoechstens 200 Zeichen an (der
     Body bleibt unter der Grenze von 64 KiB, sonst wird er gar nicht gelesen)."""
     body = {"error": "x", "fehler": {"raumfuehler": "y" * 20000, "kurz": "required"}}
     client = await _client(aiohttp_client, [("POST", "/geraet/einrichten", _antwort(400, body))])
@@ -558,7 +558,7 @@ class _Antwortkoerper:
 
 
 async def test_uebergrosser_fehlerbody_wird_nicht_gelesen():
-    """5c-I-11: ein Fehler-Body ueber 64 KiB wird hoechstens bis zur Grenze gelesen (kein JSON, Text leer, keine
+    """Ein Fehler-Body ueber 64 KiB wird hoechstens bis zur Grenze gelesen (kein JSON, Text leer, keine
     Feldfehler); ein Body knapp darunter wird noch ausgewertet."""
     zu_gross = json.dumps({"error": "gross", "fehler": {"a": "b"}, "fuell": "z" * 200000}).encode()
     antwort = _Antwortkoerper(400, zu_gross)
@@ -580,7 +580,7 @@ async def test_uebergrosser_fehlerbody_wird_nicht_gelesen():
     (einrichtung_client.FEHLER_BODY_MAX_BYTES + 1, False),
 ], ids=["genau_an_der_grenze", "ein_byte_darueber"])
 async def test_fehlerbody_grenze_genau_ein_byte(laenge, gelesen):
-    """5c-I-11, Grenzfall: ein Fehler-Body von genau FEHLER_BODY_MAX_BYTES Bytes wird noch ausgewertet (Text und
+    """Grenzfall: ein Fehler-Body von genau FEHLER_BODY_MAX_BYTES Bytes wird noch ausgewertet (Text und
     Feldfehler), einer mit einem Byte mehr nicht (Text leer, keine Feldfehler)."""
     rumpf = {"error": "grenze", "fehler": {"a": "b"}, "fuell": ""}
     rumpf["fuell"] = "z" * (laenge - len(json.dumps(rumpf).encode()))
@@ -595,7 +595,7 @@ async def test_fehlerbody_grenze_genau_ein_byte(laenge, gelesen):
 
 @pytest.mark.parametrize(("status", "ausnahme"), [(401, InvalidAuth), (404, NotFound), (409, Conflict), (429, TooMany)])
 async def test_erwartete_ablehnungen_loggen_info(aiohttp_client, caplog, status, ausnahme):
-    """5c-I-11: 401/404/409/429 sind erwartete Antworten des Servers (Token abgelaufen, Geraet unbekannt, Konflikt,
+    """401/404/409/429 sind erwartete Antworten des Servers (Token abgelaufen, Geraet unbekannt, Konflikt,
     Sperre): INFO. Gegenprobe: 400, 405 und 500 bleiben WARNING."""
     def stufen():
         return [r.levelno for r in caplog.records if r.name == einrichtung_client.__name__]
@@ -729,8 +729,8 @@ async def test_jede_route_trifft_methode_und_pfad_aus_v3(aiohttp_client, route, 
 
 @web.middleware
 async def _html_fehlerseiten(request, handler):
-    """Routing-404 und -405 als HTML-Seite. Der heutige Server antwortet unter dem Praefix mit JSON `{error}`
-    (5c-S-2); HTML kommt, wenn ein Proxy davor die Fehlerseite liefert oder ein Stand vor 5c-S-2 antwortet. Der Client
+    """Routing-404 und -405 als HTML-Seite. Der heutige Server antwortet unter dem Praefix mit JSON `{error}`;
+    HTML kommt, wenn ein Proxy davor die Fehlerseite liefert. Der Client
     muss beides nach dem Status abbilden."""
     try:
         return await handler(request)
@@ -749,8 +749,8 @@ async def _html_fehlerseiten(request, handler):
 async def test_eine_verschobene_route_bildet_den_client_nach_dem_status_ab(aiohttp_client, server_route,
                                                                            server_methode, aufruf, fehler, status):
     """Hat der Server eine Route verschoben (anderer Pfad bzw. andere Methode) oder kennt er sie gar nicht, kommt 404
-    bzw. 405 als HTML (Proxy oder Stand vor 5c-S-2): der Client bildet nach dem Status ab (NotFound bzw. ApiError mit
-    405), ohne Text und ohne Absturz. Fuehrt den frueheren `test_unrouted_path_gives_a_status_error_not_a_crash` mit."""
+    bzw. 405 als HTML (Proxy): der Client bildet nach dem Status ab (NotFound bzw. ApiError mit
+    405), ohne Text und ohne Absturz."""
     gesehen = []
 
     async def handler(request):

@@ -1,5 +1,5 @@
-"""Spec 5c 2.1: Assistent ueber der Einrichtungs-API (Discovery, manuell, Ersetzen, eingerichtetes Geraet,
-Neu konfigurieren, Fehler). Attrappen nur an der Grenze (Spec Nr. 23, A5-25): die Einrichtungs-API ist
+"""Assistent ueber der Einrichtungs-API (Discovery, manuell, Ersetzen, eingerichtetes Geraet,
+Neu konfigurieren, Fehler). Attrappen nur an der Grenze: die Einrichtungs-API ist
 `einrichtung_fakes.FakeServer` (autospec des `EinrichtungClient`), der Supervisor `supervisor_fakes.FakeSupervisor`
 (Fixture `supervisor`: Store, Add-ons, Optionen mit `bootstrap_url`, Discovery, Mindestversion ueber die Version des
 installierten Add-ons). Eigene Funktionen von `addon_control` und `supervisor_client` laufen echt."""
@@ -351,7 +351,7 @@ ANDERE_ID = "shg-bbbbbbbbbbbbbbbb"
 
 
 async def test_neue_discovery_beendet_den_offenen_flow_eines_anderen_geraets(hass, server):
-    """5c-W-10: meldet die Heizungsbruecke ein anderes Geraet (nach Neuinstallation), bleibt nicht der Flow des alten
+    """Meldet die Heizungsbruecke ein anderes Geraet (nach Neuinstallation), bleibt nicht der Flow des alten
     stehen: er wird beendet, nur der neue Flow ist offen. Gegenprobe: dieselbe Geraete-ID bleibt `already_in_progress`
     und laesst den offenen Flow stehen."""
     alt = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
@@ -371,7 +371,7 @@ async def test_neue_discovery_beendet_den_offenen_flow_eines_anderen_geraets(has
 
 
 async def test_eine_ungueltige_discovery_beendet_keinen_offenen_flow(hass, server):
-    """5c-W-10, Gegenprobe: die Herkunftspruefung kommt zuerst; eine verworfene Discovery (fremdes Add-on) laesst den
+    """Gegenprobe: die Herkunftspruefung kommt zuerst; eine verworfene Discovery (fremdes Add-on) laesst den
     offenen Flow des Geraets unberuehrt."""
     alt = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
 
@@ -526,7 +526,7 @@ def _fremde_bruecke(supervisor) -> None:
 
 
 async def test_a_foreign_bridge_next_to_ours_aborts_the_login(hass, server, supervisor):
-    """L4-04: im Ablauf mit vorhandener Bruecke (Discovery der eigenen Bruecke) kein Rueckfall auf die Produktion und
+    """Im Ablauf mit vorhandener Bruecke (Discovery der eigenen Bruecke) kein Rueckfall auf die Produktion und
     kein Client. (Ein doppelter Repository-Eintrag verwirft schon die Discovery: `_von_der_heizungsbruecke`.)"""
     _fremde_bruecke(supervisor)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
@@ -540,7 +540,7 @@ async def test_a_foreign_bridge_next_to_ours_aborts_the_login(hass, server, supe
 @pytest.mark.parametrize(("aufbau", "grund"), [
     (_doppeltes_repository, "repository_mehrdeutig"), (_fremde_bruecke, "fremde_heizungsbruecke")])
 async def test_the_manual_start_checks_before_the_installation(hass, server, supervisor, aufbau, grund):
-    """L4-04: `_addon_starten` prueft vor `async_install_and_start`: nichts wird installiert, gestartet, gesetzt."""
+    """`_addon_starten` prueft vor `async_install_and_start`: nichts wird installiert, gestartet, gesetzt."""
     aufbau(supervisor)
     supervisor.installed = [addon for addon in supervisor.installed if addon.slug != BRIDGE_SLUG]  # noch nicht installiert
     supervisor.store_addons = {BRIDGE_SLUG: "1.0.0"}
@@ -656,7 +656,7 @@ async def test_no_supported_integration_shows_the_server_text(hass, server):
                                       {"zustand": "fehlgeschlagen", "fehler": 7}],
                          ids=["null", "fehlt", "leer", "zahl"])
 async def test_abgelaufene_inventur_nennt_das_nicht_erreichbare_geraet(hass, server, inventur):
-    """5c-I-2: ein abgelaufener Inventur-Befehl hat keinen Fehlertext; der Abbruch nennt dann, dass das Geraet nicht
+    """Ein abgelaufener Inventur-Befehl hat keinen Fehlertext; der Abbruch nennt dann, dass das Geraet nicht
     erreichbar war (Text der UI-Sprache), nicht „-“."""
     hass.config.language = "de"
     server.inventur_ergebnis = inventur
@@ -702,8 +702,8 @@ async def test_several_integrations_show_the_selection_step(hass, server):
 
 async def _anlage_waehlen_per_rest(hass, eingabe):
     """Wie die REST-API von HA: der Client schickt waehrend des Fortschritts der Inventur `eingabe` statt keiner
-    Eingabe; HA reicht sie an den naechsten Schritt (integration) weiter, der kein Formular gezeigt hat (Labor
-    2026-10-20, L4-08)."""
+    Eingabe; HA reicht sie an den naechsten Schritt (integration) weiter, der kein Formular gezeigt hat (im
+    Labor beobachtet)."""
     result = await hass.config_entries.flow.async_configure((await _bis_anlage(hass))["flow_id"], {"anlage": TENANT})
     assert result["type"] == FlowResultType.SHOW_PROGRESS
     while result["type"] in (FlowResultType.SHOW_PROGRESS, FlowResultType.SHOW_PROGRESS_DONE):
@@ -833,7 +833,7 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
 @pytest.mark.parametrize(("feld", "bezeichnung"), [("raumfuehler", "Raumfühler"),
                                                    ("room_target", "Wunschtemperatur-Entity")])
 async def test_ohne_raumfuehler_kandidaten_bricht_ab(hass, server, feld, bezeichnung):
-    """5c-I-3 (a): ohne Kandidaten fuer Raumfuehler oder Raum-Soll bricht der Assistent wie bei einer Pflichtrolle mit
+    """Ohne Kandidaten fuer Raumfuehler oder Raum-Soll bricht der Assistent wie bei einer Pflichtrolle mit
     `rolle_ohne_kandidaten` und der Bezeichnung des Felds ab (statt ein Pflichtfeld mit leerem Selektor zu zeigen)."""
     hass.config.language = "de"
     server.zuordnung_antwort = {**ZUORDNUNG, feld: {"kandidaten": [], "vorschlag": None}}
@@ -867,7 +867,7 @@ _ANLAGENWERTE = {"curve": "number.zuhause_circuit_0_heating_curve",
 
 @pytest.mark.parametrize("feld", ["raumfuehler", "batterien", "benachrichtigung"])
 async def test_eine_auswahl_an_der_grenze_wird_angenommen(hass, server, feld):
-    """5c-I-3 (b), Gegenprobe: genau 8 Raumfuehler, 16 Batterien, 10 Handys gehen zur Pruefung und zum Server."""
+    """Gegenprobe: genau 8 Raumfuehler, 16 Batterien, 10 Handys gehen zur Pruefung und zum Server."""
     grenze = {"raumfuehler": 8, "batterien": 16, "benachrichtigung": 10}[feld]
     _viele_kandidaten(server)
     auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld][:grenze]}
@@ -884,7 +884,7 @@ async def test_eine_auswahl_an_der_grenze_wird_angenommen(hass, server, feld):
 
 
 async def test_neun_raumfuehler_markieren_das_feld(hass, server):
-    """5c-I-3 (b): 9 Raumfuehler (Grenze 8) zeigen das Formular `raeume` wieder, Feld `raumfuehler` mit `zu_viele`; die
+    """9 Raumfuehler (Grenze 8) zeigen das Formular `raeume` wieder, Feld `raumfuehler` mit `zu_viele`; die
     Auswahl bleibt vorbelegt, es geht nichts an den Server."""
     _viele_kandidaten(server)
     result = await _bis_raeume(hass)
@@ -905,7 +905,7 @@ async def test_neun_raumfuehler_markieren_das_feld(hass, server):
 
 @pytest.mark.parametrize(("feld", "zu_viele"), [("batterien", 17), ("benachrichtigung", 11)])
 async def test_zu_viele_batterien_oder_handys_markieren_das_feld(hass, server, feld, zu_viele):
-    """5c-I-3 (b): 17 Batterien (Grenze 16) bzw. 11 Handys (Grenze 10) zeigen `benachrichtigung` wieder, am Feld mit
+    """17 Batterien (Grenze 16) bzw. 11 Handys (Grenze 10) zeigen `benachrichtigung` wieder, am Feld mit
     `zu_viele`; keine Pruefung beim Server."""
     _viele_kandidaten(server)
     auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld]}
@@ -930,7 +930,7 @@ async def test_zu_viele_batterien_oder_handys_markieren_das_feld(hass, server, f
 
 
 async def test_die_grenzen_gelten_auch_unmittelbar_vor_der_pruefung(hass, server):
-    """5c-I-3 (b): auch wenn eine zu grosse Auswahl bis zur Zusammenfassung gelangt waere, geht sie nicht zum Server:
+    """Auch wenn eine zu grosse Auswahl bis zur Zusammenfassung gelangt waere, geht sie nicht zum Server:
     die Pruefung vor `pruefen` schickt in das Formular des Felds zurueck."""
     _viele_kandidaten(server)
     result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": _VIELE["raumfuehler"][:1],
@@ -1200,7 +1200,7 @@ async def test_failed_removal_has_its_own_text_and_keeps_the_entry(hass, server)
 
 
 async def test_ein_entfernen_ohne_rueckmeldung_entfernt_den_eintrag_trotzdem(hass, server, supervisor, monkeypatch):
-    """5c-I-1: antwortet das Geraet in den 300 s nicht, ist der Eintrag trotzdem entfernt (wie bei „entfernt“): das
+    """Antwortet das Geraet in den 300 s nicht, ist der Eintrag trotzdem entfernt (wie bei „entfernt“): das
     Loeschen meldet das Geraet lokal ab (stdin-Zeile), der Server gibt es frei, sobald es erreichbar ist."""
     entry = await _eingerichtet(hass, server)
     server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
@@ -1221,7 +1221,7 @@ async def test_ein_entfernen_ohne_rueckmeldung_entfernt_den_eintrag_trotzdem(has
                                   {"geraet_id": "shg-aaaaaaaaaaaaaaa1", "tenant_id": TENANT}],
                          ids=["fehlt", "null", "leer", "zahl", "falsche_form"])
 async def test_reconfigure_without_a_valid_device_id_aborts_before_login(hass, server, caplog, data):
-    """S4-Reconfigure: ein Eintrag ohne gueltige Geraete-ID (etwa VERSION 2, MIGRATION_ERROR) bricht mit `unknown` ab
+    """Ein Eintrag ohne gueltige Geraete-ID (etwa VERSION 2, MIGRATION_ERROR) bricht mit `unknown` ab
     statt mit einem KeyError; es entsteht kein Client und keine Anfrage."""
     entry = MockConfigEntry(domain=DOMAIN, data=data, version=config_flow.SmartHeatConfigFlow.VERSION, title=TENANT)
     entry.add_to_hass(hass)
@@ -1283,7 +1283,7 @@ def test_every_step_error_and_abort_has_a_text(path):
 
 @pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
 def test_neue_texte_des_assistenten_sind_in_allen_sprachen_da(path):
-    """5c-I-1/-2/-3: Abbruchtext beim unerreichbaren Geraet (Eintrag ist entfernt), Hinweis „Geraet nicht erreichbar“,
+    """Abbruchtext beim unerreichbaren Geraet (Eintrag ist entfernt), Hinweis „Geraet nicht erreichbar“,
     Feldfehler `zu_viele`."""
     data = json.loads((_COMPONENT / path).read_text(encoding="utf-8"))
     deutsch = path.endswith("de.json")

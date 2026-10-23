@@ -1,9 +1,9 @@
-"""Wunschtemperatur als Entity (Spec 5c 1.3/2.2): fuer HA-Automationen und das Dashboard. Setzen feuert nur das lokale
+"""Wunschtemperatur als Entity: fuer HA-Automationen und das Dashboard. Setzen feuert nur das lokale
 Ereignis smartheat_wunsch (mit dem Kontext des Dienstaufrufs: Nutzer oder Automation); das Add-on wendet den Wert
 sofort lokal an (Boost bei Erhoehung, auch ohne Internet) und meldet ihn als Bedienwunsch an den Server. Kein
 Server-Aufruf aus der Integration. Angezeigt wird allein der wirksame Soll aus dem Status-Ereignis (nach dem Setzen
-erst mit dem naechsten Ereignis, A6-41). Solange das Thermostat aus ist (Hinweis soll_quelle_aus) oder der Waechter das
-Add-on als gestoppt bzw. nicht reagierend meldet, lehnt die Entity ab (5c F/Q3, A6-41)."""
+erst mit dem naechsten Ereignis). Solange das Thermostat aus ist (Hinweis soll_quelle_aus) oder der Waechter das
+Add-on als gestoppt bzw. nicht reagierend meldet, lehnt die Entity ab."""
 from __future__ import annotations
 
 from math import floor, isfinite
@@ -84,5 +84,5 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="thermostat_aus")
         raum_soll = _auf_schritt(float(value))
         # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet nur bei
-        # einer Aenderung, binnen etwa einer Sekunde), also dem, was das Add-on wirklich anwendet (A6-41).
+        # einer Aenderung, binnen etwa einer Sekunde), also dem, was das Add-on wirklich anwendet.
         self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)

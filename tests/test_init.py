@@ -1,5 +1,5 @@
-"""Einrichten und Entfernen des Eintrags ab 1.0.0 (Spec 5c 2.2, 4, 8): stabile Entities fuer client1, verwaiste
-Entities weg, Entfernen ohne Server und ohne das Add-on anzuhalten; seit L4-06 meldet das Entfernen das Geraet ueber
+"""Einrichten und Entfernen des Eintrags: stabile Entities fuer client1, verwaiste
+Entities weg, Entfernen ohne Server und ohne das Add-on anzuhalten; das Entfernen meldet das Geraet ueber
 das stdin der Heizungsbruecke ab."""
 import logging
 
@@ -18,7 +18,7 @@ from .supervisor_fakes import BRIDGE_SLUG, installed_addon
 
 # Was 0.16.1 fuer client1 (vaillant_vrc720, shift_lever room_setpoint) erzeugt: 5 feste Felder, Status, 4 Hebel,
 # 2 Lernwerte, Notbetrieb -- dazu neu die Wunschtemperatur. Die 13 alten IDs sind aus sensor.entity_keys und
-# binary_sensor.ENTITY_KEYS von v0.16.1 abgeleitet (Plan 5c I Task 7), nicht abgetippt.
+# binary_sensor.ENTITY_KEYS von v0.16.1 abgeleitet, nicht abgetippt.
 CLIENT1_ENTITIES = {
     "sensor.smartheat_client1_status": "client1_status",
     "sensor.smartheat_client1_datenfehler": "client1_datenfehler",
@@ -45,7 +45,7 @@ async def _setup(hass, **entry_kwargs):
 
 
 async def test_client1_keeps_its_entity_ids_unique_ids_and_device(hass):
-    """Spec 5c 8: Namen und unique_id bleiben (Dashboards und Automationen von client1), Geraet (smartheat, tenant)."""
+    """Namen und unique_id bleiben (Dashboards und Automationen von client1), Geraet (smartheat, tenant)."""
     entry = await _setup(hass, tenant_id="client1")
 
     registry = er.async_get(hass)
@@ -67,7 +67,7 @@ async def test_viessmann_entry_has_its_own_levers(hass):
 
 
 async def test_orphaned_entities_are_removed(hass):
-    """B-TP11-4: z. B. sensor.smartheat_client1_offset aus 0.7.x oder der Hebel eines anderen Hebelsatzes."""
+    """Verwaiste Entities, z. B. sensor.smartheat_client1_offset aus 0.7.x oder der Hebel eines anderen Hebelsatzes."""
     entry = make_device_entry(hass, tenant_id="client1")
     registry = er.async_get(hass)
     for key in ("offset", "niveau"):
@@ -84,7 +84,7 @@ async def test_orphaned_entities_are_removed(hass):
 
 
 async def test_setup_creates_no_repair_issue(hass):
-    """Der Hinweis complete_setup (unvollstaendiger Eintrag bis 0.16) entfaellt."""
+    """Die Einrichtung legt keinen Reparatur-Hinweis an (auch kein complete_setup fuer unvollstaendige Eintraege)."""
     await _setup(hass)
 
     assert [issue_id for (domain, issue_id) in ir.async_get(hass).issues if domain == DOMAIN] == []
@@ -103,7 +103,7 @@ async def _hinweis_setzen(hass):
 
 
 async def test_removing_the_entry_signs_the_device_off_through_stdin(hass, supervisor, aioclient_mock, caplog):
-    """L4-06 Variante C: Eintrag loeschen schreibt genau `entfernen <geraet_id>` mit Zeilenende an das stdin der einen
+    """Eintrag loeschen schreibt genau `entfernen <geraet_id>` mit Zeilenende an das stdin der einen
     Heizungsbruecke; kein Server-Aufruf, das Add-on wird weder gestoppt noch deinstalliert; die Hinweise verschwinden."""
     entry = await _setup(hass, geraet_id=GUELTIG)
     await _hinweis_setzen(hass)
@@ -148,7 +148,7 @@ def _kein_hassio(supervisor):
                          ids=["bruecke_fehlt", "bruecke_mehrfach", "supervisor_fehler", "addon_gestoppt",
                               "kein_hassio"])
 async def test_removing_the_entry_warns_and_still_removes_it(hass, supervisor, aioclient_mock, caplog, zustand):
-    """Spec 2.1: jeder Fehler auf dem Weg zum stdin ist eine WARNING; der Eintrag ist trotzdem weg."""
+    """Jeder Fehler auf dem Weg zum stdin ist eine WARNING; der Eintrag ist trotzdem weg."""
     entry = await _setup(hass, geraet_id=GUELTIG)
     await _hinweis_setzen(hass)
     zustand(supervisor)

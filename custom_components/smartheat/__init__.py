@@ -1,6 +1,6 @@
-"""SmartHeat-Integration ab 1.0.0 (Spec 5c 2.2): richtet das Add-on als Geraet ueber die Einrichtungs-API des Servers
+"""SmartHeat-Integration: richtet das Add-on als Geraet ueber die Einrichtungs-API des Servers
 ein, zeigt seinen Status als Entities, macht seine Hinweise zu Reparatur-Hinweisen, bietet die Wunschtemperatur an
-und ueberwacht die Heizungsbruecke (zweiter Waechter); das Loeschen des Eintrags meldet das Geraet lokal ab (L4-06)."""
+und ueberwacht die Heizungsbruecke (zweiter Waechter); das Loeschen des Eintrags meldet das Geraet lokal ab."""
 from __future__ import annotations
 
 from homeassistant.components import persistent_notification
@@ -26,8 +26,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _remove_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry, tenant_id: str) -> None:
-    """B-TP11-4: Registry-Eintraege dieses Eintrags ohne aktuelle Entity (z. B. offset aus 0.7.x, Hebel eines anderen
-    Hebelsatzes)."""
+    """Registry-Eintraege dieses Eintrags ohne aktuelle Entity (z. B. ein nicht mehr angebotener Sensor, Hebel eines
+    anderen Hebelsatzes)."""
     wanted = {f"{tenant_id}_{key}" for key in (*sensor.entity_keys(entry.data), *binary_sensor.ENTITY_KEYS, number.KEY)}
     registry = er.async_get(hass)
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
@@ -45,10 +45,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """L4-06 Variante C (aendert Spec 5c 4): das Loeschen des Eintrags meldet das Geraet ueber das stdin der
+    """Das Loeschen des Eintrags meldet das Geraet ueber das stdin der
     Heizungsbruecke lokal ab (Ursprungswerte, Portal "Abgemeldet"); kein Server-Aufruf, das Add-on laeuft weiter, aus
-    dem Konto entfernt der Kunde das Geraet im Portal. Fehler sind nur eine WARNING. Dazu verschwinden die eigenen
-    Reparatur-Hinweise und eine offene Meldung des Waechters (5c-I-4)."""
+    dem Konto entfernt der Kunde das Geraet im Portal (offene Grenze: offene-punkte.md L4-06-Konto). Fehler sind
+    nur eine WARNING. Dazu verschwinden die eigenen Reparatur-Hinweise und eine offene Meldung des Waechters."""
     await addon_control.async_entfernen_melden(hass, entry.data.get("geraet_id"))
     repairs.async_clear(hass)
     if isinstance(tenant_id := entry.data.get("tenant_id"), str):  # ein kaputter Eintrag laesst sich trotzdem loeschen

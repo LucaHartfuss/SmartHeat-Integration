@@ -1,4 +1,4 @@
-"""Ausnahmeliste fuer vulture (Stufe 3 S8b, A5-87): Namen, die vulture fuer tot haelt, die aber von aussen gelesen
+"""Ausnahmeliste fuer vulture: Namen, die vulture fuer tot haelt, die aber von aussen gelesen
 oder aufgerufen werden. Je Zeile der Grund. Aufruf: scripts/check.sh --only lint. Vertragskonstanten stehen hier
 nicht: ein Treffer dort ist ein Befund (der Contract-Check liest sie, die Integration selbst nicht)."""
 

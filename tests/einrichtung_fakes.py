@@ -1,4 +1,4 @@
-"""Nachgebildete Einrichtungs-API fuer die Flow-Tests (Spec 5c 2.1); die Add-on-Seite steht in supervisor_fakes.py."""
+"""Nachgebildete Einrichtungs-API fuer die Flow-Tests; die Add-on-Seite steht in supervisor_fakes.py."""
 from __future__ import annotations
 
 from unittest.mock import create_autospec
@@ -51,7 +51,7 @@ ZUORDNUNG = {
 
 
 class FakeServer:
-    """Einrichtungs-API an der Grenze (Spec Nr. 23): `client(base_url)` liefert, was der Assistent als
+    """Einrichtungs-API an der Grenze: `client(base_url)` liefert, was der Assistent als
     `EinrichtungClient` baut, als `create_autospec(EinrichtungClient, instance=True)` (Signaturen geprueft) mit den
     Seiteneffekten unten; die Klasse selbst bleibt unveraendert. Zaehlt Aufrufe, haelt das Token wie der
     echte Client nur im Speicher und merkt sich die Adresse (`base_url`, None: nie ein Client gebaut). Fehler je Route

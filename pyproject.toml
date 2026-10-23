@@ -8,7 +8,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-# vulture-Ausnahmeliste: Namen ohne Definition, nur fuer vulture gelesen (Stufe 3 S8b, A5-87)
+# vulture-Ausnahmeliste: Namen ohne Definition, nur fuer vulture gelesen
 "vulture_ausnahmen.py" = ["F821", "B018"]
 
 [tool.pyright]

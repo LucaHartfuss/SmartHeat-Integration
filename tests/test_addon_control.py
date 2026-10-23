@@ -1,6 +1,6 @@
-"""Add-on-Steuerung der Integration ab 1.0.0 (Spec 5c 2.1): Add-on finden, installieren und starten, Discovery und
+"""Add-on-Steuerung der Integration: Add-on finden, installieren und starten, Discovery und
 bootstrap_url lesen. Der Supervisor ist die Attrappe `supervisor` (supervisor_fakes.py), keine eigene Funktion wird
-ersetzt (Testoffensive T5', A5-25)."""
+ersetzt."""
 import json
 import logging
 from pathlib import Path
@@ -18,7 +18,7 @@ from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DEFAULT_BASE
 
 from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon, repository
 
-# --- Spec 5c 2.1: Add-on finden, installieren und starten (ohne Optionen), Discovery und bootstrap_url lesen ---
+# --- Add-on finden, installieren und starten (ohne Optionen), Discovery und bootstrap_url lesen ---
 
 SLUG = BRIDGE_SLUG
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
@@ -46,7 +46,7 @@ async def test_discovery_prefers_the_message_with_a_claim_code_else_the_latest(h
 
 
 async def test_discovery_latest_is_the_last_message_of_the_supervisor_list(hass, supervisor):
-    """5c-I-6 (hingenommen): eine Zeitangabe liefert der Supervisor nicht; „die juengste“ ist die letzte der Liste
+    """Hingenommen: eine Zeitangabe liefert der Supervisor nicht; „die juengste“ ist die letzte der Liste
     ohne Code, und eine Meldung mit Code gewinnt gegen spaetere ohne (unter mehreren mit Code die letzte)."""
     first = {"geraet_id": "shg-a", "zustand": "startet"}
     second = {"geraet_id": "shg-b", "zustand": "startet"}
@@ -85,7 +85,7 @@ async def test_discovery_is_none_without_supervisor_addon_or_on_errors(hass, sup
 
 
 async def test_discovery_resolves_the_bridge_on_every_call(hass, supervisor):
-    """5c-I-13 (hingenommen): jede Abfrage liest Store und Add-on-Liste neu; ein inzwischen entferntes Add-on
+    """Hingenommen: jede Abfrage liest Store und Add-on-Liste neu; ein inzwischen entferntes Add-on
     liefert keine Discovery mehr."""
     own = {"geraet_id": "shg-a", "zustand": "startet"}
     supervisor.discovery = [_message(own)]
@@ -131,13 +131,13 @@ async def test_bootstrap_url_outside_supervisor_is_production(hass, supervisor):
 
 
 async def test_bootstrap_url_is_invalid_when_the_bridge_is_installed_twice(hass, supervisor):
-    """Wirft nie: die doppelte eigene Heizungsbruecke ist nicht eindeutig (wie bisher kein Rueckfall)."""
+    """Wirft nie: die doppelte eigene Heizungsbruecke ist nicht eindeutig (kein Rueckfall)."""
     supervisor.installed = [installed_addon(SLUG), installed_addon(SLUG, version="0.9.0")]
     assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "bootstrap_url_ungueltig")
 
 
 async def test_bootstrap_url_is_ambiguous_with_two_entries_of_our_repository(hass, supervisor):
-    """L4-04 (Labor 2026-10-20): `main` und `#develop` eingetragen -> kein Rueckfall auf die Produktion, mit und ohne
+    """`main` und `#develop` eingetragen -> kein Rueckfall auf die Produktion, mit und ohne
     installierte Heizungsbruecke, auch nicht mit einer Option."""
     supervisor.repositories = [_repository("abc"), _repository("def", source=ADDON_REPOSITORY_URL + "#develop")]
     supervisor.addon_options[SLUG] = {"bootstrap_url": "https://angreifer.example"}
@@ -204,7 +204,7 @@ async def test_install_and_start_needs_the_supervisor(hass, supervisor):
     assert supervisor.client.store.repositories_list.await_count == 0
 
 
-# --- Watchdog und Autostart (Spec TP7 2.6) ---
+# --- Watchdog und Autostart ---
 
 
 async def test_supervision_sets_watchdog_and_boot_and_reports_a_failure(hass, supervisor, caplog):
@@ -269,7 +269,7 @@ async def test_an_addon_imitating_the_bridge_is_never_used(hass, supervisor, fak
 
     assert await addon_control.async_bridge_slug(hass) is None
     assert await addon_control.async_discovery(hass) is None
-    # L4-04: keine eigene Bruecke, aber eine fremde installiert -> kein Rueckfall auf die Produktion
+    # Keine eigene Bruecke, aber eine fremde installiert -> kein Rueckfall auf die Produktion
     assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "fremde_heizungsbruecke")
     supervisor.client.addons.addon_info.assert_not_called()
 
@@ -279,7 +279,7 @@ async def test_without_our_repository_no_addon_is_the_bridge(hass, supervisor):
     supervisor.repositories = []
 
     assert await addon_control.async_bridge_slug(hass) is None
-    # Das installierte Add-on gehoert zu keinem Repository von uns: fremd, nicht Produktion (L4-04)
+    # Das installierte Add-on gehoert zu keinem Repository von uns: fremd, nicht Produktion
     assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "fremde_heizungsbruecke")
     supervisor.client.addons.addon_info.assert_not_called()
 
@@ -298,7 +298,7 @@ async def test_the_genuine_bridge_is_found_next_to_an_imitation_but_the_wizard_r
     supervisor.addon_options[SLUG] = {"bootstrap_url": "https://labor.example.test"}
 
     assert await addon_control.async_bridge_slug(hass) == SLUG
-    # eine fremde Heizungsbruecke neben der eigenen: der Assistent bricht ab (L4-04), die Optionen werden nicht gelesen
+    # eine fremde Heizungsbruecke neben der eigenen: der Assistent bricht ab, die Optionen werden nicht gelesen
     assert await addon_control.async_bootstrap_url(hass) == BootstrapUrl(None, "fremde_heizungsbruecke")
     supervisor.client.addons.addon_info.assert_not_called()
 
@@ -356,7 +356,7 @@ async def _progress(hass, result):
 
 
 async def test_a_supervisor_timeout_while_adding_the_repository_aborts_with_a_retry_text(hass, supervisor, caplog):
-    """5c-I-13 (hingenommen): `store.add_repository` laeuft unter dem Zeitlimit des Supervisor-Clients; laeuft es ab,
+    """Hingenommen: `store.add_repository` laeuft unter dem Zeitlimit des Supervisor-Clients; laeuft es ab,
     bricht der Assistent mit `addon_fehler` ab, dessen Text zum erneuten Versuch auffordert."""
     _installable(supervisor)
     supervisor.errors["store.add_repository"] = SupervisorTimeoutError("geheimer-wert")

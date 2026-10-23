@@ -1,4 +1,4 @@
-"""Coordinator, Entities und zweiter Waechter (Spec TP7 1.2, 1.3; Spec 5c 2.2: Schema 3, Zuordnung ueber die
+"""Coordinator, Entities und zweiter Waechter (Schema 3, Zuordnung ueber die
 Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur per persistent_notification)."""
 import asyncio
 from datetime import timedelta
@@ -82,7 +82,7 @@ def test_watchdog_silence_does_not_count_while_the_bridge_is_stopped():
 
 
 def test_watchdog_an_unresolvable_bridge_is_no_stopped_count_and_never_restarted():
-    """5c-I-4: `None` (Bruecke nicht aufloesbar) zaehlt nie als „laeuft nicht“ und startet nichts; erst die Stille
+    """`None` (Bruecke nicht aufloesbar) zaehlt nie als „laeuft nicht“ und startet nichts; erst die Stille
     meldet „reagiert nicht“, ohne Neustart."""
     watchdog = Watchdog(started_at=0)
 
@@ -240,7 +240,7 @@ async def test_an_event_updates_every_entity(hass, clock):
 
 
 async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, clock):
-    """A5-85: Der Coordinator filtert das Ereignis auf STATUS_EVENT_FIELDS; ein umbenanntes Feld dort faellt hier
+    """Der Coordinator filtert das Ereignis auf STATUS_EVENT_FIELDS; ein umbenanntes Feld dort faellt hier
     auf."""
     entry = await _setup(hass)
     event = status_event(TENANT, "regelt", raum_soll=21.0)
@@ -267,7 +267,7 @@ async def test_foreign_or_unknown_events_are_ignored(hass, clock, event):
 
 
 async def test_event_of_another_device_is_ignored(hass, clock):
-    """Spec 5c 2.2 (Brief-Test): Zuordnung ueber die Geraete-ID, nicht den Tenant; nur Schema 3."""
+    """Zuordnung ueber die Geraete-ID, nicht den Tenant; nur Schema 3."""
     entry = await _setup(hass)
     event = status_event(TENANT, "regelt", raum_soll=21.0)
 
@@ -315,13 +315,13 @@ async def test_entities_restore_the_last_state_after_a_restart(hass, clock):
 
 
 async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(hass, supervisor, clock, notes):
-    """Review Focus 2; Spec 5c (Nutzer-Entscheidung 2026-10-11): Meldung nur per persistent_notification, kein Push
+    """Meldung nur per persistent_notification, kein Push
     an die Handys (das ist Sache des Add-ons)."""
     created, dismissed = notes
     pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
     _bridge(supervisor).state = AddonState.STOPPED
     entry = await _setup(hass)
-    # Eine Push-Liste wie bis 0.16 (Optionen-Flow) bleibt ohne Wirkung.
+    # Eine Push-Liste aus einem frueheren Optionen-Flow bleibt ohne Wirkung.
     hass.config_entries.async_update_entry(entry, options={"notify_services": ["notify.mobile_app_pixel"]})
     coordinator = entry.runtime_data
 
@@ -352,7 +352,7 @@ async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(
 
 
 async def test_watchdog_looks_only_for_the_bridge(hass, supervisor, clock, notes):
-    """Spec 5c 2.2: cloudflared_access_mqtt gehoert nicht mehr zu einer Installation ab 1.0.0: ein gestopptes
+    """cloudflared_access_mqtt gehoert nicht zu dieser Integration: ein gestopptes
     cloudflared aus demselben Repository wird weder gemeldet noch gestartet."""
     supervisor.installed.append(installed_addon("abc_cloudflared_access_mqtt", state=AddonState.STOPPED))
     entry = await _setup(hass)
@@ -395,7 +395,7 @@ async def test_unreachable_supervisor_skips_the_check(hass, supervisor, clock, n
 
 
 async def test_zugang_abgelehnt_starts_no_reauth(hass, clock):
-    """Spec 5c 2.2: kein Reauth mehr (das Geraet meldet sich mit Zertifikat an); der Status zeigt es nur an."""
+    """Kein Reauth (das Geraet meldet sich mit Zertifikat an); der Status zeigt es nur an."""
     entry = await _setup(hass)
 
     _fire(hass, status_event(TENANT, "zugang_abgelehnt"))
@@ -499,7 +499,7 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clo
 
 
 async def test_event_without_notbetrieb_and_with_broken_hints_does_not_crash_entities(hass, clock):
-    """Final-Review M4: ein fehlendes `notbetrieb` (KeyError im Binaersensor) und ein `hinweise`,
+    """Ein fehlendes `notbetrieb` (KeyError im Binaersensor) und ein `hinweise`,
     das kein Objekt ist (AttributeError im Status-Sensor), duerfen die Entities nicht haengen
     lassen -- wie EventSensor._safe_value: unbekannt bzw. leer."""
     await _setup(hass)
@@ -546,7 +546,7 @@ async def test_restore_ignores_an_out_of_options_value(hass, clock):
     ({}, {}),
 ])
 async def test_event_with_broken_lever_values_does_not_crash_entities(hass, clock, hebel, gelernt):
-    """Fix-Runde 2, Fund 2 (Plan 3c: je Hebel und Lernwert): fehlende, nicht-numerische oder nicht endliche Werte
+    """Je Hebel und Lernwert: fehlende, nicht-numerische oder nicht endliche Werte
     in hebel/gelernt (Device-Class TEMPERATURE, HA validiert das) duerfen nicht zu einer haengenden bzw. kaputten
     Entity fuehren, sondern zeigen unknown."""
     await _setup(hass)
@@ -595,8 +595,8 @@ async def test_huge_integers_in_lever_values_are_unknown_without_an_error(hass, 
 
 
 async def test_parallel_shift_and_min_flow_sensors(hass, clock):
-    """Task 20: offset entfaellt, dessen Rolle uebernehmen die beiden Temperatur-Sensoren
-    parallelverschiebung und mindestvorlauf (jetzt aus hebel); die alte offset-Entity wird nicht erzeugt."""
+    """Die beiden Temperatur-Sensoren parallelverschiebung und mindestvorlauf kommen aus hebel; eine offset-Entity
+    wird nicht erzeugt."""
     await _setup(hass)
 
     _fire(hass, status_event(TENANT, "regelt", hebel={"room_setpoint": 21.0, "min_flow": 20.5}))
@@ -697,8 +697,8 @@ _NICHT_AUFLOESBAR = pytest.mark.parametrize("source", [
 
 @_NICHT_AUFLOESBAR
 async def test_unaufloesbare_bruecke_mit_ereignissen_meldet_nichts(hass, supervisor, clock, notes, source):
-    """5c-I-4: ist das Repository unter einer anderen Adresse eingetragen (`http://` oder ein Fork), loest der
-    Waechter die laufende Heizungsbruecke nicht auf. Solange Ereignisse eintreffen, meldet er nichts (frueher
+    """Ist das Repository unter einer anderen Adresse eingetragen (`http://` oder ein Fork), loest der
+    Waechter die laufende Heizungsbruecke nicht auf. Solange Ereignisse eintreffen, meldet er nichts (also nicht
     dauerhaft „Add-on gestoppt“) und startet nichts."""
     supervisor.repositories = [repository(source=source)]
     entry = await _setup(hass)
@@ -720,7 +720,7 @@ async def test_unaufloesbare_bruecke_mit_ereignissen_meldet_nichts(hass, supervi
 @_NICHT_AUFLOESBAR
 async def test_unaufloesbare_bruecke_ohne_ereignisse_meldet_reagiert_nicht_ohne_neustart(
         hass, supervisor, clock, notes, source):
-    """5c-I-4: ohne Ereignisse meldet die Stille (SILENCE_SECONDS = 900) „reagiert nicht“; ohne aufgeloeste Bruecke
+    """Ohne Ereignisse meldet die Stille (SILENCE_SECONDS = 900) „reagiert nicht“; ohne aufgeloeste Bruecke
     gibt es keinen Neustart und nie „Add-on gestoppt“."""
     supervisor.repositories = [repository(source=source)]
     entry = await _setup(hass)
@@ -741,7 +741,7 @@ async def test_unaufloesbare_bruecke_ohne_ereignisse_meldet_reagiert_nicht_ohne_
 
 
 async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, supervisor, clock, notes):
-    """5c-I-4: nach dem Entfernen des Eintrags bleibt keine Meldung des Waechters stehen."""
+    """Nach dem Entfernen des Eintrags bleibt keine Meldung des Waechters stehen."""
     created, dismissed = notes
     _bridge(supervisor).state = AddonState.STOPPED
     entry = await _setup(hass)

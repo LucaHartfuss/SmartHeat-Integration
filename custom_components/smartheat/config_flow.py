@@ -1,8 +1,8 @@
-"""Assistent der SmartHeat-Integration ab 1.0.0 (Spec 5c 2.1): feste Schritte, Inhalte vom Server.
+"""Assistent der SmartHeat-Integration: feste Schritte, Inhalte vom Server.
 
 Start aus der Supervisor-Discovery des Add-ons (Geraete-ID, Uebernahme-Code) oder manuell (Add-on installieren und
 starten, dann dessen Discovery lesen); beide Wege pruefen vorher die Mindestversion des Add-ons. Anmelden gibt ein
-kurzlebiges Einrichtungs-Token, das nur dieser Flow im Speicher haelt (Spec 5c 3, Regel 6); es wird bei jedem Ende
+kurzlebiges Einrichtungs-Token, das nur dieser Flow im Speicher haelt (Regel 6); es wird bei jedem Ende
 (Eintrag, Abbruch, Schliessen) beim Server beendet. Inventur, Vorschlag, Zuordnung und Pruefung laufen auf dem Server,
 die Uebernahme der Konfiguration im Geraet; der Assistent zeigt nur an. "Neu konfigurieren": nach neuer Anmeldung ein
 Menue "Zuordnung aendern" (Auftrag neu_konfigurieren) bzw. "Geraet entfernen" (Auftrag entfernen).
@@ -81,16 +81,16 @@ from .texts import async_hint, async_role_label
 
 _LOGGER = logging.getLogger(__name__)
 
-# Abbruchgruende von async_bootstrap_url, die schon vor dem Installieren der Heizungsbruecke gelten (L4-04)
+# Abbruchgruende von async_bootstrap_url, die schon vor dem Installieren der Heizungsbruecke gelten
 _VOR_DER_INSTALLATION = frozenset({"repository_mehrdeutig", "fremde_heizungsbruecke"})
 _RAEUME = ("raumfuehler", "room_target")
 _BENACHRICHTIGUNG = ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")
-# Obergrenzen der Auswahl je Feld (5c-I-3; der Server lehnt mehr ab)
+# Obergrenzen der Auswahl je Feld (der Server lehnt mehr ab)
 _MAXIMUM = {"raumfuehler": EINRICHTUNG_MAX_RAUMFUEHLER, "batterien": EINRICHTUNG_MAX_BATTERIEN,
             "benachrichtigung": EINRICHTUNG_MAX_HANDYS}
 _INVENTUR_FERTIG = "fertig"
 _INVENTUR_FEHLGESCHLAGEN = "fehlgeschlagen"
-# Pin (Spec Stufe 3 S5 4): je Objekt der Einrichtungs-Antworten die Literale, die dieser Assistent liest, gegen die
+# Pin: je Objekt der Einrichtungs-Antworten die Literale, die dieser Assistent liest, gegen die
 # Konstanten des Vertrags (const.EINRICHTUNG_*_FELDER). Liest der Assistent ein Feld, das der Vertrag nicht nennt, ist
 # das ein RuntimeError beim Import. Felder des V1-Dokuments in `konfiguration` (bindung, profil, hebelsatz) gehoeren
 # zu dessen eigenem Vertrag und stehen hier nicht.
@@ -308,7 +308,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return await self._run_progress("addon_starten", "addon_starten", self._addon_starten)
 
     async def _addon_starten(self) -> str:
-        # Vor der Installation (L4-04): neben einem mehrdeutigen Repository oder einer fremden Heizungsbruecke wird keine
+        # Vor der Installation: neben einem mehrdeutigen Repository oder einer fremden Heizungsbruecke wird keine
         # zweite Bruecke installiert; die uebrigen Gruende (Option) pruefen erst nach dem Start.
         if (grund := (await addon_control.async_bootstrap_url(self.hass)).grund) in _VOR_DER_INSTALLATION:
             return self._merken(_Abbruch(grund))
@@ -510,7 +510,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         if not integrationen:
             return await self._abbrechen("keine_integration", grund="-")
         # Ohne gezeigtes Formular kann HA die Eingabe des Clients weiterreichen (REST: {} nach dem Fortschritt der
-        # Inventur, L4-08): nur eine angebotene Plattform gilt als Auswahl, sonst Auswahl bzw. Formular.
+        # Inventur): nur eine angebotene Plattform gilt als Auswahl, sonst Auswahl bzw. Formular.
         wahl = (user_input or {}).get("integration")
         if wahl is None and len(integrationen) == 1:
             wahl = integrationen[0]["plattform"]
@@ -655,7 +655,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return [w for w in dict.fromkeys(werte if isinstance(werte, list) else []) if w in angebot]
 
     def _zu_viele(self, felder: tuple[str, ...]) -> dict[str, str]:
-        """Felder der Auswahl mit mehr Eintraegen, als der Server annimmt (`zu_viele`, 5c-I-3)."""
+        """Felder der Auswahl mit mehr Eintraegen, als der Server annimmt (`zu_viele`)."""
         return {feld: "zu_viele" for feld in felder if len(self._eingaben.get(feld) or []) > _MAXIMUM[feld]}
 
     def _grenzen_verletzt(self, felder: tuple[str, ...]) -> bool:
@@ -758,7 +758,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     # --- Neu konfigurieren ---
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Nur ein Eintrag mit gueltiger Geraete-ID (ab 1.0.0); sonst Abbruch vor der Anmeldung (S4-Reconfigure)."""
+        """Nur ein Eintrag mit gueltiger Geraete-ID; sonst Abbruch vor der Anmeldung."""
         geraet_id = self._get_reconfigure_entry().data.get("geraet_id")
         if not isinstance(geraet_id, str) or not GERAET_ID_RE.fullmatch(geraet_id):
             _LOGGER.warning("Neu konfigurieren: Eintrag ohne gueltige Geraete-ID; bitte loeschen und neu einrichten")
@@ -786,7 +786,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     async def _entfernen(self) -> str:
         """Nach einem angenommenen Entfernen widerruft die Freigabe das Token: 401/404 auf `auftrag` heisst dann
-        "entfernt" (Server einrichtung_api.auftrag)."""
+        "entfernt" (Server einrichtung/api.py, Route `auftrag`)."""
         assert self._client is not None
         try:
             ergebnis = await self._api(self._client.entfernen, konflikt="entfernen_fehler")
@@ -823,7 +823,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return await self._eintrag_entfernen("entfernt")
 
     async def async_step_entfernen_laeuft(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Das Geraet hat in der Wartezeit nicht geantwortet: der Eintrag wird trotzdem entfernt (5c-I-1). Das Loeschen
+        """Das Geraet hat in der Wartezeit nicht geantwortet: der Eintrag wird trotzdem entfernt. Das Loeschen
         meldet das Geraet lokal ab (stdin der Heizungsbruecke); der Server gibt es frei, sobald es erreichbar ist."""
         return await self._eintrag_entfernen("entfernen_laeuft")
 

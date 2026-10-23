@@ -233,7 +233,7 @@ async def test_store_error_becomes_addon_error(supervisor):
     assert "geheim" not in str(error.value)
 
 
-# --- 5c-W-11: Eintrag mit Branch desselben Repositorys (Entscheidung 2026-10-17) ---
+# --- Eintrag mit Branch desselben Repositorys ---
 
 
 @pytest.mark.parametrize("source", [
@@ -332,7 +332,7 @@ async def test_an_invalid_branch_is_never_our_repository(supervisor, source):
 
 
 async def test_repository_slugs_lists_every_entry_of_our_repository(supervisor):
-    """L4-04: Mehrdeutigkeit unterscheidbar -- die Liste aller Eintraege, `async_repository_slug` bleibt None."""
+    """Mehrdeutigkeit unterscheidbar -- die Liste aller Eintraege, `async_repository_slug` bleibt None."""
     _setup(supervisor, [], repositories=[_repository(REPO, source=REPO_URL), _repository("0badc0de", source=REPO_URL + "#develop"),
                                          _repository("fremd", "https://github.com/fremd/addons")])
 

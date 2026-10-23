@@ -1,4 +1,4 @@
-"""V3-Bodies der Einrichtungs-API (Spec Stufe 3 S5 4, A5-33): anfrage.py baut nur deklarierte Felder."""
+"""V3-Bodies der Einrichtungs-API: anfrage.py baut nur deklarierte Felder."""
 import pytest
 
 from custom_components.smartheat import anfrage, vertrag_pin

@@ -1,9 +1,8 @@
 """Loest den echten Add-on-Slug auf und liefert einen HA-eigenen AddonManager dafuer.
 
-Ersetzt die vorherige, handgestrickte SupervisorClient-Klasse (rohes aiohttp + manueller
-os.environ["SUPERVISOR_TOKEN"]-Zugriff) durch Home Assistant Cores eigenes
-homeassistant.components.hassio.AddonManager -- denselben Baustein, den z.B. die Z-Wave-JS-
-und Matter-Integrationen fuer ihre gebuendelten Add-ons verwenden (I4 aus der finalen Review).
+Nutzt Home Assistant Cores eigenen homeassistant.components.hassio.AddonManager -- denselben Baustein,
+den z.B. die Z-Wave-JS- und Matter-Integrationen fuer ihre gebuendelten Add-ons verwenden, statt eines
+selbstgebauten Supervisor-Clients.
 
 Der Unterschied zu jenen Integrationen: deren Add-ons kommen aus dem offiziellen "core"-
 Repository und haben stabile, unpraefigierte Slugs (z.B. "core_zwave_js"). Das SmartHeat-Add-on
@@ -15,7 +14,7 @@ diese Luecke und folgt dabei dieser Regel (Sicherheitsfix 0f34d56): Das Store-Re
 an seiner Eintragsadresse (`source`, auch mit `#<branch>`) erkannt und liefert den Repository-Slug;
 ein installiertes Add-on zaehlt nur, wenn es zu diesem Repository gehoert und genau den Slug
 "<Repository-Slug>_<config_slug>" hat. Weder die `url` aus der config.yaml des Add-ons noch ein blosses
-Slug-Suffix zaehlen. Geprueft wird zusaetzlich die Mindestversion (TP6 I4): ein zu altes Add-on ist kein Treffer.
+Slug-Suffix zaehlen. Geprueft wird zusaetzlich die Mindestversion: ein zu altes Add-on ist kein Treffer.
 """
 from __future__ import annotations
 
@@ -92,7 +91,7 @@ def _normalized_repository(value: str) -> str | None:
 def _same_repository(value: object, repository_url: str = ADDON_REPOSITORY_URL) -> bool:
     """Adresse eines Store-Repositorys gleich `repository_url`: ohne / und .git am Ende, Gross-/Kleinschreibung egal
     (GitHub-Adressen unterscheiden sie nicht); das Schema bleibt unterschieden (http ist nicht https). Ein Branch
-    desselben Repositorys (`<Adresse>#<branch>`, Branch siehe _valid_branch) gilt als gleichwertig (5c-W-11); die
+    desselben Repositorys (`<Adresse>#<branch>`, Branch siehe _valid_branch) gilt als gleichwertig; die
     Slug-Pruefung in matching_addons bleibt."""
     if not isinstance(value, str):
         return False
@@ -134,7 +133,7 @@ def fremde_bruecken(installed, repository_slug: str | None, config_slug: str) ->
     """Installierte Add-ons, die wie unser `config_slug` heissen (Slug endet auf `_<config_slug>`, z. B.
     local_heizungsbruecke oder <fremder-Hash>_heizungsbruecke), aber nicht in matching_addons zaehlen: aus einem
     anderen Repository oder bei fehlendem/mehrdeutigem eigenen Repository (`repository_slug` None). Der Assistent
-    faellt neben ihnen nie auf die Produktion zurueck (Fixrunde A, L4-04)."""
+    faellt neben ihnen nie auf die Produktion zurueck."""
     own = matching_addons(installed, repository_slug, config_slug)
     return [addon for addon in installed
             if addon.slug.endswith(f"_{config_slug}") and not any(addon is match for match in own)]

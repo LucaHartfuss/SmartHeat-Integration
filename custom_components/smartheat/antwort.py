@@ -1,4 +1,4 @@
-"""Verschachtelte Objekte der Antworten der Einrichtungs-API (V3, S3S8b-Vertragsleser): ohne jeden Import, damit der
+"""Verschachtelte Objekte der Antworten der Einrichtungs-API (V3): ohne jeden Import, damit der
 Contract-Check die Datei per Pfad laedt und dieselbe Kuerzung probiert wie der Client (einrichtung_client). Gleiche
 Pfadtabelle wie der Server (`einrichtung/api.py` `_VERSCHACHTELT`); statt der Felder stehen hier die Namen der
 Konstanten ohne das Praefix `EINRICHTUNG_` (`const.py`), die der Aufrufer als `felder` mitgibt."""
@@ -19,7 +19,7 @@ VERSCHACHTELT: dict[str, tuple[tuple[str, ...], ...]] = {
 
 def _kuerzen(wert: Any, pfad: tuple[str, ...], felder: tuple[str, ...]) -> Any:
     """Kuerzt die Objekte unter `pfad` auf `felder`; Nicht-Objekte, fehlende Teile und falsche Typen bleiben
-    unangetastet (der Assistent prueft sie wie bisher), der Filter wirft nie."""
+    unangetastet (der Assistent prueft sie selbst), der Filter wirft nie."""
     if not pfad:
         return {k: v for k, v in wert.items() if k in felder} if isinstance(wert, dict) else wert
     schritt, rest = pfad[0], pfad[1:]

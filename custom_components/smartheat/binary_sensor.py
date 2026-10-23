@@ -1,4 +1,4 @@
-"""Notbetrieb als Problem-Sensor (Spec TP7 1.2)."""
+"""Notbetrieb als Problem-Sensor."""
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
