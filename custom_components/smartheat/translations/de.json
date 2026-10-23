@@ -126,7 +126,8 @@
       "room_sensors_required": "Mindestens ein Raumfühler.",
       "wrong_state_class": "Falscher Messwert-Typ.",
       "unknown_service": "Unbekanntes Handy.",
-      "unknown_hint": "Unbekannter Hinweis."
+      "unknown_hint": "Unbekannter Hinweis.",
+      "zu_viele": "Zu viele ausgewählt."
     },
     "abort": {
       "kein_supervisor": "SmartHeat braucht Home Assistant mit Add-ons (Supervisor).",
@@ -148,7 +149,7 @@
       "einrichten_zeit": "Das Gerät hat nicht rechtzeitig geantwortet. Läuft das Add-on Heizungsbrücke? Bitte die Einrichtung erneut starten.",
       "keine_konfiguration": "Das Gerät meldet noch keine Konfiguration. Bitte in einigen Minuten erneut versuchen.",
       "entfernen_fehler": "Entfernen nicht abgeschlossen: {grund}",
-      "entfernen_laeuft": "Das Gerät ist gerade nicht erreichbar; das Entfernen läuft weiter, sobald es online ist.",
+      "entfernen_laeuft": "Der Eintrag ist entfernt; der SmartHeat-Dienst gibt das Gerät frei, sobald es erreichbar ist.",
       "entfernt": "Das Gerät ist entfernt und freigegeben.",
       "cannot_connect": "Der SmartHeat-Dienst ist nicht erreichbar.",
       "abgelehnt": "Der SmartHeat-Dienst hat abgelehnt: {grund}",
@@ -227,6 +228,7 @@
   "common": {
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
     "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
-    "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities."
+    "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities.",
+    "geraet_nicht_erreichbar": "Das Gerät ist nicht erreichbar."
   }
 }

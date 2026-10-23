@@ -8,6 +8,9 @@ DEFAULT_BASE_URL = "https://accounts.hartfussha.org"
 OPTION_BOOTSTRAP_URL = "bootstrap_url"
 REQUEST_TIMEOUT_SECONDS = 30
 ERROR_TEXT_MAX = 300
+# Fehlerantworten der Einrichtungs-API (5c-I-11): Body hoechstens 64 KiB gelesen, `fehler`-Werte hoechstens 200 Zeichen.
+FEHLER_BODY_MAX_BYTES = 65536
+FEHLER_WERT_MAX = 200
 
 # Status-Ereignis des Add-ons (Plan D Task 7): Schema 2 der Laufzeit plus Geraete-Felder.
 STATUS_EVENT = "smartheat_status"
@@ -58,6 +61,11 @@ STDIN_BEFEHL_ENTFERNEN = "entfernen"
 STDIN_ZEILE_FORMAT = "{befehl} {geraet_id}\n"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
+# Grenzen der Auswahl im Assistenten (5c-I-3): Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER, MAX_BATTERIEN,
+# MAX_HANDYS (V3, Contract-Check 76); mehr lehnt der Server mit 400 ab.
+EINRICHTUNG_MAX_RAUMFUEHLER = 8
+EINRICHTUNG_MAX_BATTERIEN = 16
+EINRICHTUNG_MAX_HANDYS = 10
 
 # Einrichtungs-API (Server einrichtung_api.ROUTEN, Plan S Task 8).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"

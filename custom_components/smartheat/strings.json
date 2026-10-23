@@ -126,7 +126,8 @@
       "room_sensors_required": "At least one room sensor.",
       "wrong_state_class": "Wrong kind of measurement.",
       "unknown_service": "Unknown phone.",
-      "unknown_hint": "Unknown note."
+      "unknown_hint": "Unknown note.",
+      "zu_viele": "Too many selected."
     },
     "abort": {
       "kein_supervisor": "SmartHeat needs Home Assistant with add-ons (Supervisor).",
@@ -148,7 +149,7 @@
       "einrichten_zeit": "The device did not answer in time. Is the Heizungsbrücke add-on running? Please start the setup again.",
       "keine_konfiguration": "The device does not report a configuration yet. Please try again in a few minutes.",
       "entfernen_fehler": "Removal not completed: {grund}",
-      "entfernen_laeuft": "The device cannot be reached right now; the removal continues as soon as it is online.",
+      "entfernen_laeuft": "The entry has been removed; the SmartHeat service releases the device as soon as it can be reached.",
       "entfernt": "The device has been removed and released.",
       "cannot_connect": "The SmartHeat service cannot be reached.",
       "abgelehnt": "The SmartHeat service refused: {grund}",
@@ -227,6 +228,7 @@
   "common": {
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
-    "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities."
+    "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
+    "geraet_nicht_erreichbar": "The device cannot be reached."
   }
 }

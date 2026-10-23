@@ -6,17 +6,16 @@ installierten Add-ons). Eigene Funktionen von `addon_control` und `supervisor_cl
 import copy
 import json
 import logging
-from datetime import timedelta
 from pathlib import Path
 
 import pytest
+import voluptuous as vol
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonBoot, AddonState
 from homeassistant.config_entries import SOURCE_HASSIO, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
-from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import config_flow
 from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DOMAIN
@@ -348,6 +347,42 @@ async def test_discovery_of_a_configured_device_aborts(hass, server):
     assert result["reason"] in ("already_configured", "single_instance_allowed")
 
 
+ANDERE_ID = "shg-bbbbbbbbbbbbbbbb"
+
+
+async def test_neue_discovery_beendet_den_offenen_flow_eines_anderen_geraets(hass, server):
+    """5c-W-10: meldet die Heizungsbruecke ein anderes Geraet (nach Neuinstallation), bleibt nicht der Flow des alten
+    stehen: er wird beendet, nur der neue Flow ist offen. Gegenprobe: dieselbe Geraete-ID bleibt `already_in_progress`
+    und laesst den offenen Flow stehen."""
+    alt = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+    assert alt["step_id"] == "bestaetigen"
+
+    gleich = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+    assert (gleich["type"], gleich["reason"]) == (FlowResultType.ABORT, "already_in_progress")
+    assert [f["flow_id"] for f in hass.config_entries.flow.async_progress_by_handler(DOMAIN)] == [alt["flow_id"]]
+
+    neu = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HassioServiceInfo(
+            config={**DISCOVERY.config, "geraet_id": ANDERE_ID}, name="Heizungsbruecke", slug=BRIDGE_SLUG, uuid="u2"))
+
+    assert neu["step_id"] == "bestaetigen"
+    offen = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [(f["flow_id"], f["context"]["unique_id"]) for f in offen] == [(neu["flow_id"], ANDERE_ID)]
+
+
+async def test_eine_ungueltige_discovery_beendet_keinen_offenen_flow(hass, server):
+    """5c-W-10, Gegenprobe: die Herkunftspruefung kommt zuerst; eine verworfene Discovery (fremdes Add-on) laesst den
+    offenen Flow des Geraets unberuehrt."""
+    alt = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=DISCOVERY)
+
+    fremd = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HassioServiceInfo(
+            config={**DISCOVERY.config, "geraet_id": ANDERE_ID}, name="x", slug="xyz_heizungsbruecke", uuid="u7"))
+
+    assert (fremd["type"], fremd["reason"]) == (FlowResultType.ABORT, "discovery_ungueltig")
+    assert [f["flow_id"] for f in hass.config_entries.flow.async_progress_by_handler(DOMAIN)] == [alt["flow_id"]]
+
+
 @pytest.mark.parametrize("config", [{}, {"geraet_id": 7}, {"geraet_id": ""}, {"geraet_id": "shg-aaaaaaaaaaaaaaa1"},
                                     {"geraet_id": "SHG-AAAAAAAAAAAAAAAA"}, {"geraet_id": f"{GERAET_ID} [x](y)"}])
 async def test_invalid_discovery_aborts(hass, server, config):
@@ -616,18 +651,24 @@ async def test_no_supported_integration_shows_the_server_text(hass, server):
     assert "myVAILLANT" in result["description_placeholders"]["grund"]
 
 
-@pytest.mark.parametrize("inventur", [{"zustand": "fehlgeschlagen", "fehler": None}, {"zustand": "fehlgeschlagen"}])
-async def test_an_expired_inventory_command_shows_a_dash(hass, server, inventur):
-    """5c-I-2 (hingenommen): ein abgelaufener Inventur-Befehl hat keinen Fehlertext; der Abbruch zeigt dann „-“."""
+@pytest.mark.parametrize("inventur", [{"zustand": "fehlgeschlagen", "fehler": None}, {"zustand": "fehlgeschlagen"},
+                                      {"zustand": "fehlgeschlagen", "fehler": ""},
+                                      {"zustand": "fehlgeschlagen", "fehler": 7}],
+                         ids=["null", "fehlt", "leer", "zahl"])
+async def test_abgelaufene_inventur_nennt_das_nicht_erreichbare_geraet(hass, server, inventur):
+    """5c-I-2: ein abgelaufener Inventur-Befehl hat keinen Fehlertext; der Abbruch nennt dann, dass das Geraet nicht
+    erreichbar war (Text der UI-Sprache), nicht „-“."""
+    hass.config.language = "de"
     server.inventur_ergebnis = inventur
 
     result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "inventur_fehler")
-    assert result["description_placeholders"] == {"grund": "-"}
+    assert result["description_placeholders"] == {"grund": "Das Gerät ist nicht erreichbar."}
     text = json.loads((_COMPONENT / "translations/de.json").read_text(encoding="utf-8"))["config"]["abort"][
         "inventur_fehler"]
-    assert text.format(**result["description_placeholders"]) == "Die Anlage ließ sich nicht prüfen: -"
+    assert text.format(**result["description_placeholders"]) == (
+        "Die Anlage ließ sich nicht prüfen: Das Gerät ist nicht erreichbar.")
 
 
 def _integration(plattform="mypyllant", label="myVAILLANT", kreise=None, hebelsaetze=None, profile=None):
@@ -789,17 +830,20 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
     assert result["description_placeholders"]["rolle"] == "Außentemperatur"
 
 
-async def test_without_candidates_the_room_fields_have_an_empty_selector(hass, server):
-    """5c-I-3 (hingenommen): ohne Kandidaten fuer Raumfuehler und Raum-Soll zeigt der Assistent die Pflichtfelder mit
-    leerem Selektor (kein Abbruch wie bei `rolle_ohne_kandidaten`)."""
-    server.zuordnung_antwort = {**ZUORDNUNG, "raumfuehler": {"kandidaten": [], "vorschlag": []},
-                                "room_target": {"kandidaten": [], "vorschlag": None}}
+@pytest.mark.parametrize(("feld", "bezeichnung"), [("raumfuehler", "Raumfühler"),
+                                                   ("room_target", "Wunschtemperatur-Entity")])
+async def test_ohne_raumfuehler_kandidaten_bricht_ab(hass, server, feld, bezeichnung):
+    """5c-I-3 (a): ohne Kandidaten fuer Raumfuehler oder Raum-Soll bricht der Assistent wie bei einer Pflichtrolle mit
+    `rolle_ohne_kandidaten` und der Bezeichnung des Felds ab (statt ein Pflichtfeld mit leerem Selektor zu zeigen)."""
+    hass.config.language = "de"
+    server.zuordnung_antwort = {**ZUORDNUNG, feld: {"kandidaten": [], "vorschlag": None}}
 
-    result = await _bis_raeume(hass)
+    result = await _configure(hass, await _bis_raeume_vorher(hass), {
+        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
 
-    schema = result["data_schema"].schema
-    felder = {str(key): (type(key).__name__, value.config["include_entities"]) for key, value in schema.items()}
-    assert felder == {"raumfuehler": ("Required", []), "room_target": ("Required", [])}
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
+    assert result["description_placeholders"] == {"rolle": bezeichnung}
+    assert server.calls[-1] == ("abmelden",)
 
 
 _VIELE = {"raumfuehler": [f"sensor.raum_{i}" for i in range(1, 10)],
@@ -807,34 +851,98 @@ _VIELE = {"raumfuehler": [f"sensor.raum_{i}" for i in range(1, 10)],
           "benachrichtigung": [f"notify.mobile_app_handy_{i}" for i in range(1, 12)]}
 
 
-@pytest.mark.parametrize(("feld", "anzahl"), [("raumfuehler", 9), ("batterien", 17), ("benachrichtigung", 11)])
-async def test_too_many_entries_are_sent_and_the_400_without_field_aborts(hass, server, feld, anzahl):
-    """5c-I-3 (hingenommen): der Assistent sendet die Auswahl ungekuerzt (9 Raumfuehler, 17 Batterien, 11 Handys);
-    antwortet der Server mit 400 ohne `fehler`, bricht er mit dessen Text ab, statt das Feld zu markieren."""
+def _viele_kandidaten(server) -> None:
     raeume = [*_VIELE["raumfuehler"], "climate.wohnzimmer_thermostat"]
     server.zuordnung_antwort = {
         **ZUORDNUNG, "raumfuehler": {"kandidaten": raeume, "vorschlag": []},
         "room_target": {"kandidaten": raeume, "vorschlag": None},
         "batterie_je_entity": {f"sensor.raum_{i}": f"sensor.batterie_{i}" for i in range(1, 18)},
         "benachrichtigung": _VIELE["benachrichtigung"]}
-    server.fehler["pruefen"] = Rejected("Höchstens 8 Raumfühler, 16 Batterien und 10 Handys.")
-    auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld]}
-    assert len(auswahl[feld]) == anzahl
+
+
+_ANLAGENWERTE = {"curve": "number.zuhause_circuit_0_heating_curve",
+                 "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
+                 "outdoor_temp": "sensor.zuhause_outdoor_temperature"}
+
+
+@pytest.mark.parametrize("feld", ["raumfuehler", "batterien", "benachrichtigung"])
+async def test_eine_auswahl_an_der_grenze_wird_angenommen(hass, server, feld):
+    """5c-I-3 (b), Gegenprobe: genau 8 Raumfuehler, 16 Batterien, 10 Handys gehen zur Pruefung und zum Server."""
+    grenze = {"raumfuehler": 8, "batterien": 16, "benachrichtigung": 10}[feld]
+    _viele_kandidaten(server)
+    auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld][:grenze]}
+    result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": auswahl["raumfuehler"],
+                                                              "room_target": "climate.wohnzimmer_thermostat"})
+    result = await _configure(hass, result, _ANLAGENWERTE)
+
+    result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"], "hinweise_aus": [],
+                                             "batterien": auswahl["batterien"], "raum_soll": 21.0})
+
+    assert result["step_id"] == "zusammenfassung" and not result.get("errors")
+    anfrage = next(call[1] for call in server.calls if call[0] == "pruefen")
+    assert len(anfrage[feld]) == grenze
+
+
+async def test_neun_raumfuehler_markieren_das_feld(hass, server):
+    """5c-I-3 (b): 9 Raumfuehler (Grenze 8) zeigen das Formular `raeume` wieder, Feld `raumfuehler` mit `zu_viele`; die
+    Auswahl bleibt vorbelegt, es geht nichts an den Server."""
+    _viele_kandidaten(server)
     result = await _bis_raeume(hass)
-    result = await _configure(hass, result, {"raumfuehler": auswahl["raumfuehler"],
+
+    result = await _configure(hass, result, {"raumfuehler": _VIELE["raumfuehler"],
                                              "room_target": "climate.wohnzimmer_thermostat"})
-    result = await _configure(hass, result, {
-        "curve": "number.zuhause_circuit_0_heating_curve", "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
-        "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
+
+    assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "raeume")
+    assert result["errors"] == {"raumfuehler": "zu_viele"}
+    vorbelegt = {str(key): key.default() for key in result["data_schema"].schema if key.default is not vol.UNDEFINED}
+    assert vorbelegt["raumfuehler"] == _VIELE["raumfuehler"]
+    assert not any(call[0] in ("pruefen", "einrichten") for call in server.calls)
+    # korrigiert: weiter zu den Anlagenwerten, der Fehler ist weg
+    result = await _configure(hass, result, {"raumfuehler": _VIELE["raumfuehler"][:8],
+                                             "room_target": "climate.wohnzimmer_thermostat"})
+    assert result["step_id"] == "anlagenwerte" and not result.get("errors")
+
+
+@pytest.mark.parametrize(("feld", "zu_viele"), [("batterien", 17), ("benachrichtigung", 11)])
+async def test_zu_viele_batterien_oder_handys_markieren_das_feld(hass, server, feld, zu_viele):
+    """5c-I-3 (b): 17 Batterien (Grenze 16) bzw. 11 Handys (Grenze 10) zeigen `benachrichtigung` wieder, am Feld mit
+    `zu_viele`; keine Pruefung beim Server."""
+    _viele_kandidaten(server)
+    auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld]}
+    assert len(auswahl[feld]) == zu_viele
+    result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": auswahl["raumfuehler"],
+                                                              "room_target": "climate.wohnzimmer_thermostat"})
+    result = await _configure(hass, result, _ANLAGENWERTE)
     assert result["step_id"] == "benachrichtigung"
 
     result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"], "hinweise_aus": [],
                                              "batterien": auswahl["batterien"], "raum_soll": 21.0})
 
-    anfrage = next(call[1] for call in server.calls if call[0] == "pruefen")
-    assert len(anfrage[feld]) == anzahl
-    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "abgelehnt")
-    assert result["description_placeholders"]["grund"] == "Höchstens 8 Raumfühler, 16 Batterien und 10 Handys."
+    assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "benachrichtigung")
+    assert result["errors"] == {feld: "zu_viele"}
+    assert not any(call[0] in ("pruefen", "einrichten") for call in server.calls)
+    # korrigiert (auf die Grenze): weiter zur Zusammenfassung
+    grenze = {"batterien": 16, "benachrichtigung": 10}[feld]
+    result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"][:grenze],
+                                             "hinweise_aus": [], "batterien": auswahl["batterien"][:grenze],
+                                             "raum_soll": 21.0})
+    assert result["step_id"] == "zusammenfassung" and not result.get("errors")
+
+
+async def test_die_grenzen_gelten_auch_unmittelbar_vor_der_pruefung(hass, server):
+    """5c-I-3 (b): auch wenn eine zu grosse Auswahl bis zur Zusammenfassung gelangt waere, geht sie nicht zum Server:
+    die Pruefung vor `pruefen` schickt in das Formular des Felds zurueck."""
+    _viele_kandidaten(server)
+    result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": _VIELE["raumfuehler"][:1],
+                                                              "room_target": "climate.wohnzimmer_thermostat"})
+    result = await _configure(hass, result, _ANLAGENWERTE)
+    hass.config_entries.flow._progress[result["flow_id"]]._eingaben["raumfuehler"] = _VIELE["raumfuehler"]
+
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "raum_soll": 21.0})
+
+    assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "raeume")
+    assert result["errors"] == {"raumfuehler": "zu_viele"}
+    assert not any(call[0] == "pruefen" for call in server.calls)
 
 
 async def test_closing_the_dialog_logs_out(hass, server):
@@ -1091,36 +1199,21 @@ async def test_failed_removal_has_its_own_text_and_keeps_the_entry(hass, server)
     assert hass.config_entries.async_entries(DOMAIN) == [entry]
 
 
-async def test_removal_of_an_offline_device_keeps_running(hass, server, monkeypatch):
+async def test_ein_entfernen_ohne_rueckmeldung_entfernt_den_eintrag_trotzdem(hass, server, supervisor, monkeypatch):
+    """5c-I-1: antwortet das Geraet in den 300 s nicht, ist der Eintrag trotzdem entfernt (wie bei „entfernt“): das
+    Loeschen meldet das Geraet lokal ab (stdin-Zeile), der Server gibt es frei, sobald es erreichbar ist."""
     entry = await _eingerichtet(hass, server)
     server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
     monkeypatch.setattr(config_flow, "ENTFERNEN_WAIT_SECONDS", 0)
     result = await _reconfigure(hass, entry)
 
     result = await _configure(hass, await _configure(hass, result, {"next_step_id": "geraet_entfernen"}), {})
-
-    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_laeuft")
-    assert hass.config_entries.async_entries(DOMAIN) == [entry]
-
-
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="5c-I-1: Ziel: wird das Entfernen nach den 300 s doch fertig, verschwindet "
-                          "der Eintrag; heute bleibt er stehen")
-async def test_a_removal_that_finishes_after_the_wait_removes_the_entry(hass, server, monkeypatch):
-    entry = await _eingerichtet(hass, server)
-    server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
-    monkeypatch.setattr(config_flow, "ENTFERNEN_WAIT_SECONDS", 0)
-    result = await _reconfigure(hass, entry)
-    result = await _configure(hass, await _configure(hass, result, {"next_step_id": "geraet_entfernen"}), {})
-    if result.get("reason") != "entfernen_laeuft":
-        pytest.fail(f"Vorbedingung: {result}")  # kein AssertionError: der xfail soll nur am Ziel haengen
-
-    server.auftrag_ergebnis = {"zustand": "fertig", "fehler": None}  # das Geraet ist wieder online, der Server fertig
-    server.entfernt = True
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(hours=1))
     await hass.async_block_till_done()
 
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_laeuft")
     assert hass.config_entries.async_entries(DOMAIN) == []
+    assert supervisor.stdin == [(BRIDGE_SLUG, f"entfernen {GERAET_ID}\n\n".encode())]
+    assert server.calls[-1] == ("abmelden",)
 
 
 @pytest.mark.parametrize("data", [{"tenant_id": TENANT}, {"geraet_id": None, "tenant_id": TENANT},
@@ -1164,6 +1257,7 @@ _ERRORS = {
     "server_veraltet", "sitzung_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
     "unit_mismatch", "out_of_range", "duplicate_entity", "zone_is_room_target", "entity_wrong_integration",
     "entity_wrong_installation", "room_sensors_required", "wrong_state_class", "unknown_service", "unknown_hint",
+    "zu_viele",
 }
 _STEPS = {"bestaetigen", "anmelden", "schon_eingerichtet", "anlage", "ersetzen", "inventur_zeit", "integration",
           "system", "hebelsatz", "raeume", "anlagenwerte", "benachrichtigung", "zusammenfassung", "menue",
@@ -1185,6 +1279,21 @@ def test_every_step_error_and_abort_has_a_text(path):
         assert "{grund}" in config["abort"][key], (path, key)
     for key in ("uebernahme_fehlgeschlagen", "uebernahme_gesperrt", "anmeldung_gebunden"):
         assert "{grund}" in config["error"][key], (path, key)
+
+
+@pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_neue_texte_des_assistenten_sind_in_allen_sprachen_da(path):
+    """5c-I-1/-2/-3: Abbruchtext beim unerreichbaren Geraet (Eintrag ist entfernt), Hinweis „Geraet nicht erreichbar“,
+    Feldfehler `zu_viele`."""
+    data = json.loads((_COMPONENT / path).read_text(encoding="utf-8"))
+    deutsch = path.endswith("de.json")
+
+    assert ("Der Eintrag ist entfernt; der SmartHeat-Dienst gibt das Gerät frei, sobald es erreichbar ist."
+            if deutsch else "The entry has been removed; the SmartHeat service releases the device as soon as it "
+            "can be reached.") == data["config"]["abort"]["entfernen_laeuft"]
+    assert data["common"]["geraet_nicht_erreichbar"] == (
+        "Das Gerät ist nicht erreichbar." if deutsch else "The device cannot be reached.")
+    assert data["config"]["error"]["zu_viele"]
 
 
 def test_both_languages_label_the_same_roles():
