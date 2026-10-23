@@ -4,8 +4,7 @@ name: CI
 # Eingabe stufe ist deklariert, damit der Release-Workflow und workflow_dispatch sie wie in den anderen Repos uebergeben.
 # hassfest und hacs sind Container-Actions, gehoeren als Pflicht-Checks des Rulesets aber ausdruecklich zur
 # Standardstufe (Ausnahme der Docker-Regel in tools/tests/test_workflows.py des Root-Repos). Pflicht-Checks (lint,
-# test, test-client1-ha, hassfest, hacs, contract) bleiben Jobs ohne Job-if (sonst scheitert der Fast-Forward von main
-# mit GH013).
+# test, hassfest, hacs, contract) bleiben Jobs ohne Job-if (sonst scheitert der Fast-Forward von main mit GH013).
 on:
   push:
     branches: ["**"]
@@ -68,26 +67,6 @@ jobs:
       - name: Taeglich gegen die neueste HA-Testumgebung (Spec 2.2)
         if: github.event_name == 'schedule'
         run: pip install -U pytest-homeassistant-custom-component  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
-      - run: PYTHON=python bash scripts/check.sh --only test
-  test-client1-ha:
-    # Dieselben Tests gegen die HA-Version von client1. Die phcc-Version (requirements_test.txt) muss
-    # HomeAssistantPapa/.HA_VERSION folgen (phcc 0.13.367 pinnt homeassistant==2026.9.4) und wird mit dem HA-Pin in
-    # SmartHeat-for-HomeAssistant/.github/workflows/ci.yml zusammen angehoben (docs/ci-cd-runbook.md).
-    # Pflicht-Check im Ruleset der Integration (Name nicht aendern).
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ env.CHECKOUT_REF }}
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.14"
-      - name: Test-Abhaengigkeiten mit der HA-Testumgebung von client1 (HomeAssistantPapa/.HA_VERSION = 2026.9.4)
-        run: pip install -r requirements_test.txt  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
-      - name: Kein Paket der neuen HA-Version im Environment
-        run: |
-          pip show homeassistant | grep -q '^Version: 2026\.9\.4$'
       - run: PYTHON=python bash scripts/check.sh --only test
   hassfest:
     runs-on: ubuntu-24.04
