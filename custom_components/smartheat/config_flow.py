@@ -32,7 +32,6 @@ from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from . import addon_control, supervisor_client, vertrag_pin
 from . import anfrage as v3_anfrage
 from .const import (
-    ADDON_REPOSITORY_URL,
     AUFTRAG_FEHLGESCHLAGEN,
     AUFTRAG_FERTIG,
     AUFTRAG_WAIT_SECONDS,
@@ -55,6 +54,7 @@ from .const import (
     EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER,
     ENTFERNEN_WAIT_SECONDS,
     GERAET_ID_RE,
+    HEIZUNGSBRUECKE_ADDON_SLUG,
     INVENTUR_WAIT_SECONDS,
     MIN_ADDON_VERSIONS,
     POLL_SECONDS,
@@ -333,7 +333,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     async def _addon_version_fehler(self) -> str | None:
         """Mindestversion der Heizungsbruecke (aelter meldet sich nie per Discovery); None = in Ordnung."""
         try:
-            await supervisor_client.async_resolve_addons(self.hass, ADDON_REPOSITORY_URL, MIN_ADDON_VERSIONS)
+            await supervisor_client.async_resolve_bridge(
+                self.hass, MIN_ADDON_VERSIONS[HEIZUNGSBRUECKE_ADDON_SLUG])
         except supervisor_client.AddonOutdatedError:
             return "addon_veraltet"
         except supervisor_client.AmbiguousAddonMatchError:

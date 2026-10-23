@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.hassio import is_hassio
 
 from .const import (
+    ADDON_NAME,
     ADDON_REPOSITORY_URL,
     DEFAULT_BASE_URL,
     DISCOVERY_FIELDS,
@@ -28,8 +29,6 @@ from .const import (
 from .supervisor_client import async_repository_slug, async_repository_slugs, fremde_bruecken, matching_addons
 
 _LOGGER = logging.getLogger(__name__)
-
-ADDON_NAME = "Heizungsbruecke"
 
 
 async def async_bridge_slug(hass: HomeAssistant) -> str | None:
@@ -83,26 +82,23 @@ async def async_install_and_start(hass: HomeAssistant) -> AddonManager:
         info = await manager.async_get_addon_info()
     if info.state == AddonState.NOT_RUNNING:
         await manager.async_start_addon()
-    failed = await async_set_supervision(hass, [slug], True)
-    if failed:
+    if not await async_set_supervision(hass, slug):
         _LOGGER.warning("Watchdog und Autostart der Heizungsbruecke nicht gesetzt")
     return manager
 
 
-async def async_set_supervision(hass: HomeAssistant, slugs: list[str], enabled: bool) -> list[str]:
-    """Watchdog und Boot (Spec TP7 2.6): an = watchdog + boot auto, aus = manual. Gibt die (echten,
-    aufgeloesten) Slugs zurueck, bei denen es scheiterte -- das ist nur eine Warnung."""
-    options = AddonsOptions(watchdog=enabled, boot=AddonBoot.AUTO if enabled else AddonBoot.MANUAL)
-    client = get_supervisor_client(hass)
-    failed = []
-    for slug in slugs:
-        try:
-            await client.addons.set_addon_options(slug, options)
-        except SupervisorError as error:
-            # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
-            _LOGGER.warning("Watchdog/Boot fuer Add-on %s nicht gesetzt: %s", slug, type(error).__name__)
-            failed.append(slug)
-    return failed
+async def async_set_supervision(hass: HomeAssistant, slug: str) -> bool:
+    """Watchdog und Boot der Heizungsbruecke an (Spec TP7 2.6): watchdog + boot auto. True, wenn es gesetzt wurde;
+    scheitert es, ist das nur eine Warnung des Aufrufers."""
+    try:
+        await get_supervisor_client(hass).addons.set_addon_options(
+            slug, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO),
+        )
+    except SupervisorError as error:
+        # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren (Audit 4, A4-40).
+        _LOGGER.warning("Watchdog/Boot fuer Add-on %s nicht gesetzt: %s", slug, type(error).__name__)
+        return False
+    return True
 
 
 def _valid_url(value) -> bool:

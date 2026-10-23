@@ -155,15 +155,14 @@ WATCHDOG_MESSAGES = {
                             "Heizungssteuerung ist unterbrochen. SmartHeat startet es neu."),
 }
 WATCHDOG_REASONS = {
-    STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: {addons}",
+    STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: Heizungsbrücke",
     STATUS_REAGIERT_NICHT: "Heizungsbrücke meldet sich seit 15 Minuten nicht",
 }
 
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
+ADDON_NAME = "Heizungsbruecke"  # Anzeigename fuer HAs AddonManager und die Logzeilen
 MIN_ADDON_VERSIONS: dict[str, str] = {HEIZUNGSBRUECKE_ADDON_SLUG: "1.0.0"}
-ADDON_SPECS: list[tuple[str, str]] = [("Heizungsbruecke", HEIZUNGSBRUECKE_ADDON_SLUG)]
-ADDON_DISPLAY_NAMES: dict[str, str] = {HEIZUNGSBRUECKE_ADDON_SLUG: "Heizungsbrücke"}
 
 
 def slug(tenant_id: str) -> str:

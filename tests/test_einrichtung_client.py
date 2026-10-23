@@ -574,6 +574,24 @@ async def test_uebergrosser_fehlerbody_wird_nicht_gelesen():
     assert caught.value.text == "knapp" and caught.value.fehler == {"a": "b"}
 
 
+@pytest.mark.parametrize(("laenge", "gelesen"), [
+    (einrichtung_client.FEHLER_BODY_MAX_BYTES, True),
+    (einrichtung_client.FEHLER_BODY_MAX_BYTES + 1, False),
+], ids=["genau_an_der_grenze", "ein_byte_darueber"])
+async def test_fehlerbody_grenze_genau_ein_byte(laenge, gelesen):
+    """5c-I-11, Grenzfall: ein Fehler-Body von genau FEHLER_BODY_MAX_BYTES Bytes wird noch ausgewertet (Text und
+    Feldfehler), einer mit einem Byte mehr nicht (Text leer, keine Feldfehler)."""
+    rumpf = {"error": "grenze", "fehler": {"a": "b"}, "fuell": ""}
+    rumpf["fuell"] = "z" * (laenge - len(json.dumps(rumpf).encode()))
+    daten = json.dumps(rumpf).encode()
+    assert len(daten) == laenge
+
+    with pytest.raises(Rejected) as caught:
+        await EinrichtungClient._fehler("einrichten", _Antwortkoerper(400, daten), True)
+
+    assert (caught.value.text, caught.value.fehler) == (("grenze", {"a": "b"}) if gelesen else ("", {}))
+
+
 @pytest.mark.parametrize(("status", "ausnahme"), [(401, InvalidAuth), (404, NotFound), (409, Conflict), (429, TooMany)])
 async def test_erwartete_ablehnungen_loggen_info(aiohttp_client, caplog, status, ausnahme):
     """5c-I-11: 401/404/409/429 sind erwartete Antworten des Servers (Token abgelaufen, Geraet unbekannt, Konflikt,

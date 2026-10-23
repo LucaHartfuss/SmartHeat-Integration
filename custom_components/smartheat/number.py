@@ -1,8 +1,9 @@
 """Wunschtemperatur als Entity (Spec 5c 1.3/2.2): fuer HA-Automationen und das Dashboard. Setzen feuert nur das lokale
 Ereignis smartheat_wunsch (mit dem Kontext des Dienstaufrufs: Nutzer oder Automation); das Add-on wendet den Wert
 sofort lokal an (Boost bei Erhoehung, auch ohne Internet) und meldet ihn als Bedienwunsch an den Server. Kein
-Server-Aufruf aus der Integration. Angezeigt wird der wirksame Soll aus dem Status-Ereignis. Solange das Thermostat
-aus ist (Hinweis soll_quelle_aus), lehnt die Entity ab (5c F/Q3)."""
+Server-Aufruf aus der Integration. Angezeigt wird allein der wirksame Soll aus dem Status-Ereignis (nach dem Setzen
+erst mit dem naechsten Ereignis, A6-41). Solange das Thermostat aus ist (Hinweis soll_quelle_aus) oder der Waechter das
+Add-on als gestoppt bzw. nicht reagierend meldet, lehnt die Entity ab (5c F/Q3, A6-41)."""
 from __future__ import annotations
 
 from math import floor, isfinite
@@ -21,6 +22,8 @@ from .const import (
     RAUM_SOLL_MAX,
     RAUM_SOLL_MIN,
     RAUM_SOLL_STEP,
+    STATUS_ADDON_GESTOPPT,
+    STATUS_REAGIERT_NICHT,
     WUNSCH_EVENT,
 )
 from .entity import SmartHeatEntity
@@ -74,10 +77,12 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         gerundete Wert ans Add-on."""
         if not isfinite(value):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="wunsch_ungueltig")
+        if self.coordinator.watchdog_status in (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT):
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="addon_nicht_bereit")
         hinweise = (self.coordinator.data or {}).get("geraet_hinweise") or []
         if any(isinstance(h, dict) and h.get(HINWEIS_FELD_KEY) == HINWEIS_SOLL_QUELLE_AUS for h in hinweise):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="thermostat_aus")
         raum_soll = _auf_schritt(float(value))
+        # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet je
+        # Geraete-Takt eines), also dem, was das Add-on wirklich anwendet (A6-41).
         self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)
-        self._attr_native_value = raum_soll
-        self.async_write_ha_state()

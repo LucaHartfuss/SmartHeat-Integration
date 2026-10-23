@@ -1,6 +1,7 @@
 """Spec 5c 1.3/2.2: Hinweise des Geraets werden HA-Reparatur-Hinweise; verschwindet ein Hinweis, verschwindet das
 Issue. Je Schluessel ein nicht behebbares Issue, bekannte Schluessel mit eigenem Text."""
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +11,7 @@ from homeassistant.helpers.translation import async_get_translations
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import repairs
-from custom_components.smartheat.const import DOMAIN, HINWEIS_KEYS, STATUS_EVENT
+from custom_components.smartheat.const import DOMAIN, ERROR_TEXT_MAX, HINWEIS_KEYS, STATUS_EVENT
 
 DATA = {"geraet_id": "shg-a", "tenant_id": "zuhause2", "profile_id": "vaillant_gastherme_heizkoerper",
         "lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
@@ -108,6 +109,42 @@ def test_hint_without_text_or_stufe_is_a_warning_with_empty_text(hass):
         ir.IssueSeverity.WARNING, "soll_quelle_aus", {"text": ""})
 
 
+_MARKDOWN_ZEICHEN = "\\`*_[]()<>#!|~"
+
+
+def test_servertext_erscheint_als_klartext(hass):
+    """A6-42: HA stellt die Beschreibung eines Hinweises als Markdown dar; der Text kommt vom Geraet (und damit
+    mittelbar vom Server) und darf weder einen Link noch Formatierung einschleusen: jedes Markdown-Zeichen wird mit
+    `\\` maskiert, der Nutzer liest den Text unveraendert."""
+    text = "[Link](https://x) **fett** `code` <b>x</b> a_b # h ! i | t ~ s \\ ende"
+    repairs.async_update(hass, [{"key": "gesperrt", "stufe": "kritisch", "text": text}])
+
+    angezeigt = ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_gesperrt").translation_placeholders["text"]
+
+    assert angezeigt.startswith("\\[Link\\]\\(https://x\\) \\*\\*fett\\*\\* ")
+    ungeschuetzt = re.sub(r"\\.", "", angezeigt)  # jedes maskierte Zeichen entfernen
+    assert not any(zeichen in ungeschuetzt for zeichen in _MARKDOWN_ZEICHEN)
+    assert re.sub(r"\\(.)", r"\1", angezeigt) == text  # Maskierung verlustfrei
+
+
+@pytest.mark.parametrize("zeichen", list(_MARKDOWN_ZEICHEN))
+def test_every_markdown_character_is_masked(hass, zeichen):
+    repairs.async_update(hass, [{"key": "gesperrt", "text": f"a{zeichen}b"}])
+    angezeigt = ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_gesperrt").translation_placeholders["text"]
+    assert angezeigt == f"a\\{zeichen}b"
+
+
+def test_servertext_wird_gekuerzt(hass):
+    """A6-42: der Text eines Hinweises hat hoechstens ERROR_TEXT_MAX Zeichen (vor der Maskierung); danach stehen
+    keine halben Maskierungen am Ende."""
+    repairs.async_update(hass, [{"key": "gesperrt", "text": "x" * 1000},
+                                {"key": "wunsch_begrenzt", "text": "*" * 1000}])
+    issues = _own_issues(hass)
+
+    assert issues["hinweis_gesperrt"].translation_placeholders["text"] == "x" * ERROR_TEXT_MAX
+    assert issues["hinweis_wunsch_begrenzt"].translation_placeholders["text"] == "\\*" * ERROR_TEXT_MAX
+
+
 # Texte des Geraets wie heizungsbruecke/geraet_status.py und smartheat_device.device.ABLEHNUNG_ANZEIGE (Deutsch).
 _UPDATE_TEXT = "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren."
 _ABGELEHNT_TEXT = "Die Einrichtung wurde abgelehnt (Code rolle_fehlt). Die Begründung zeigt der Einrichtungsassistent."
@@ -116,7 +153,8 @@ _ABGELEHNT_TEXT = "Die Einrichtung wurde abgelehnt (Code rolle_fehlt). Die Begr�
 async def test_hint_issues_keep_todays_ids_and_texts(hass):
     """5c-I-14, heutiges Verhalten festgehalten: die Issue-ID ist nur `hinweis_<schluessel>` (nicht je Eintrag, passt zu
     `single_config_entry`); die Beschreibung von `update_noetig` wiederholt nach dem Geraetetext dessen Anweisung; die
-    deutschen Geraetetexte stehen auch in den englischen Beschreibungen."""
+    deutschen Geraetetexte stehen auch in den englischen Beschreibungen. Seit A6-42 stehen die Geraetetexte mit
+    maskierten Markdown-Zeichen darin (`(`, `)`, `_`); HA stellt sie als der Text dar."""
     entry = await _setup(hass)
     hass.bus.async_fire(STATUS_EVENT, {**EVENT, "geraet_hinweise": [
         {"key": "update_noetig", "stufe": "kritisch", "text": _UPDATE_TEXT},
@@ -140,7 +178,7 @@ async def test_hint_issues_keep_todays_ids_and_texts(hass):
         "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren. "
         "Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren.")
     assert beschreibung(en, "hinweis_konfiguration_abgelehnt") == (
-        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt (Code rolle_fehlt). Die Begründung "
+        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt \\(Code rolle\\_fehlt\\). Die Begründung "
         "zeigt der Einrichtungsassistent. Please check it under SmartHeat → Reconfigure.")
 
 

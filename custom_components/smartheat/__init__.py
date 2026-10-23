@@ -3,13 +3,14 @@ ein, zeigt seinen Status als Entities, macht seine Hinweise zu Reparatur-Hinweis
 und ueberwacht die Heizungsbruecke (zweiter Waechter); das Loeschen des Eintrags meldet das Geraet lokal ab (L4-06)."""
 from __future__ import annotations
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from . import addon_control, binary_sensor, number, repairs, sensor
-from .const import DOMAIN
+from .const import DOMAIN, watchdog_notification_id
 from .coordinator import SmartHeatCoordinator
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
@@ -47,6 +48,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """L4-06 Variante C (aendert Spec 5c 4): das Loeschen des Eintrags meldet das Geraet ueber das stdin der
     Heizungsbruecke lokal ab (Ursprungswerte, Portal "Abgemeldet"); kein Server-Aufruf, das Add-on laeuft weiter, aus
     dem Konto entfernt der Kunde das Geraet im Portal. Fehler sind nur eine WARNING. Dazu verschwinden die eigenen
-    Reparatur-Hinweise."""
+    Reparatur-Hinweise und eine offene Meldung des Waechters (5c-I-4)."""
     await addon_control.async_entfernen_melden(hass, entry.data.get("geraet_id"))
     repairs.async_clear(hass)
+    if isinstance(tenant_id := entry.data.get("tenant_id"), str):  # ein kaputter Eintrag laesst sich trotzdem loeschen
+        persistent_notification.async_dismiss(hass, watchdog_notification_id(tenant_id))

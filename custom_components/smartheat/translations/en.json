@@ -214,7 +214,8 @@
   },
   "exceptions": {
     "wunsch_ungueltig": {"message": "The desired temperature must be a number."},
-    "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."}
+    "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."},
+    "addon_nicht_bereit": {"message": "The add-on is not running or not responding, so SmartHeat cannot pass on the target temperature. Please wait until the add-on is back."}
   },
   "issues": {
     "update_noetig": {"title": "SmartHeat: update the add-on", "description": "{text} Settings → Add-ons → Heizungsbrücke → Update."},

@@ -4,14 +4,31 @@ Issue. Kein Fix-Flow (alle Issues sind nicht behebbar); HA laedt dieses Modul al
 behebbare Issues."""
 from __future__ import annotations
 
+import re
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
-from .const import DOMAIN, HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT, HINWEIS_KEYS, hinweis_issue_id
+from .const import (
+    DOMAIN,
+    ERROR_TEXT_MAX,
+    HINWEIS_FELD_KEY,
+    HINWEIS_FELD_STUFE,
+    HINWEIS_FELD_TEXT,
+    HINWEIS_KEYS,
+    hinweis_issue_id,
+)
 
 KRITISCH = "kritisch"
 _PREFIX = "hinweis_"
 GERAET_HINWEIS = "geraet_hinweis"
+_MARKDOWN = re.compile(r"([\\`*_\[\]()<>#!|~])")
+
+
+def _klartext(text: object) -> str:
+    """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues (A6-42): auf ERROR_TEXT_MAX
+    Zeichen gekuerzt, dann jedes Markdown-Zeichen mit `\\` maskiert -- weder ein Link noch Formatierung kommt durch."""
+    return _MARKDOWN.sub(r"\\\1", str(text or "")[:ERROR_TEXT_MAX])
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
@@ -31,7 +48,7 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
             hass, DOMAIN, issue_id, is_fixable=False,
             severity=severity,
             translation_key=key if key in HINWEIS_KEYS else GERAET_HINWEIS,
-            translation_placeholders={"text": str(hinweis.get(HINWEIS_FELD_TEXT) or "")},
+            translation_placeholders={"text": _klartext(hinweis.get(HINWEIS_FELD_TEXT))},
         )
     for domain, issue_id in list(registry.issues):
         if domain == DOMAIN and issue_id.startswith(_PREFIX) and issue_id not in aktuell:

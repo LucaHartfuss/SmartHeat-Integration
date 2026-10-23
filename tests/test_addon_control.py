@@ -207,24 +207,20 @@ async def test_install_and_start_needs_the_supervisor(hass, supervisor):
 # --- Watchdog und Autostart (Spec TP7 2.6) ---
 
 
-async def test_supervision_sets_watchdog_and_boot_and_reports_the_failed_slug(hass, supervisor, caplog):
-    other = "abc_cloudflared_access_mqtt"
-    supervisor.installed = [installed_addon(SLUG), installed_addon(other)]
-    supervisor.errors[("addons.set_addon_options", other)] = SupervisorTimeoutError("geheimer-wert")
+async def test_supervision_sets_watchdog_and_boot_and_reports_a_failure(hass, supervisor, caplog):
+    supervisor.errors[("addons.set_addon_options", SLUG)] = SupervisorTimeoutError("geheimer-wert")
 
     with caplog.at_level(logging.WARNING):
-        failed = await addon_control.async_set_supervision(hass, [other, SLUG], True)
+        assert await addon_control.async_set_supervision(hass, SLUG) is False
 
-    assert failed == [other]
-    assert supervisor.supervision == {SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
+    assert supervisor.supervision == {}
     warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
-    assert warnings == [f"Watchdog/Boot fuer Add-on {other} nicht gesetzt: SupervisorTimeoutError"]
+    assert warnings == [f"Watchdog/Boot fuer Add-on {SLUG} nicht gesetzt: SupervisorTimeoutError"]
     assert "geheimer-wert" not in caplog.text
 
     supervisor.errors.clear()
-    assert await addon_control.async_set_supervision(hass, [other, SLUG], False) == []
-    assert supervisor.supervision == {SLUG: {"watchdog": False, "boot": AddonBoot.MANUAL},
-                                      other: {"watchdog": False, "boot": AddonBoot.MANUAL}}
+    assert await addon_control.async_set_supervision(hass, SLUG) is True
+    assert supervisor.supervision == {SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
     assert supervisor.config_written == []
 
 

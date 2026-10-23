@@ -214,7 +214,8 @@
   },
   "exceptions": {
     "wunsch_ungueltig": {"message": "Die Wunschtemperatur muss eine Zahl sein."},
-    "thermostat_aus": {"message": "Das Thermostat ist ausgeschaltet. Solange es aus ist, nimmt SmartHeat keine Wunschtemperatur an."}
+    "thermostat_aus": {"message": "Das Thermostat ist ausgeschaltet. Solange es aus ist, nimmt SmartHeat keine Wunschtemperatur an."},
+    "addon_nicht_bereit": {"message": "Das Add-on läuft nicht oder meldet sich nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte warten, bis das Add-on wieder läuft."}
   },
   "issues": {
     "update_noetig": {"title": "SmartHeat: Add-on aktualisieren", "description": "{text} Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."},
