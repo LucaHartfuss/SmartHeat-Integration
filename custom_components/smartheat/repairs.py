@@ -28,7 +28,8 @@ _MARKDOWN = re.compile(r"([\\`*_\[\]()<>#!|~&:.@])")
 _STEUERZEICHEN = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 # Zero-width- und Bidi-Steuerzeichen: sie verstecken Zeichen oder drehen den Text optisch um.
 _UNSICHTBAR = re.compile("[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
-_BLOCKANFANG = re.compile(r"^[-+=]")  # Liste, Linie, Setext-Ueberschrift; `*`, `>`, `#`, Ziffer mit Punkt maskiert _MARKDOWN
+# Liste, Linie, Setext-Ueberschrift; `*`, `>`, `#`, Ziffer mit Punkt maskiert _MARKDOWN
+_BLOCKANFANG = re.compile(r"^[-+=]")
 
 
 def _klartext(text: object) -> str:

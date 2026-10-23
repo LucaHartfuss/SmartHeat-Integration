@@ -515,7 +515,8 @@ async def test_400_mit_fehlerobjekt_macht_schluessel_und_werte_zu_text(aiohttp_c
 @pytest.mark.parametrize("body", ["[1, 2]", '"fehler"', "7", "null", '{"fehler": ["a"]}'],
                          ids=["liste", "text", "zahl", "null", "fehler_liste"])
 async def test_fehler_body_kein_objekt_ergibt_weder_text_noch_feldfehler(aiohttp_client, body):
-    """5c-I-11: ein 400 mit JSON, das kein Objekt ist (oder `fehler` ohne Objekt), gibt leeren Text und keine Feldfehler."""
+    """5c-I-11: ein 400 mit JSON, das kein Objekt ist (oder `fehler` ohne Objekt), gibt leeren Text und keine
+    Feldfehler."""
     async def handler(request):
         return web.Response(text=body, status=400, content_type="application/json")
 

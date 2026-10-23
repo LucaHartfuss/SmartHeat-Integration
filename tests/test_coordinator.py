@@ -82,11 +82,12 @@ def test_watchdog_silence_does_not_count_while_the_bridge_is_stopped():
 
 
 def test_watchdog_an_unresolvable_bridge_is_no_stopped_count_and_never_restarted():
-    """5c-I-4: `None` (Bruecke nicht aufloesbar) zaehlt nie als „laeuft nicht“ und startet nichts; erst die Stille meldet
-    „reagiert nicht“, ohne Neustart."""
+    """5c-I-4: `None` (Bruecke nicht aufloesbar) zaehlt nie als „laeuft nicht“ und startet nichts; erst die Stille
+    meldet „reagiert nicht“, ohne Neustart."""
     watchdog = Watchdog(started_at=0)
 
-    assert [watchdog.check(300 * n, None) for n in (1, 2, 3)] == [(None, False), (None, False), ("reagiert_nicht", False)]
+    ergebnisse = [watchdog.check(300 * n, None) for n in (1, 2, 3)]
+    assert ergebnisse == [(None, False), (None, False), ("reagiert_nicht", False)]
     assert watchdog.not_running == 0 and not watchdog.restarts
 
 
@@ -696,9 +697,9 @@ _NICHT_AUFLOESBAR = pytest.mark.parametrize("source", [
 
 @_NICHT_AUFLOESBAR
 async def test_unaufloesbare_bruecke_mit_ereignissen_meldet_nichts(hass, supervisor, clock, notes, source):
-    """5c-I-4: ist das Repository unter einer anderen Adresse eingetragen (`http://` oder ein Fork), loest der Waechter die
-    laufende Heizungsbruecke nicht auf. Solange Ereignisse eintreffen, meldet er nichts (frueher dauerhaft „Add-on
-    gestoppt“) und startet nichts."""
+    """5c-I-4: ist das Repository unter einer anderen Adresse eingetragen (`http://` oder ein Fork), loest der
+    Waechter die laufende Heizungsbruecke nicht auf. Solange Ereignisse eintreffen, meldet er nichts (frueher
+    dauerhaft „Add-on gestoppt“) und startet nichts."""
     supervisor.repositories = [repository(source=source)]
     entry = await _setup(hass)
     coordinator = entry.runtime_data

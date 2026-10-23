@@ -83,6 +83,6 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         if any(isinstance(h, dict) and h.get(HINWEIS_FELD_KEY) == HINWEIS_SOLL_QUELLE_AUS for h in hinweise):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="thermostat_aus")
         raum_soll = _auf_schritt(float(value))
-        # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet je
-        # Geraete-Takt eines), also dem, was das Add-on wirklich anwendet (A6-41).
+        # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet nur bei
+        # einer Aenderung, binnen etwa einer Sekunde), also dem, was das Add-on wirklich anwendet (A6-41).
         self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)

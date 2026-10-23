@@ -61,8 +61,8 @@ STDIN_BEFEHL_ENTFERNEN = "entfernen"
 STDIN_ZEILE_FORMAT = "{befehl} {geraet_id}\n"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
-# Grenzen der Auswahl im Assistenten (5c-I-3): Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER, MAX_BATTERIEN,
-# MAX_HANDYS (V3, Contract-Check 76); mehr lehnt der Server mit 400 ab.
+# Grenzen der Auswahl im Assistenten (5c-I-3): Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER,
+# MAX_BATTERIEN, MAX_HANDYS (V3, Contract-Check 76); mehr lehnt der Server mit 400 ab.
 EINRICHTUNG_MAX_RAUMFUEHLER = 8
 EINRICHTUNG_MAX_BATTERIEN = 16
 EINRICHTUNG_MAX_HANDYS = 10
@@ -152,8 +152,8 @@ WATCHDOG_MESSAGES = {
     STATUS_ADDON_GESTOPPT: ("SmartHeat: Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. "
                             "SmartHeat startet es neu."),
     STATUS_REAGIERT_NICHT: ("SmartHeat: Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die "
-                            "Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons prüfen; "
-                            "wenn möglich, startet SmartHeat es neu."),
+                            "Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons "
+                            "prüfen; wenn möglich, startet SmartHeat es neu."),
 }
 WATCHDOG_REASONS = {
     STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: Heizungsbrücke",

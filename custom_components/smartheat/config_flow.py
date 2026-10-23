@@ -11,7 +11,8 @@ Fehler der Einrichtungs-API: abgelaufenes Token -> zurueck zur Anmeldung; Feldfe
 Formular mit dem Feld; nicht erreichbar -> Abbruch cannot_connect; alles andere -> Abbruch mit dem Text des Servers.
 Mehr als 8 Raumfuehler, 16 Batterien oder 10 Handys markiert der Assistent selbst (`zu_viele`), ohne Kandidaten fuer
 Raumfuehler oder Raum-Soll bricht er ab. Antwortet das Geraet beim "Geraet entfernen" nicht, ist der Eintrag trotzdem
-entfernt. Vom Supervisor wird nie ein Fehlertext gezeigt oder geloggt (er kann Optionswerte zitieren), nur die Fehlerart."""
+entfernt. Vom Supervisor wird nie ein Fehlertext gezeigt oder geloggt (er kann Optionswerte zitieren), nur die
+Fehlerart."""
 from __future__ import annotations
 
 import asyncio
@@ -658,7 +659,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return {feld: "zu_viele" for feld in felder if len(self._eingaben.get(feld) or []) > _MAXIMUM[feld]}
 
     def _grenzen_verletzt(self, felder: tuple[str, ...]) -> bool:
-        """Setzt die Feldfehler `zu_viele` der Felder (alte Fehler dieser Felder entfallen); True, wenn es welche gibt."""
+        """Setzt die Feldfehler `zu_viele` der Felder (alte Fehler dieser Felder entfallen); True, wenn es welche
+        gibt."""
         zu_viele = self._zu_viele(felder)
         self._fehler = {key: value for key, value in self._fehler.items() if key not in felder} | zu_viele
         return bool(zu_viele)

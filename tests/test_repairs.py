@@ -251,8 +251,8 @@ async def test_hint_issues_keep_todays_ids_and_texts(hass):
         "Das Add-on ist zu alt für den SmartHeat-Dienst\\. Bitte das Add-on aktualisieren\\. "
         "Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren.")
     assert beschreibung(en, "hinweis_konfiguration_abgelehnt") == (
-        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt \\(Code rolle\\_fehlt\\)\\. Die Begründung "
-        "zeigt der Einrichtungsassistent\\. Please check it under SmartHeat → Reconfigure.")
+        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt \\(Code rolle\\_fehlt\\)\\. "
+        "Die Begründung zeigt der Einrichtungsassistent\\. Please check it under SmartHeat → Reconfigure.")
 
 
 @pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
