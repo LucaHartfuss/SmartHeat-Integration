@@ -109,7 +109,7 @@ def test_hint_without_text_or_stufe_is_a_warning_with_empty_text(hass):
         ir.IssueSeverity.WARNING, "soll_quelle_aus", {"text": ""})
 
 
-_MARKDOWN_ZEICHEN = "\\`*_[]()<>#!|~"
+_MARKDOWN_ZEICHEN = "\\`*_[]()<>#!|~&:.@"
 
 
 def test_servertext_erscheint_als_klartext(hass):
@@ -121,7 +121,7 @@ def test_servertext_erscheint_als_klartext(hass):
 
     angezeigt = ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_gesperrt").translation_placeholders["text"]
 
-    assert angezeigt.startswith("\\[Link\\]\\(https://x\\) \\*\\*fett\\*\\* ")
+    assert angezeigt.startswith("\\[Link\\]\\(https\\://x\\) \\*\\*fett\\*\\* ")
     ungeschuetzt = re.sub(r"\\.", "", angezeigt)  # jedes maskierte Zeichen entfernen
     assert not any(zeichen in ungeschuetzt for zeichen in _MARKDOWN_ZEICHEN)
     assert re.sub(r"\\(.)", r"\1", angezeigt) == text  # Maskierung verlustfrei
@@ -132,6 +132,45 @@ def test_every_markdown_character_is_masked(hass, zeichen):
     repairs.async_update(hass, [{"key": "gesperrt", "text": f"a{zeichen}b"}])
     angezeigt = ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_gesperrt").translation_placeholders["text"]
     assert angezeigt == f"a\\{zeichen}b"
+
+
+def _angezeigt(hass, text) -> str:
+    repairs.async_update(hass, [{"key": "gesperrt", "text": text}])
+    return ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_gesperrt").translation_placeholders["text"]
+
+
+# Was HAs Markdown (GFM) ohne Zutun eines Links selbst verlinkt: URL mit Schema, `www.`-Adresse, E-Mail-Adresse.
+_AUTOLINK = re.compile(r"(?<!\\)(?:[a-z][a-z0-9+.-]*://|www\.|[\w.+-]+@[\w-]+\.)", re.IGNORECASE)
+
+
+@pytest.mark.parametrize("text", [
+    "Bitte https://evil.example/x oeffnen", "Bitte http://evil.example oeffnen", "www.evil.example",
+    "Mail an angreifer@evil.example", "ftp://evil.example/x",
+])
+def test_servertext_enthaelt_keine_automatisch_verlinkte_adresse(hass, text):
+    """Security-Nachtrag A6-42: auch ohne Link-Syntax verlinkt Markdown nackte Adressen; `:`, `.` und `@` sind
+    maskiert, damit keine anklickbare Adresse entsteht (ein manipulierter Server koennte sonst einen Phishing-Link in
+    einen Hinweis legen)."""
+    assert text != _angezeigt(hass, text)
+    assert _AUTOLINK.search(text)  # Gegenprobe: der Roh-Text waere verlinkt worden
+    assert not _AUTOLINK.search(_angezeigt(hass, text))
+
+
+def test_servertext_zeilenumbrueche_und_steuerzeichen_werden_zu_leerzeichen(hass):
+    """Ein Zeilenumbruch koennte einen eigenen Markdown-Block (Liste, Ueberschrift, Code) beginnen."""
+    assert _angezeigt(hass, "a\r\nb\nc\rd\te\x00f\x7fg\u2028h\u2029i") == "a  b c d e f g h i"
+
+
+def test_servertext_und_zeichen_bleibt_woertlich(hass):
+    """`&amp;` darf nicht als HTML-Entity gelesen werden: das `&` ist maskiert."""
+    assert _angezeigt(hass, "Tom &amp; Jerry &#60;") == "Tom \\&amp; Jerry \\&\\#60;"
+    assert re.sub(r"\\(.)", r"\1", _angezeigt(hass, "Tom &amp; Jerry")) == "Tom &amp; Jerry"
+
+
+def test_gewoehnlicher_deutscher_text_bleibt_lesbar(hass):
+    """Gegenprobe: Umlaute, ein Komma-Dezimalwert und die Einheit bleiben unveraendert."""
+    text = "Thermostat aus, SmartHeat hält 21,5 °C – bitte prüfen"
+    assert _angezeigt(hass, text) == text
 
 
 def test_servertext_wird_gekuerzt(hass):
@@ -154,7 +193,7 @@ async def test_hint_issues_keep_todays_ids_and_texts(hass):
     """5c-I-14, heutiges Verhalten festgehalten: die Issue-ID ist nur `hinweis_<schluessel>` (nicht je Eintrag, passt zu
     `single_config_entry`); die Beschreibung von `update_noetig` wiederholt nach dem Geraetetext dessen Anweisung; die
     deutschen Geraetetexte stehen auch in den englischen Beschreibungen. Seit A6-42 stehen die Geraetetexte mit
-    maskierten Markdown-Zeichen darin (`(`, `)`, `_`); HA stellt sie als der Text dar."""
+    maskierten Zeichen darin (`(`, `)`, `_`, `.`); HA stellt sie als Klartext dar."""
     entry = await _setup(hass)
     hass.bus.async_fire(STATUS_EVENT, {**EVENT, "geraet_hinweise": [
         {"key": "update_noetig", "stufe": "kritisch", "text": _UPDATE_TEXT},
@@ -172,14 +211,14 @@ async def test_hint_issues_keep_todays_ids_and_texts(hass):
     en = await async_get_translations(hass, "en", "issues", [DOMAIN])
     de = await async_get_translations(hass, "de", "issues", [DOMAIN])
     assert beschreibung(en, "hinweis_update_noetig") == (
-        "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren. "
+        "Das Add-on ist zu alt für den SmartHeat-Dienst\\. Bitte das Add-on aktualisieren\\. "
         "Settings → Add-ons → Heizungsbrücke → Update.")
     assert beschreibung(de, "hinweis_update_noetig") == (
-        "Das Add-on ist zu alt für den SmartHeat-Dienst. Bitte das Add-on aktualisieren. "
+        "Das Add-on ist zu alt für den SmartHeat-Dienst\\. Bitte das Add-on aktualisieren\\. "
         "Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren.")
     assert beschreibung(en, "hinweis_konfiguration_abgelehnt") == (
-        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt \\(Code rolle\\_fehlt\\). Die Begründung "
-        "zeigt der Einrichtungsassistent. Please check it under SmartHeat → Reconfigure.")
+        "The add-on rejected the new setting: Die Einrichtung wurde abgelehnt \\(Code rolle\\_fehlt\\)\\. Die Begründung "
+        "zeigt der Einrichtungsassistent\\. Please check it under SmartHeat → Reconfigure.")
 
 
 @pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])

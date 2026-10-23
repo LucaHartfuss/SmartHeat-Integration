@@ -22,13 +22,19 @@ from .const import (
 KRITISCH = "kritisch"
 _PREFIX = "hinweis_"
 GERAET_HINWEIS = "geraet_hinweis"
-_MARKDOWN = re.compile(r"([\\`*_\[\]()<>#!|~])")
+# Markdown-Zeichen, dazu `&` (HTML-Entitaeten) und `:`, `.`, `@`: ohne sie verlinkt Markdown nackte Adressen selbst
+# (`https://…`, `www.…`, E-Mail-Adressen). Ein Backslash vor einem ASCII-Satzzeichen zeigt dieses woertlich.
+_MARKDOWN = re.compile(r"([\\`*_\[\]()<>#!|~&:.@])")
+_STEUERZEICHEN = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 def _klartext(text: object) -> str:
     """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues (A6-42): auf ERROR_TEXT_MAX
-    Zeichen gekuerzt, dann jedes Markdown-Zeichen mit `\\` maskiert -- weder ein Link noch Formatierung kommt durch."""
-    return _MARKDOWN.sub(r"\\\1", str(text or "")[:ERROR_TEXT_MAX])
+    Zeichen gekuerzt, Zeilenumbrueche und andere Steuerzeichen zu Leerzeichen (kein eigener Block), dann jedes
+    Markdown-Zeichen sowie `&`, `:`, `.` und `@` mit `\\` maskiert -- weder ein Link (auch kein automatisch erkannter)
+    noch Formatierung kommt durch."""
+    gekuerzt = _STEUERZEICHEN.sub(" ", str(text or "")[:ERROR_TEXT_MAX])
+    return _MARKDOWN.sub(r"\\\1", gekuerzt)
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
