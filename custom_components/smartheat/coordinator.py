@@ -217,6 +217,8 @@ class SmartHeatCoordinator:
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running = info.state == AddonState.RUNNING
             status, revive = self._watchdog.check(_now(), running)
+            if self._stopped:  # der Eintrag wurde waehrend der Abfragen entladen/geloescht: nichts mehr starten
+                return
             if revive:
                 await self._async_revive(manager, bool(running))
             if self._stopped:  # waehrend des Starts wurde der Eintrag entladen/geloescht: keine Meldung neu anlegen

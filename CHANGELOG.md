@@ -9,7 +9,7 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   einer Stunde verweigert: sie bittet, das Add-on unter Einstellungen → Add-ons zu prüfen, und sagt „wenn möglich,
   startet SmartHeat es neu“ (wie bei „reagiert nicht“).
 - Löschen Sie den Eintrag, während der Wächter das Add-on gerade startet, legt die laufende Prüfung die Meldung danach
-  nicht mehr neu an.
+  nicht mehr neu an und startet das Add-on nicht mehr.
 
 ## 1.1.0
 
