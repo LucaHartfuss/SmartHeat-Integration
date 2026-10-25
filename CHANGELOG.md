@@ -3,6 +3,14 @@
 HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version ein Abschnitt
 `## X.Y.Z`.
 
+## Unveröffentlicht
+
+- Die Meldung „Add-on Heizungsbrücke läuft nicht“ verspricht keinen Neustart mehr, den der Wächter nach drei Starts in
+  einer Stunde verweigert: sie bittet, das Add-on unter Einstellungen → Add-ons zu prüfen, und sagt „wenn möglich,
+  startet SmartHeat es neu“ (wie bei „reagiert nicht“).
+- Löschen Sie den Eintrag, während der Wächter das Add-on gerade startet, legt die laufende Prüfung die Meldung danach
+  nicht mehr neu an.
+
 ## 1.1.0
 
 - Das Abmelden beim Löschen des Eintrags (unten) braucht die Heizungsbrücke 1.1.0: erst das Add-on aktualisieren,

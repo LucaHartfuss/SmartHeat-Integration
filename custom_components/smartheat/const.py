@@ -150,7 +150,8 @@ MAX_RESTARTS_PER_WINDOW = 3
 RESTART_WINDOW_SECONDS = 3600
 WATCHDOG_MESSAGES = {
     STATUS_ADDON_GESTOPPT: ("SmartHeat: Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. "
-                            "SmartHeat startet es neu."),
+                            "Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat "
+                            "es neu."),
     STATUS_REAGIERT_NICHT: ("SmartHeat: Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die "
                             "Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons "
                             "prüfen; wenn möglich, startet SmartHeat es neu."),
