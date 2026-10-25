@@ -756,3 +756,65 @@ async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, 
     await hass.async_block_till_done()
 
     assert dismissed == ["smartheat_wohnung1_addon"]
+
+
+async def test_a_check_running_while_the_entry_is_removed_does_not_recreate_the_notification(
+        hass, supervisor, clock, notes):
+    """BR-HA-2: der erste Vorfall beginnt, der Start des Add-ons laeuft noch, der Nutzer loescht den Eintrag; die
+    Pruefung darf danach keine Meldung mehr anlegen, die niemand mehr entwarnt."""
+    created, dismissed = notes
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    await coordinator.async_check()
+    clock["t"] += 300
+    erreicht, frei = asyncio.Event(), asyncio.Event()
+    start = supervisor.client.addons.start_addon.side_effect
+
+    async def haengender_start(addon):
+        erreicht.set()
+        await frei.wait()
+        start(addon)
+
+    supervisor.client.addons.start_addon.side_effect = haengender_start
+    pruefung = asyncio.ensure_future(coordinator.async_check())
+    await asyncio.wait_for(erreicht.wait(), 5)
+
+    await hass.config_entries.async_remove(entry.entry_id)
+    frei.set()
+    await asyncio.wait_for(pruefung, 5)
+    await hass.async_block_till_done()
+
+    assert dismissed == ["smartheat_wohnung1_addon"]
+    assert created == []
+
+
+async def test_a_check_waiting_for_the_supervisor_does_not_start_the_addon_after_the_entry_is_removed(
+        hass, supervisor, clock, notes):
+    """Review B-2: die Abfrage des Supervisors laeuft noch, wenn der Eintrag geloescht wird; danach startet die
+    Pruefung das Add-on nicht mehr und meldet nichts."""
+    created, dismissed = notes
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    await coordinator.async_check()
+    clock["t"] += 300
+    erreicht, frei = asyncio.Event(), asyncio.Event()
+    info = supervisor.client.addons.addon_info.side_effect
+
+    async def haengende_abfrage(addon):
+        erreicht.set()
+        await frei.wait()
+        return info(addon)
+
+    supervisor.client.addons.addon_info.side_effect = haengende_abfrage
+    pruefung = asyncio.ensure_future(coordinator.async_check())
+    await asyncio.wait_for(erreicht.wait(), 5)
+
+    await hass.config_entries.async_remove(entry.entry_id)
+    frei.set()
+    await asyncio.wait_for(pruefung, 5)
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == []
+    assert created == [] and dismissed == ["smartheat_wohnung1_addon"]

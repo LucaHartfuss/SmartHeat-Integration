@@ -135,6 +135,7 @@ class SmartHeatCoordinator:
         self._watchdog_reason: str | None = None
         self._watchdog = Watchdog(started_at=_now())
         self._checking = False
+        self._stopped = False
 
     @property
     def signal(self) -> str:
@@ -156,10 +157,17 @@ class SmartHeatCoordinator:
     @callback
     def async_start(self) -> None:
         self._watchdog = Watchdog(started_at=_now())
+        self._stopped = False
+        self.entry.async_on_unload(self._async_stop)
         self.entry.async_on_unload(self.hass.bus.async_listen(STATUS_EVENT, self.async_handle_event))
         self.entry.async_on_unload(async_track_time_interval(
             self.hass, self.async_check, timedelta(seconds=WATCHDOG_INTERVAL_SECONDS),
         ))
+
+    @callback
+    def _async_stop(self) -> None:
+        """Der Eintrag wird entladen: eine noch laufende Pruefung legt danach keine Meldung mehr an."""
+        self._stopped = True
 
     @callback
     def async_handle_event(self, event: Event) -> None:
@@ -209,8 +217,12 @@ class SmartHeatCoordinator:
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running = info.state == AddonState.RUNNING
             status, revive = self._watchdog.check(_now(), running)
+            if self._stopped:  # der Eintrag wurde waehrend der Abfragen entladen/geloescht: nichts mehr starten
+                return
             if revive:
                 await self._async_revive(manager, bool(running))
+            if self._stopped:  # waehrend des Starts wurde der Eintrag entladen/geloescht: keine Meldung neu anlegen
+                return
             self._set_watchdog_status(status)
         finally:
             self._checking = False

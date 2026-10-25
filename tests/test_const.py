@@ -1,4 +1,6 @@
 """Konstanten der schlanken Integration (Ereignis Schema 3, Discovery, Routen, Bedienbereich)."""
+import pytest
+
 from custom_components.smartheat import const
 
 
@@ -71,9 +73,10 @@ def test_the_outdated_addon_text_names_the_minimum_version():
         assert f" {minimum} " in text, datei
 
 
-def test_die_waechter_meldung_reagiert_nicht_verspricht_keinen_neustart():
-    """Bei einer nicht aufloesbaren Bruecke gibt es keinen Neustart; die Meldung muss fuer beide
-    Faelle stimmen und den Nutzer zur Pruefung auffordern."""
-    text = const.WATCHDOG_MESSAGES["reagiert_nicht"]
+@pytest.mark.parametrize("status", ["reagiert_nicht", "addon_gestoppt"])
+def test_die_waechter_meldungen_versprechen_keinen_neustart(status):
+    """Bei einer nicht aufloesbaren Bruecke oder ausgeschoepftem Kontingent (3 je Stunde) gibt es keinen Neustart; die
+    Meldung muss fuer beide Faelle stimmen und den Nutzer zur Pruefung auffordern."""
+    text = const.WATCHDOG_MESSAGES[status]
     assert "startet es neu" not in text
     assert "prüf" in text and "Heizungsbrücke" in text
