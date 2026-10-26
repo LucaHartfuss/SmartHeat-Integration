@@ -102,5 +102,5 @@ jobs:
           bash scripts/ci/siblings.sh "$RUNNER_TEMP/dev" SmartHeat-Integration "$GITHUB_WORKSPACE"
           "$SIBLINGS_REF"
           HeizungssteuerungServer SmartHeat-for-HomeAssistant
-      - run: pip install -r "$DEV_ROOT/tools/requirements-dev.txt"  # pin-check: ungehasht (CI ohne Schreibrecht, HA-Testumgebung)
+      - run: pip install --require-hashes -r "$DEV_ROOT/tools/requirements-dev.txt"
       - run: PYTHON=python bash scripts/check.sh --only contract

@@ -4,3 +4,10 @@ __pycache__/
 .venv
 .worktrees/
 .coverage
+
+# Lieferkette (Sicherheitsgrundsatz S-10): Schluesseldateien und Umgebungsdateien nie committen
+# (der Geheimnis-Scan liest ignorierte Dateien nicht, daher gehoeren Schluesselnamen hierher)
+*.key
+*.minisign
+.env*
+*.pem
