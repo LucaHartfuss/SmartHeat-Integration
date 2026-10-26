@@ -29,7 +29,10 @@ und Domäne; Liste: `python3 ../tools/contract_check.py --liste`).
 
 Branches und Releases wie in `../CLAUDE.md` („Arbeitsweise“) und `../docs/ci-cd-runbook.md`. Tag-Muster `vX.Y.Z`
 (`-dryrun`-Suffix = Probelauf); ein Push nach `main` ist ein Release, HACS bietet Kunden nur Releases an, nicht den
-neuesten `main`-Commit.
+neuesten `main`-Commit. Echte Tags sind **signiert** (`git tag -s`, SSH-Signatur; Pflicht-Signatur im Tag-Ruleset, zweite
+Linie `scripts/ci/tag_pruefen.sh` gegen `.github/allowed_signers` auf `main`) und laufen in der Environment `release`
+(Freigabe von Hand); Ablauf und Handgriffe: `../docs/ci-cd-runbook.md` §4 und §9. Die Dev-Werkzeuge installiert die CI
+nur aus dem Hash-Lock des Roots (`--require-hashes`, §12).
 
 ## Fallen
 
