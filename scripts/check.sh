@@ -57,7 +57,7 @@ DEV="${DEV_ROOT:-$(cd "$(git rev-parse --git-common-dir)/../.." && pwd)}"
 # Toter Code: Ausnahmen mit Grund in vulture_ausnahmen.py.
 lint() {
   py -m ruff check . && py -m pyright --pythonpath "$PYEXE" && py scripts/ci/pin_check.py --repo "$PWD" &&
-    py -m vulture custom_components vulture_ausnahmen.py --min-confidence 60
+    py scripts/ci/geheimnis_scan.py --repo "$PWD" && py -m vulture custom_components vulture_ausnahmen.py --min-confidence 60
 }
 tests() { py -m pytest -q; }
 # Das eigene Repo ist dieser Checkout (auch ein Worktree), die Nachbarn kommen aus dem Dev-Root.
