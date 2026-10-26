@@ -19,7 +19,9 @@ jobs:
       contents: read
   release:
     needs: ci
-    # Nur dieser Job schreibt (main per Fast-Forward, GitHub-Release).
+    # Nur dieser Job schreibt (main per Fast-Forward, GitHub-Release). Das Environment `release` haelt den Lauf bis zur
+    # Freigabe des Reviewers an (Runbook H-1).
+    environment: release
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -28,6 +30,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+      # Zweite Linie neben dem Tag-Ruleset (Pflicht-Signatur): SSH-Signatur des Tags gegen .github/allowed_signers aus
+      # origin/main. Vor allem anderen, auch vor dem Token-Schritt; die Pruefung kommt bewusst aus diesem Repo, nicht aus
+      # dem Root-Repo (siblings.sh klont Root an einem Branch, der wie der Tag heisst).
+      - name: Signatur des Tags pruefen
+        run: bash scripts/ci/tag_pruefen.sh "$GITHUB_REF_NAME" "$GITHUB_SHA"
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
