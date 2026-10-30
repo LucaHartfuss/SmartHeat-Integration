@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Lokale und CI-Pruefung (docs/ci-cd-runbook.md). Aufruf: scripts/check.sh [--full] [--only SCHRITT]
-# Docker-Schritte: im Add-on laeuft "docker" nur mit --full oder --only docker. Docker wird direkt genutzt,
-# wenn verfuegbar (CI); in der VS-Code-Sandbox nur mit --full ueber flatpak-spawn --host (daher lokal:
-# --only docker --full).
+# Docker-Schritte: im Add-on laeuft "docker" nur mit --full oder --only docker. Docker wird direkt genutzt;
+# ohne Docker auf dem PATH enden die Docker-Schritte mit einer Meldung.
 # Ein unbekannter Schrittname bei --only bricht mit Exit 2 ab (gueltige Namen: check_only-Aufruf unten).
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -34,19 +33,15 @@ check_only() {
   for valid in "$@"; do [ "$ONLY" = "$valid" ] && return 0; done
   echo "Unbekannter Schritt: $ONLY (gueltig: $*)" >&2; exit 2
 }
-# Docker-Befehl: direkt (CI) oder ueber den Host (Sandbox, nur mit --full).
+# Docker-Befehl: direkt, sofern docker auf dem PATH liegt.
 docker_host_run() {
   if command -v docker >/dev/null 2>&1; then "$@"
-  elif [ "$FULL" = 1 ] && command -v flatpak-spawn >/dev/null 2>&1; then flatpak-spawn --host "$@"
-  else echo "Docker nicht verfuegbar - Schritt nur mit --full (Sandbox) oder in CI"; return 1; fi
+  else echo "Docker nicht verfuegbar - Schritt braucht Docker auf dem PATH"; return 1; fi
 }
 # Integration braucht Python 3.14 (HA 2026.x). CI setzt PYTHON; lokal laeuft der Host-venv.
 if [ -n "${PYTHON:-}" ]; then
   py() { "$PYTHON" "$@"; }
   PYEXE="$("$PYTHON" -c 'import sys; print(sys.executable)')"
-elif command -v flatpak-spawn >/dev/null 2>&1; then
-  py() { flatpak-spawn --host sh -c 'cd "$1" && shift && exec .venv/bin/python "$@"' _ "$PWD" "$@"; }
-  PYEXE="$PWD/.venv/bin/python"
 else
   py() { .venv/bin/python "$@"; }
   PYEXE="$PWD/.venv/bin/python"
