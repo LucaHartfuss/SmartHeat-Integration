@@ -13,8 +13,8 @@ from homeassistant.config_entries import SOURCE_USER
 from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.smartheat import addon_control
-from custom_components.smartheat.addon_control import BootstrapUrl
-from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DEFAULT_BASE_URL, DOMAIN
+from custom_components.smartheat.addon_control import BootstrapUrl, NachweisFehlt
+from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DEFAULT_BASE_URL, DOMAIN, NACHWEIS_EVENT
 
 from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon, repository
 
@@ -370,3 +370,132 @@ async def test_a_supervisor_timeout_while_adding_the_repository_aborts_with_a_re
     german = json.loads((_COMPONENT / "translations" / "de.json").read_text())["config"]["abort"]["addon_fehler"]
     assert "try again" in english
     assert "erneut versuchen" in german
+
+
+# --- Nachweis vom Add-on ---
+
+NACHWEIS_ID = "shg-aaaaaaaaaaaaaaaa"
+NACHWEIS_DATEN = {"schema": 1, "geraet_id": NACHWEIS_ID, "zeitstempel": 1761800000, "signatur": "MEUC-sig_geheim9"}
+
+
+def _add_on_antwortet(hass, supervisor, *ereignisse):
+    """Das Add-on antwortet auf jede stdin-Zeile mit diesen Ereignissen (in dieser Reihenfolge)."""
+    def hook(slug, zeile):
+        for daten in ereignisse:
+            hass.bus.async_fire(NACHWEIS_EVENT, daten)
+
+    supervisor.stdin_hook = hook
+
+
+async def test_nachweis_schreibt_den_befehl_und_liefert_die_signatur_des_ereignisses(hass, supervisor):
+    _add_on_antwortet(hass, supervisor, NACHWEIS_DATEN)
+
+    nachweis = await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 5)
+
+    # Ein Zeilenende aus STDIN_ZEILE_FORMAT, eines haengt der Supervisor selbst an.
+    assert supervisor.stdin == [(SLUG, b"nachweis shg-aaaaaaaaaaaaaaaa\n\n")]
+    assert nachweis == {"geraet_id": NACHWEIS_ID, "zeitstempel": 1761800000, "signatur": "MEUC-sig_geheim9"}
+
+
+@pytest.mark.parametrize("falsch", [
+    {**NACHWEIS_DATEN, "geraet_id": "shg-bbbbbbbbbbbbbbbb"},
+    {**NACHWEIS_DATEN, "schema": 2}, {**NACHWEIS_DATEN, "schema": True}, {**NACHWEIS_DATEN, "schema": "1"},
+    {k: v for k, v in NACHWEIS_DATEN.items() if k != "signatur"},
+    {k: v for k, v in NACHWEIS_DATEN.items() if k != "zeitstempel"},
+    {**NACHWEIS_DATEN, "signatur": ""}, {**NACHWEIS_DATEN, "signatur": 7},
+    {**NACHWEIS_DATEN, "zeitstempel": "1761800000"}, {**NACHWEIS_DATEN, "zeitstempel": True},
+    {**NACHWEIS_DATEN, "zeitstempel": 0}, {**NACHWEIS_DATEN, "zeitstempel": -5},
+    {**NACHWEIS_DATEN, "signatur": "a" * 513},
+    {**NACHWEIS_DATEN, "signatur": "abc\r\nX-Evil: 1"}, {**NACHWEIS_DATEN, "signatur": "abc def"},
+    {**NACHWEIS_DATEN, "signatur": "a" * 512 + "\n"},
+])
+async def test_ein_unbrauchbares_ereignis_wird_uebergangen_das_naechste_gueltige_zaehlt(hass, supervisor, falsch):
+    gut = {**NACHWEIS_DATEN, "signatur": "gueltig"}
+    _add_on_antwortet(hass, supervisor, falsch, gut)
+
+    nachweis = await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 5)
+
+    assert nachweis["signatur"] == "gueltig"
+
+
+@pytest.mark.parametrize("grenze", [{"zeitstempel": 1}, {"signatur": "a" * 512}, {"signatur": "aB0_-+/="}])
+async def test_grenzwerte_des_ereignisses_gelten(hass, supervisor, grenze):
+    _add_on_antwortet(hass, supervisor, {**NACHWEIS_DATEN, **grenze})
+
+    nachweis = await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 5)
+
+    assert {k: nachweis[k] for k in grenze} == grenze
+
+
+async def test_nur_das_erste_gueltige_ereignis_zaehlt_und_zusatzfelder_fallen_weg(hass, supervisor, caplog):
+    _add_on_antwortet(hass, supervisor, {**NACHWEIS_DATEN, "signatur": "erste", "fremd": 1},
+                      {**NACHWEIS_DATEN, "signatur": "zweite"})
+
+    assert await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 5) == {
+        "geraet_id": NACHWEIS_ID, "zeitstempel": 1761800000, "signatur": "erste"}
+    await hass.async_block_till_done()
+    # das zweite Ereignis laeuft ohne Fehler ins Leere (kein set_result auf eine fertige Zukunft)
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+async def test_ein_ereignis_vor_dem_befehl_zaehlt_nicht(hass, supervisor):
+    """Ein altes Ereignis (einmalig, Zeitfenster abgelaufen) darf nie als Antwort gelten: nur was nach dem Befehl kommt."""
+    hass.bus.async_fire(NACHWEIS_EVENT, NACHWEIS_DATEN)
+    await hass.async_block_till_done()
+
+    with pytest.raises(NachweisFehlt):
+        await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 0.05)
+
+
+async def test_ohne_ereignis_in_der_wartefrist_fehlt_der_nachweis_und_der_lauscher_ist_weg(hass, supervisor):
+    with pytest.raises(NachweisFehlt):
+        await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 0.05)
+
+    assert supervisor.stdin == [(SLUG, b"nachweis shg-aaaaaaaaaaaaaaaa\n\n")]
+    assert NACHWEIS_EVENT not in hass.bus.async_listeners()
+
+
+async def test_nach_erfolg_ist_der_lauscher_weg(hass, supervisor):
+    _add_on_antwortet(hass, supervisor, NACHWEIS_DATEN)
+
+    await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 5)
+
+    assert NACHWEIS_EVENT not in hass.bus.async_listeners()
+
+
+@pytest.mark.parametrize("geraet_id", [None, 7, "", "shg-a", "shg-aaaaaaaaaaaaaaaa\n", "shg-aaaaaaaaaaaaaaaa x",
+                                       "SHG-AAAAAAAAAAAAAAAA"])
+async def test_ohne_gueltige_geraete_id_wird_nichts_geschrieben(hass, supervisor, geraet_id):
+    with pytest.raises(NachweisFehlt):
+        await addon_control.async_nachweis_anfordern(hass, geraet_id, 0.05)
+    assert supervisor.stdin == []
+
+
+@pytest.mark.parametrize("aufbau", ["kein_supervisor", "bruecke_fehlt", "mehrfach", "gestoppt", "supervisor_fehler"])
+async def test_ohne_erreichbare_bruecke_fehlt_der_nachweis_ohne_wartefrist(hass, supervisor, caplog, aufbau):
+    if aufbau == "kein_supervisor":
+        supervisor.hassio = False
+    elif aufbau == "bruecke_fehlt":
+        supervisor.installed = []
+    elif aufbau == "mehrfach":
+        supervisor.installed = [installed_addon(SLUG), installed_addon(SLUG)]
+    elif aufbau == "gestoppt":
+        supervisor.installed = [installed_addon(SLUG, state=AddonState.STOPPED)]
+    else:
+        supervisor.errors["addons.write_addon_stdin"] = SupervisorError("Supervisor GEHEIM")
+    _add_on_antwortet(hass, supervisor, NACHWEIS_DATEN)
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(NachweisFehlt):
+        await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 30)
+
+    assert NACHWEIS_EVENT not in hass.bus.async_listeners()
+    assert "GEHEIM" not in caplog.text and NACHWEIS_ID not in caplog.text and "sig_geheim" not in caplog.text
+
+
+async def test_der_nachweis_wird_nie_geloggt(hass, supervisor, caplog):
+    caplog.set_level(logging.DEBUG)
+    _add_on_antwortet(hass, supervisor, NACHWEIS_DATEN)
+
+    await addon_control.async_nachweis_anfordern(hass, NACHWEIS_ID, 5)
+
+    assert "sig_geheim" not in caplog.text and "1761800000" not in caplog.text

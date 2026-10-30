@@ -14,6 +14,9 @@ _.async_step_user  # Config-Flow-Schritt: Einstieg ueber die Oberflaeche
 _.async_step_hassio  # Config-Flow-Schritt: Supervisor-Discovery des Add-ons
 _.async_step_reconfigure  # Config-Flow-Schritt: Neu konfigurieren (HA-Menue)
 _.async_step_unterbrechung  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)
+_.async_step_warten  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)
+_.async_step_code_abgelaufen  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)
+_.async_step_uebernehmen  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)
 _.async_step_nach_discovery  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)
 _.async_step_inventur_zeit  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)
 _.async_step_integration  # Config-Flow-Schritt: HA springt ihn per step_id an (Formular, Menue, Fortschritt)

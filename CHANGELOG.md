@@ -5,6 +5,11 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Die Einrichtung meldet sich nicht mehr mit E-Mail und Passwort an. Die Integration zeigt einen Anmeldecode und einen
+  Link; Sie bestätigen den Code im SmartHeat-Portal, die Einrichtung geht dann von selbst weiter. Dafür fordert die
+  Integration vom Add-on einen Besitznachweis des Geräts an (`nachweis <Geräte-ID>`, Ereignis `smartheat_nachweis`):
+  erst das Add-on aktualisieren, dann die Integration. Ist die Bestätigung im Portal beim Übernehmen oder Entfernen
+  älter als zehn Minuten, beginnt ein neuer Durchlauf mit neuem Code.
 - Die Meldung „Add-on Heizungsbrücke läuft nicht“ verspricht keinen Neustart mehr, den der Wächter nach drei Starts in
   einer Stunde verweigert: sie bittet, das Add-on unter Einstellungen → Add-ons zu prüfen, und sagt „wenn möglich,
   startet SmartHeat es neu“ (wie bei „reagiert nicht“).

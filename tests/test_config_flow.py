@@ -3,10 +3,13 @@ Neu konfigurieren, Fehler). Attrappen nur an der Grenze: die Einrichtungs-API is
 `einrichtung_fakes.FakeServer` (autospec des `EinrichtungClient`), der Supervisor `supervisor_fakes.FakeSupervisor`
 (Fixture `supervisor`: Store, Add-ons, Optionen mit `bootstrap_url`, Discovery, Mindestversion ueber die Version des
 installierten Add-ons). Eigene Funktionen von `addon_control` und `supervisor_client` laufen echt."""
+import asyncio
 import copy
 import json
 import logging
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import voluptuous as vol
@@ -18,23 +21,29 @@ from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smartheat import config_flow
-from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DOMAIN
-from custom_components.smartheat.einrichtung_client import ApiError, InvalidResponse, NotFound, TooMany
+from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DEFAULT_BASE_URL, DOMAIN, NACHWEIS_EVENT
+from custom_components.smartheat.einrichtung_client import ApiError, InvalidResponse, NotFound, ServerError, TooMany
 
 from . import einrichtung_fakes
 from .einrichtung_fakes import (
+    ANMELDECODE,
     CLAIM_CODE,
+    CODE_ANTWORT,
     GERAET_ID,
+    GERAETECODE,
     KONFIGURATION,
-    PASSWORT,
+    NACHWEIS_SIGNATUR,
+    NACHWEIS_ZEITSTEMPEL,
     ROLLEN,
     TENANT,
     TOKEN,
     ZUORDNUNG,
     CannotConnect,
     Conflict,
+    ErneutAnmelden,
     FakeServer,
     InvalidAuth,
+    PortalBestaetigung,
     Rejected,
     TokenUngueltig,
 )
@@ -43,7 +52,6 @@ from .supervisor_fakes import BRIDGE_SLUG, discovery_message, installed_addon, r
 DISCOVERY = HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen",
                                       "claim_code": CLAIM_CODE},
                               name="Heizungsbruecke", slug=BRIDGE_SLUG, uuid="u1")
-LOGIN = {"email": "a@b.de", "password": PASSWORT}
 LABOR_URL = "https://labor.example.test"
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 
@@ -54,14 +62,35 @@ def _melden(supervisor, config) -> None:
 
 
 @pytest.fixture
-def server(monkeypatch, supervisor):
+def server(monkeypatch, supervisor, hass):
     """Einrichtungs-API an der Grenze `EinrichtungClient(session, base_url)`; der Supervisor meldet die installierte
-    Heizungsbruecke 1.0.0 mit `bootstrap_url` = LABOR_URL und ihre Discovery mit Uebernahme-Code."""
+    Heizungsbruecke 1.0.0 mit `bootstrap_url` = LABOR_URL und ihre Discovery mit Uebernahme-Code. Das Add-on antwortet
+    auf `nachweis <geraet_id>` mit dem Ereignis `smartheat_nachweis`; `fake.pausen` sammelt die Wartezeiten des Pollings
+    (sie laufen nicht wirklich)."""
     fake = FakeServer()
     monkeypatch.setattr(config_flow, "EinrichtungClient", lambda session, base_url: fake.client(base_url))
     supervisor.addon_options[BRIDGE_SLUG] = {"bootstrap_url": LABOR_URL}
     _melden(supervisor, {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE})
     monkeypatch.setattr(config_flow, "POLL_SECONDS", 0)
+    fake.pausen = []
+    vorgerueckt = {"s": 0.0}
+
+    async def pause(sekunden):
+        fake.pausen.append(sekunden)
+        vorgerueckt["s"] += sekunden
+        await asyncio.sleep(0)
+
+    # Die Uhr des Assistenten laeuft um die gewarteten Sekunden vor: eine Schleife, die auf die Frist des Codes wartet,
+    # endet in Millisekunden (und nicht erst nach zehn Minuten Wanduhr, wenn ein Test sie falsch beendet).
+    monkeypatch.setattr(config_flow, "time", SimpleNamespace(monotonic=lambda: time.monotonic() + vorgerueckt["s"]))
+    monkeypatch.setattr(config_flow, "_pause", pause)
+
+    def add_on(slug, zeile):
+        if zeile.startswith(b"nachweis "):
+            hass.bus.async_fire(NACHWEIS_EVENT, {"schema": 1, "geraet_id": zeile.split()[1].decode(),
+                                                 "zeitstempel": NACHWEIS_ZEITSTEMPEL, "signatur": NACHWEIS_SIGNATUR})
+
+    supervisor.stdin_hook = add_on
     return fake
 
 
@@ -80,9 +109,7 @@ async def _configure(hass, result, user_input=None):
 async def _bis_anlage(hass, discovery=DISCOVERY):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=discovery)
     assert result["step_id"] == "bestaetigen"
-    result = await _configure(hass, result, {})
-    assert result["step_id"] == "anmelden"
-    return await _configure(hass, result, LOGIN)
+    return await _configure(hass, result, {})
 
 
 async def _bis_raeume(hass):
@@ -128,8 +155,7 @@ async def _eingerichtet(hass, server):
 async def _reconfigure(hass, entry):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id})
-    assert result["step_id"] == "anmelden"
-    return await _configure(hass, result, LOGIN)
+    return await _progress(hass, result)
 
 
 # --- Einrichten ---
@@ -199,14 +225,14 @@ async def test_der_assistent_kommt_mit_genau_den_gepinnten_feldern_durch(hass, s
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
 
-async def test_no_token_password_or_code_is_stored_or_logged(hass, server, caplog):
+async def test_no_token_proof_or_code_is_stored_or_logged(hass, server, caplog):
     caplog.set_level(logging.DEBUG)
 
     await _configure(hass, await _bis_zusammenfassung(hass), {})
 
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     stored = str(entry.data) + str(entry.options)
-    for secret in (TOKEN, PASSWORT, CLAIM_CODE):
+    for secret in (TOKEN, CLAIM_CODE, NACHWEIS_SIGNATUR, GERAETECODE, ANMELDECODE):
         assert secret not in stored and secret not in caplog.text, secret
 
 
@@ -218,37 +244,346 @@ async def test_battery_of_the_chosen_thermostat_is_preselected(hass, server):
     assert default == ["sensor.wohnzimmer_batterie"]
 
 
-async def test_wrong_password_stays_on_the_form(hass, server):
-    server.fehler["anmelden"] = InvalidAuth("Ungueltige Zugangsdaten", 401)
+def _beenden(hass, server, result):
+    """Einen im Fortschrittsschritt stehenden Ablauf schliessen (das gehaltene Abholen wird freigegeben)."""
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    server.freigabe.set()
+
+
+async def _bis_warten(hass, server, discovery=DISCOVERY):
+    """Das Abholen haelt an (`server.halten`): der Ablauf steht im Fortschrittsschritt `warten` mit dem Code. Gibt dessen
+    Ergebnis zurueck; der Aufrufer gibt das Abholen frei (`server.freigabe.set()`)."""
+    server.halten = True
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_HASSIO}, data=discovery)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    for _ in range(200):
+        if result["type"] == FlowResultType.SHOW_PROGRESS and result["step_id"] == "warten":
+            for _ in range(200):
+                if any(call[0] == "geraetecode_abholen" for call in server.calls):
+                    return result
+                await asyncio.sleep(0)
+            raise AssertionError("das Abholen hat nie begonnen")
+        await asyncio.sleep(0)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+    raise AssertionError(result)
+
+
+async def test_der_ablauf_fordert_den_nachweis_beim_add_on_an_und_holt_dann_das_token(hass, server, supervisor):
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anlage"
+    assert supervisor.stdin[0] == (BRIDGE_SLUG, f"nachweis {GERAET_ID}\n\n".encode())
+    ablauf = [call[0] for call in server.calls]
+    assert ablauf[:3] == ["geraetecode_anfordern", "geraetecode_abholen", "uebernehmen"]
+    assert server.calls[0] == ("geraetecode_anfordern", {"geraet_id": GERAET_ID, "zeitstempel": NACHWEIS_ZEITSTEMPEL,
+                                                         "signatur": NACHWEIS_SIGNATUR}, "en")
+    assert server.calls[1] == ("geraetecode_abholen", GERAETECODE)
+    assert server.calls[2] == ("uebernehmen", GERAET_ID, CLAIM_CODE)
+
+
+async def test_die_sprache_von_home_assistant_geht_an_den_server(hass, server):
+    hass.config.language = "de"
+
+    await _bis_anlage(hass)
+
+    assert server.calls[0][2] == "de"
+
+
+async def test_code_und_link_werden_im_wartenden_schritt_angezeigt_ohne_eingabefelder(hass, server):
+    result = await _bis_warten(hass, server)
+
+    assert result["progress_action"] == "warten_eigener_server"
+    assert result["description_placeholders"] == {
+        "anmeldecode": ANMELDECODE, "link": CODE_ANTWORT["link"], "link_komplett": CODE_ANTWORT["link_komplett"],
+        "server": LABOR_URL}
+    assert "data_schema" not in result
+    assert TOKEN not in str(result) and GERAETECODE not in str(result)
+    _beenden(hass, server, result)
+
+
+async def test_ohne_abweichende_bootstrap_url_nennt_der_schritt_keinen_server(hass, server, supervisor):
+    supervisor.addon_options[BRIDGE_SLUG] = {}
+
+    result = await _bis_warten(hass, server)
+
+    assert server.base_url == DEFAULT_BASE_URL
+    assert result["progress_action"] == "warten"
+    assert "server" not in result["description_placeholders"]
+    _beenden(hass, server, result)
+
+
+async def test_polling_im_takt_der_antwort_und_langsamer_verlaengert_ihn(hass, server):
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 5}, {"zustand": "wartet", "abfrage_s": 5},
+                            {"zustand": "langsamer", "abfrage_s": 10}, {"zustand": "wartet", "abfrage_s": 10},
+                            {"zustand": "bestaetigt"}]
 
     result = await _bis_anlage(hass)
 
-    assert result["step_id"] == "anmelden" and result["errors"] == {"base": "invalid_auth"}
+    assert result["step_id"] == "anlage"
+    assert server.pausen == [5, 5, 5, 10, 10]
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 5
+
+
+async def test_ein_neuer_takt_in_der_wartet_antwort_gilt_ab_dem_naechsten_mal(hass, server):
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 7}, {"zustand": "wartet"}, {"zustand": "bestaetigt"}]
+
+    await _bis_anlage(hass)
+
+    assert server.pausen == [5, 7, 7]
+
+
+async def test_langsamer_wird_auch_ohne_groesseren_wert_verlaengert(hass, server):
+    """Meldet der Server `langsamer` ohne groesseren Takt, wartet der Ablauf trotzdem laenger (nie im selben Takt weiter)."""
+    server.abholen_folge = [{"zustand": "langsamer", "abfrage_s": 5}, {"zustand": "langsamer", "abfrage_s": 5},
+                            {"zustand": "bestaetigt"}]
+
+    await _bis_anlage(hass)
+
+    assert server.pausen == [5, 10, 15]
+
+
+async def test_ein_groesserer_takt_aus_langsamer_gilt_ganz(hass, server):
+    server.abholen_folge = [{"zustand": "langsamer", "abfrage_s": 20}, {"zustand": "bestaetigt"}]
+
+    await _bis_anlage(hass)
+
+    assert server.pausen == [5, 20]
+
+
+async def test_der_takt_des_servers_ist_nach_oben_begrenzt(hass, server):
+    server.code_antwort = {**CODE_ANTWORT, "abfrage_s": 3000}
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 3000}, {"zustand": "bestaetigt"}]
+
+    await _bis_anlage(hass)
+
+    assert server.pausen == [60, 60]
+
+
+async def test_nach_der_bestaetigung_gehoert_das_token_nur_dem_client(hass, server, caplog):
+    caplog.set_level(logging.DEBUG)
+
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anlage"
+    entry_daten = str(hass.config_entries.async_entries(DOMAIN))
+    assert TOKEN not in str(result) + entry_daten + caplog.text
+    assert server._client.token == TOKEN
+
+
+async def test_ein_abgelehnter_code_bricht_ab_ohne_zu_uebernehmen(hass, server):
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 5}, {"zustand": "abgelehnt"}]
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "code_abgelehnt")
     assert not any(call[0] == "uebernehmen" for call in server.calls)
+    assert server.calls[-1] == ("abmelden",)
 
 
-@pytest.mark.parametrize(("route", "error", "key", "grund"), [
-    ("anmelden", CannotConnect(), "cannot_connect", "-"),
-    ("anmelden", TooMany("Zu viele Versuche", 429), "too_many", "-"),
-    ("anmelden", InvalidResponse("anmelden: kein JSON"), "unknown", "-"),
-    ("anmelden", NotFound("", 404), "server_veraltet", "-"),
-    ("anmelden", ApiError("", 405), "server_veraltet", "-"),
-    ("anmelden", ApiError("", 307), "unknown", "-"),
+async def test_ein_abgelaufener_code_fuehrt_zu_einem_neuen_ablauf_ab_dem_ersten_schritt(hass, server, supervisor):
+    server.abholen_folge = [{"zustand": "abgelaufen"}]
+
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anmelden" and result["errors"] == {"base": "code_abgelaufen"}
+    assert result["data_schema"] is None and result["type"] == FlowResultType.FORM
+    # der abgelaufene Code wird nicht weiter abgefragt
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 1 and server.pausen == [5]
+    server.abholen_folge = [{"zustand": "bestaetigt"}]
+    result = await _configure(hass, result, {})
+    assert result["step_id"] == "anlage"
+    # neuer Ablauf ab Schritt 1: erneut Nachweis, erneut Code
+    assert [call[0] for call in server.calls].count("geraetecode_anfordern") == 2
+    assert [line for slug, line in supervisor.stdin if line.startswith(b"nachweis")] == [
+        f"nachweis {GERAET_ID}\n\n".encode()] * 2
+
+
+async def test_laeuft_die_frist_des_codes_ab_ohne_antwort_des_servers_gilt_er_als_abgelaufen(hass, server, monkeypatch):
+    zeit = {"jetzt": 1000.0}
+    monkeypatch.setattr(config_flow, "time", SimpleNamespace(monotonic=lambda: zeit["jetzt"]))
+
+    async def pause(sekunden):
+        zeit["jetzt"] += sekunden
+        server.pausen.append(sekunden)
+
+    monkeypatch.setattr(config_flow, "_pause", pause)
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 5}]
+
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anmelden" and result["errors"] == {"base": "code_abgelaufen"}
+    assert sum(server.pausen) == 600 and len(server.pausen) == 120
+
+
+async def test_die_frist_des_codes_ist_nach_oben_begrenzt(hass, server, monkeypatch):
+    zeit = {"jetzt": 1000.0}
+    monkeypatch.setattr(config_flow, "time", SimpleNamespace(monotonic=lambda: zeit["jetzt"]))
+
+    async def pause(sekunden):
+        zeit["jetzt"] += sekunden
+        server.pausen.append(sekunden)
+
+    monkeypatch.setattr(config_flow, "_pause", pause)
+    server.code_antwort = {**CODE_ANTWORT, "gueltig_s": 3600, "abfrage_s": 60}
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 60}]
+
+    result = await _bis_anlage(hass)
+
+    assert result["errors"] == {"base": "code_abgelaufen"} and sum(server.pausen) == 900
+
+
+async def test_kurze_netzfehler_beim_abholen_werden_ueberbrueckt(hass, server):
+    """Zwei Fehler hintereinander brechen den zehnminuetigen Ablauf nicht ab; ein Erfolg setzt den Zaehler zurueck."""
+    server.abholen_fehler_folge = [CannotConnect(), ServerError("", 503), None, CannotConnect(), CannotConnect(), None]
+    server.abholen_folge = [{"zustand": "wartet", "abfrage_s": 5}, {"zustand": "bestaetigt"}]
+
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anlage"
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 6
+
+
+async def test_drei_netzfehler_hintereinander_beim_abholen_brechen_ab(hass, server):
+    server.fehler["geraetecode_abholen"] = CannotConnect("Der SmartHeat-Dienst ist nicht erreichbar.")
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "cannot_connect")
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 3
+
+
+async def test_fehlt_der_nachweis_in_der_wartefrist_bricht_der_ablauf_mit_eigenem_text_ab(hass, server, supervisor,
+                                                                                         monkeypatch):
+    supervisor.stdin_hook = None
+    monkeypatch.setattr(config_flow, "NACHWEIS_WAIT_SECONDS", 0.05)
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "nachweis_fehlt")
+    assert not any(call[0] in ("geraetecode_anfordern", "geraetecode_abholen") for call in server.calls)
+
+
+async def test_die_wartefrist_fuer_den_nachweis_ist_kurz_genug_fuer_den_nutzer():
+    assert 5 <= config_flow.NACHWEIS_WAIT_SECONDS <= 30
+
+
+@pytest.mark.parametrize(("fehler", "grund", "platzhalter"), [
+    (InvalidAuth("Nicht angemeldet.", 401), "nachweis_abgelehnt", None),
+    (TooMany("Zu viele Anfragen, bitte später erneut.", 429), "abgelehnt", "Zu viele Anfragen, bitte später erneut."),
+    (CannotConnect(), "cannot_connect", None),
+    (ServerError("", 503), "cannot_connect", None),
+    (InvalidResponse("geraetecode: kein JSON"), "unknown", None),
+    (NotFound("", 404), "server_veraltet", None),
+    (ApiError("", 405), "server_veraltet", None),
+    (ApiError("", 418), "abgelehnt", "-"),
+])
+async def test_fehler_beim_anfordern_des_codes_enden_mit_eigenem_text(hass, server, fehler, grund, platzhalter):
+    server.fehler["geraetecode_anfordern"] = fehler
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, grund)
+    if platzhalter is not None:
+        assert result["description_placeholders"]["grund"] == platzhalter
+    assert not any(call[0] in ("geraetecode_abholen", "uebernehmen") for call in server.calls)
+
+
+async def test_ein_alter_server_ohne_geraetecode_beim_abholen_bricht_mit_server_veraltet_ab(hass, server):
+    server.fehler["geraetecode_abholen"] = NotFound("", 404)
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "server_veraltet")
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 1
+
+
+@pytest.mark.parametrize(("route", "fehler", "key", "grund"), [
     ("uebernehmen", Rejected("Code oder Gerät unbekannt."), "uebernahme_fehlgeschlagen", "Code oder Gerät unbekannt."),
     ("uebernehmen", Conflict("Diese Anmeldung gehört schon zu einem anderen Gerät.", 409), "anmeldung_gebunden",
      "Diese Anmeldung gehört schon zu einem anderen Gerät."),
     ("uebernehmen", TooMany("Zu viele Fehlversuche, bitte 15 Minuten warten.", 429), "uebernahme_gesperrt",
      "Zu viele Fehlversuche, bitte 15 Minuten warten."),
+    ("uebernehmen", CannotConnect(), "cannot_connect", "-"),
+    ("uebernehmen", ServerError("", 503), "cannot_connect", "-"),
+    ("uebernehmen", InvalidResponse("x"), "unknown", "-"),
+    ("uebernehmen", TokenUngueltig("", 401), "sitzung_abgelaufen", "-"),
+    ("uebernehmen", ErneutAnmelden("Bitte erneut anmelden.", 403), "erneut_anmelden", "-"),
 ])
-async def test_login_and_claim_errors_stay_on_the_form_and_log_out(hass, server, route, error, key, grund):
-    server.fehler[route] = error
+async def test_fehler_beim_uebernehmen_stehen_im_formular_und_beenden_das_token(hass, server, route, fehler, key, grund):
+    server.fehler[route] = fehler
 
     result = await _bis_anlage(hass)
 
     assert result["step_id"] == "anmelden" and result["errors"] == {"base": key}
     assert result["description_placeholders"]["grund"] == grund
-    if route == "uebernehmen":
-        assert server.calls[-1] == ("abmelden",)
+    assert server.calls[-1] == ("abmelden",)
+
+
+async def test_nach_erneut_anmelden_beginnt_ein_neuer_ablauf_mit_neuem_code(hass, server):
+    server.fehler["uebernehmen"] = ErneutAnmelden("Bitte erneut anmelden.", 403)
+    result = await _bis_anlage(hass)
+    assert result["errors"] == {"base": "erneut_anmelden"}
+    del server.fehler["uebernehmen"]
+
+    result = await _configure(hass, result, {})
+
+    assert result["step_id"] == "anlage"
+    assert [c[0] for c in server.calls].count("geraetecode_anfordern") == 2
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 2
+
+
+async def test_portal_bestaetigung_hat_einen_eigenen_abbruch(hass, server):
+    server.fehler["zuordnung"] = PortalBestaetigung("Der Eigentümer muss im Portal bestätigen.", 403)
+
+    result = await _configure(hass, await _bis_raeume_vorher(hass), {
+        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "portal_bestaetigung")
+    assert server.calls[-1] == ("abmelden",)
+
+
+async def test_portal_bestaetigung_beim_entfernen_hat_den_eigenen_abbruch(hass, server):
+    entry = await _eingerichtet(hass, server)
+    result = await _reconfigure(hass, entry)
+    server.fehler["entfernen"] = PortalBestaetigung("Der Eigentümer muss im Portal bestätigen.", 403)
+
+    result = await _configure(hass, await _configure(hass, result, {"next_step_id": "geraet_entfernen"}), {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "portal_bestaetigung")
+    assert hass.config_entries.async_entries(DOMAIN) == [entry]
+
+
+async def test_ein_schliessen_im_wartenden_schritt_beendet_das_polling(hass, server):
+    result = await _bis_warten(hass, server)
+    angefragt = [c[0] for c in server.calls].count("geraetecode_abholen")
+    assert angefragt == 1
+
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    server.freigabe.set()
+    await hass.async_block_till_done()
+
+    assert [c[0] for c in server.calls].count("geraetecode_abholen") == 1
+    assert not any(call[0] == "uebernehmen" for call in server.calls)
+
+
+async def test_es_gibt_kein_passwort_oder_email_feld_mehr(hass, server):
+    server.fehler["uebernehmen"] = Rejected("x")
+
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anmelden" and result["data_schema"] is None
+    for path in ("strings.json", "translations/en.json", "translations/de.json"):
+        data = json.loads((_COMPONENT / path).read_text(encoding="utf-8"))
+        assert "data" not in data["config"]["step"]["anmelden"], path
+        assert "invalid_auth" not in data["config"]["error"] and "too_many" not in data["config"]["error"], path
+
+
+async def test_portal_bestaetigung_beim_uebernehmen_bricht_mit_eigenem_text_ab(hass, server):
+    server.fehler["uebernehmen"] = PortalBestaetigung("Der Eigentümer muss im Portal bestätigen.", 403)
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "portal_bestaetigung")
 
 
 async def test_server_check_errors_return_to_the_step(hass, server):
@@ -461,7 +796,7 @@ async def test_the_minimum_addon_version_1_0_0_is_enough(hass, server, superviso
 
     result = await _configure(hass, result, {})
 
-    assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "anmelden")
+    assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "anlage")
     assert server.base_url == LABOR_URL
 
 
@@ -814,8 +1149,9 @@ async def test_expired_token_goes_back_to_login(hass, server):
 
     assert result["step_id"] == "anmelden" and result["errors"] == {"base": "sitzung_abgelaufen"}
     del server.fehler["pruefen"]
-    result = await _configure(hass, result, LOGIN)
+    result = await _configure(hass, result, {})
     assert result["step_id"] == "anlage"
+    assert [c[0] for c in server.calls].count("geraetecode_anfordern") == 2
 
 
 async def test_required_role_without_candidates_aborts_with_a_hint(hass, server):
@@ -981,8 +1317,10 @@ async def test_an_unexpected_error_in_a_progress_step_aborts_and_logs_only_its_t
     assert "GEHEIM" not in caplog.text
 
 
+@pytest.mark.parametrize(("fehler", "key"), [(TokenUngueltig("", 401), "sitzung_abgelaufen"),
+                                              (ErneutAnmelden("Bitte erneut anmelden.", 403), "erneut_anmelden")])
 @pytest.mark.parametrize("route", ["inventur", "einrichten", "entfernen"])
-async def test_an_expired_session_in_a_progress_step_goes_back_to_login(hass, server, route):
+async def test_an_expired_session_in_a_progress_step_goes_back_to_login(hass, server, route, fehler, key):
     if route == "entfernen":
         result = await _reconfigure(hass, await _eingerichtet(hass, server))
         result = await _configure(hass, result, {"next_step_id": "geraet_entfernen"})
@@ -991,14 +1329,14 @@ async def test_an_expired_session_in_a_progress_step_goes_back_to_login(hass, se
         result, weiter, danach = await _bis_anlage(hass), {"anlage": TENANT}, "anlage"
     else:
         result, weiter, danach = await _bis_zusammenfassung(hass), {}, "anlage"
-    server.fehler[route] = TokenUngueltig("", 401)
+    server.fehler[route] = fehler
 
     result = await _configure(hass, result, weiter)
 
-    assert (result["step_id"], result["errors"]) == ("anmelden", {"base": "sitzung_abgelaufen"})
+    assert (result["step_id"], result["errors"]) == ("anmelden", {"base": key})
     assert server.calls[-2][0] == route and server.calls[-1] == ("abmelden",)
     del server.fehler[route]
-    result = await _configure(hass, result, LOGIN)
+    result = await _configure(hass, result, {})
     assert result["step_id"] == danach
 
 
@@ -1018,14 +1356,10 @@ async def test_manual_start_installs_the_addon_and_waits_for_discovery(hass, ser
     supervisor.client.discovery.list.side_effect = lambda: folge.pop(0) if folge else mit_code
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     result = await _progress(hass, result)
-    assert result["step_id"] == "anmelden"
+    assert result["step_id"] == "anlage"
     assert [(addon.slug, addon.state) for addon in supervisor.installed] == [(BRIDGE_SLUG, AddonState.STARTED)]
     assert supervisor.supervision == {BRIDGE_SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
     assert supervisor.config_written == [] and folge == []
-
-    result = await _configure(hass, result, LOGIN)
-
-    assert result["step_id"] == "anlage"
     assert ("uebernehmen", GERAET_ID, CLAIM_CODE) in server.calls
     assert server.base_url == LABOR_URL
 
@@ -1212,7 +1546,8 @@ async def test_ein_entfernen_ohne_rueckmeldung_entfernt_den_eintrag_trotzdem(has
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_laeuft")
     assert hass.config_entries.async_entries(DOMAIN) == []
-    assert supervisor.stdin == [(BRIDGE_SLUG, f"entfernen {GERAET_ID}\n\n".encode())]
+    assert [eintrag for eintrag in supervisor.stdin if eintrag[1].startswith(b"entfernen")] == [
+        (BRIDGE_SLUG, f"entfernen {GERAET_ID}\n\n".encode())]
     assert server.calls[-1] == ("abmelden",)
 
 
@@ -1244,6 +1579,7 @@ async def test_there_is_no_options_dialog(hass, server):
 # --- Texte ---
 
 _ABORTS = {
+    "nachweis_fehlt", "nachweis_abgelehnt", "code_abgelehnt", "server_veraltet", "portal_bestaetigung",
     "kein_supervisor", "addon_fehler", "addon_veraltet", "addon_mehrdeutig", "bootstrap_url_ungueltig",
     "repository_mehrdeutig", "fremde_heizungsbruecke",
     "keine_discovery", "discovery_ungueltig", "geraet_nicht_gemeldet", "keine_anlage", "inventur_fehler", "keine_integration",
@@ -1253,8 +1589,8 @@ _ABORTS = {
     "reconfigure_successful",
 }
 _ERRORS = {
-    "invalid_auth", "too_many", "uebernahme_gesperrt", "uebernahme_fehlgeschlagen", "anmeldung_gebunden", "cannot_connect", "unknown",
-    "server_veraltet", "sitzung_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
+    "uebernahme_gesperrt", "uebernahme_fehlgeschlagen", "anmeldung_gebunden", "cannot_connect", "unknown",
+    "sitzung_abgelaufen", "erneut_anmelden", "code_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
     "unit_mismatch", "out_of_range", "duplicate_entity", "zone_is_room_target", "entity_wrong_integration",
     "entity_wrong_installation", "room_sensors_required", "wrong_state_class", "unknown_service", "unknown_hint",
     "zu_viele",
@@ -1272,7 +1608,12 @@ def test_every_step_error_and_abort_has_a_text(path):
     assert set(config["abort"]) == _ABORTS
     assert set(config["error"]) == _ERRORS
     assert set(config["step"]) == _STEPS
-    assert set(config["progress"]) == {"addon_starten", "inventur", "einrichten", "entfernen"}
+    assert set(config["progress"]) == {"addon_starten", "anfordern", "warten", "warten_eigener_server", "inventur",
+                                       "einrichten", "entfernen"}
+    for key in ("warten", "warten_eigener_server"):
+        for platzhalter in ("{anmeldecode}", "{link}", "{link_komplett}"):
+            assert platzhalter in config["progress"][key], (path, key, platzhalter)
+    assert "{server}" in config["progress"]["warten_eigener_server"] and "{server}" not in config["progress"]["warten"]
     assert set(config["step"]["menue"]["menu_options"]) == {"zuordnung_aendern", "geraet_entfernen"}
     assert "options" not in data
     for key in ("inventur_fehler", "keine_integration", "einrichten_fehler", "entfernen_fehler", "abgelehnt"):

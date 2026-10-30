@@ -65,6 +65,8 @@ class FakeSupervisor:
         self.errors: dict = {}
         self.actions: list[tuple[str, str]] = []  # (start|restart|stop|uninstall, Slug) in Aufrufreihenfolge
         self.stdin: list[tuple[str, bytes]] = []  # (Slug, Bytes) je write_addon_stdin in Aufrufreihenfolge
+        # Rueckruf nach jedem geschriebenen stdin (Slug, Bytes): bildet die Antwort des Add-ons nach, z. B. ein Ereignis.
+        self.stdin_hook = None
 
         self.client = create_autospec(SupervisorClient, instance=True)
         self.client.addons = create_autospec(AddonsClient, instance=True)
@@ -182,6 +184,8 @@ class FakeSupervisor:
         # Der echte Supervisor haengt beim Schreiben selbst ein "\n" an (supervisor/docker/app.py write_stdin:
         # `data + b"\n"`); die Attrappe bildet das nach.
         self.stdin.append((addon, stdin + b"\n"))
+        if self.stdin_hook is not None:
+            self.stdin_hook(addon, stdin + b"\n")
 
     # --- discovery ---
 
