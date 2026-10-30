@@ -18,7 +18,8 @@ def test_device_contract_values():
     assert const.WUNSCH_EVENT == "smartheat_wunsch"
     assert (const.RAUM_SOLL_MIN, const.RAUM_SOLL_MAX, const.RAUM_SOLL_STEP) == (15.0, 25.0, 0.5)
     assert const.MIN_ADDON_VERSIONS == {"heizungsbruecke": "1.0.0"}
-    assert const.EINRICHTUNG_ROUTEN["anmelden"] == ("POST", "/anmelden")
+    assert "anmelden" not in const.EINRICHTUNG_ROUTEN
+    assert const.EINRICHTUNG_ROUTEN["geraetecode"] == ("POST", "/geraetecode")
     assert const.EINRICHTUNG_ROUTEN["auftrag"] == ("GET", "/geraet/auftraege/<job_id>")
 
 
@@ -32,7 +33,8 @@ def test_hint_fields_and_keys_follow_the_add_on_wire():
 def test_setup_api_routes_match_the_server():
     assert const.EINRICHTUNG_PREFIX == "/einrichtung/v1"
     assert const.EINRICHTUNG_ROUTEN == {
-        "anmelden": ("POST", "/anmelden"),
+        "geraetecode": ("POST", "/geraetecode"),
+        "geraetecode_token": ("POST", "/geraetecode/token"),
         "abmelden": ("POST", "/abmelden"),
         "uebernehmen": ("POST", "/geraete/uebernehmen"),
         "geraet": ("GET", "/geraet"),
@@ -45,6 +47,29 @@ def test_setup_api_routes_match_the_server():
         "entfernen": ("POST", "/geraet/entfernen"),
         "auftrag": ("GET", "/geraet/auftraege/<job_id>"),
     }
+
+
+def test_geraetecode_fields_follow_the_server():
+    assert const.EINRICHTUNG_ANFRAGE_FELDER["geraetecode"] == ((), ())
+    assert const.EINRICHTUNG_ANFRAGE_FELDER["geraetecode_token"] == (("geraetecode",), ())
+    assert const.EINRICHTUNG_ANTWORT_FELDER["geraetecode"] == (
+        "geraetecode", "anmeldecode", "link", "link_komplett", "gueltig_s", "abfrage_s")
+    assert const.EINRICHTUNG_ANTWORT_FELDER["geraetecode_token"] == ("zustand", "abfrage_s", "token", "gueltig_bis")
+    assert "anmelden" not in const.EINRICHTUNG_ANFRAGE_FELDER and "anmelden" not in const.EINRICHTUNG_ANTWORT_FELDER
+    assert (const.GERAETECODE_ZUSTAND_WARTET, const.GERAETECODE_ZUSTAND_BESTAETIGT, const.GERAETECODE_ZUSTAND_ABGELEHNT,
+            const.GERAETECODE_ZUSTAND_ABGELAUFEN, const.GERAETECODE_ZUSTAND_LANGSAMER) == (
+        "wartet", "bestaetigt", "abgelehnt", "abgelaufen", "langsamer")
+    assert (const.ZUSTAND_ERNEUT_ANMELDEN, const.ZUSTAND_PORTAL_BESTAETIGUNG) == ("erneut_anmelden", "portal_bestaetigung")
+    assert (const.NACHWEIS_KOPF_GERAET, const.NACHWEIS_KOPF_ZEITSTEMPEL, const.NACHWEIS_KOPF_SIGNATUR) == (
+        "X-SHG-Device", "X-SHG-Timestamp", "X-SHG-Signature")
+
+
+def test_nachweis_contract_with_the_addon():
+    assert (const.STDIN_BEFEHL_NACHWEIS, const.STDIN_BEFEHL_ENTFERNEN) == ("nachweis", "entfernen")
+    assert const.STDIN_ZEILE_FORMAT.format(befehl=const.STDIN_BEFEHL_NACHWEIS, geraet_id="shg-a") == "nachweis shg-a\n"
+    assert const.NACHWEIS_EVENT == "smartheat_nachweis"
+    assert const.NACHWEIS_EVENT_FIELDS == ("schema", "geraet_id", "zeitstempel", "signatur")
+    assert const.NACHWEIS_EVENT_SCHEMA == 1
 
 
 def test_addon_and_wait_constants():

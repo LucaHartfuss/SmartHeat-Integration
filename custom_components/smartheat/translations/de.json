@@ -7,9 +7,8 @@
         "description": "Das Add-on Heizungsbrücke (Gerät {geraet}) ist bereit. Jetzt mit dem SmartHeat-Konto verbinden?"
       },
       "anmelden": {
-        "title": "SmartHeat-Konto",
-        "description": "Mit dem SmartHeat-Konto anmelden. Die Anmeldung gilt nur für diese Einrichtung.",
-        "data": {"email": "E-Mail", "password": "Passwort"}
+        "title": "Mit SmartHeat verbinden",
+        "description": "Für die Verbindung des Geräts mit dem SmartHeat-Konto ist ein neuer Code nötig. Absenden fordert ihn an; bestätigt wird er im SmartHeat-Portal. Ein Passwort wird hier nicht eingegeben."
       },
       "schon_eingerichtet": {
         "title": "Bereits eingerichtet",
@@ -98,20 +97,22 @@
     },
     "progress": {
       "addon_starten": "Das Add-on wird installiert und gestartet …",
+      "anfordern": "Ein Anmeldecode wird angefordert …",
+      "warten": "[{link}]({link_komplett}) öffnen, anmelden und den Code **{anmeldecode}** bestätigen. Der Link enthält den Code schon; bitte mit dem hier angezeigten vergleichen. Diese Seite geht von selbst weiter, sobald der Code im Portal bestätigt ist. Der Code gilt 10 Minuten.",
+      "warten_eigener_server": "[{link}]({link_komplett}) öffnen, anmelden und den Code **{anmeldecode}** bestätigen. Der Link enthält den Code schon; bitte mit dem hier angezeigten vergleichen. Diese Seite geht von selbst weiter, sobald der Code im Portal bestätigt ist. Der Code gilt 10 Minuten.\n\nDiese Einrichtung spricht mit **{server}** (Option bootstrap_url des Add-ons), nicht mit dem SmartHeat-Standardserver.",
       "inventur": "Home Assistant wird nach der Heizung durchsucht …",
       "einrichten": "Das Gerät übernimmt die Einstellungen …",
       "entfernen": "Das Gerät wird zurückgesetzt …"
     },
     "error": {
-      "invalid_auth": "E-Mail oder Passwort falsch.",
-      "too_many": "Zu viele Anmeldeversuche, bitte kurz warten.",
       "uebernahme_gesperrt": "Die Übernahme ist nach zu vielen Fehlversuchen gesperrt: {grund}",
       "uebernahme_fehlgeschlagen": "Das Gerät konnte nicht übernommen werden: {grund}",
       "anmeldung_gebunden": "Das Gerät ließ sich mit dieser Anmeldung nicht übernehmen: {grund}",
       "cannot_connect": "Der SmartHeat-Dienst ist nicht erreichbar.",
-      "server_veraltet": "Der SmartHeat-Server kennt die Einrichtung für Home Assistant nicht (veraltete Server-Version?).",
       "unknown": "Unerwarteter Fehler.",
-      "sitzung_abgelaufen": "Die Anmeldung ist abgelaufen. Bitte neu anmelden.",
+      "sitzung_abgelaufen": "Die Anmeldung ist abgelaufen. Absenden holt einen neuen Code.",
+      "erneut_anmelden": "Die Bestätigung im Portal ist älter als zehn Minuten. Absenden holt einen neuen Code.",
+      "code_abgelaufen": "Der Code ist abgelaufen. Absenden holt einen neuen.",
       "required": "Bitte zuordnen.",
       "wrong_domain": "Diese Entity passt nicht zu diesem Feld.",
       "entity_not_found": "Entity nicht gefunden.",
@@ -137,6 +138,11 @@
       "bootstrap_url_ungueltig": "Die Option bootstrap_url des Add-ons Heizungsbrücke ist ungültig. Bitte korrigieren oder leeren und die Einrichtung erneut starten.",
       "repository_mehrdeutig": "Das SmartHeat-Repository ist mehrfach im Add-on-Store eingetragen. Bitte entferne die doppelten Einträge und starte die Einrichtung erneut.",
       "fremde_heizungsbruecke": "Eine Heizungsbrücke aus einem anderen Repository ist installiert. Bitte entferne sie und starte die Einrichtung erneut.",
+      "nachweis_fehlt": "Das Add-on Heizungsbrücke hat nicht geantwortet. Läuft es und ist es aktuell? Bitte starten bzw. aktualisieren und die Einrichtung neu beginnen.",
+      "nachweis_abgelehnt": "Der SmartHeat-Dienst hat den Nachweis des Geräts nicht angenommen. Bitte Datum und Uhrzeit von Home Assistant prüfen und ob das Gerät gesperrt oder freigegeben ist, dann die Einrichtung neu beginnen.",
+      "code_abgelehnt": "Der Code wurde im Portal abgelehnt. Bitte die Einrichtung neu beginnen.",
+      "server_veraltet": "Der SmartHeat-Server kennt die Einrichtung für Home Assistant nicht (veraltete Server-Version?).",
+      "portal_bestaetigung": "Dieser Schritt wirkt erst, wenn der Eigentümer ihn im SmartHeat-Portal bestätigt hat. Bitte dort bestätigen und die Einrichtung neu beginnen.",
       "keine_discovery": "Das Add-on hat sich nicht gemeldet. Bitte das Add-on-Protokoll prüfen.",
       "discovery_ungueltig": "Ungültige Meldung des Add-ons.",
       "geraet_nicht_gemeldet": "Das Add-on Heizungsbrücke meldet dieses Gerät nicht (mehr). Bitte die Einrichtung neu starten.",

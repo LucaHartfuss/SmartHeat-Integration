@@ -1,14 +1,17 @@
 """Nachgebildete Einrichtungs-API fuer die Flow-Tests; die Add-on-Seite steht in supervisor_fakes.py."""
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import create_autospec
 
 from custom_components.smartheat.einrichtung_client import (
     CannotConnect,
     Conflict,
     EinrichtungClient,
+    ErneutAnmelden,
     InvalidAuth,
     NotFound,
+    PortalBestaetigung,
     Rejected,
     TokenUngueltig,
 )
@@ -18,7 +21,13 @@ TENANT = "zuhause2"
 KREIS = "mypyllant|e1|SYSTEM|0"
 CLAIM_CODE = "ABCDEFGHIJKL"
 TOKEN = "t-geheim"
-PASSWORT = "pw-geheim-42"
+NACHWEIS_SIGNATUR = "MEUCIQD-sig_geheim-42"
+NACHWEIS_ZEITSTEMPEL = 1761800000
+GERAETECODE = "gc-geheim-" + "x" * 30
+ANMELDECODE = "BCDF-GHJK"
+CODE_ANTWORT = {"geraetecode": GERAETECODE, "anmeldecode": ANMELDECODE, "link": "https://app.example.test/geraetecode",
+                "link_komplett": "https://app.example.test/geraetecode#code=BCDF-GHJK", "gueltig_s": 600,
+                "abfrage_s": 5}
 KONFIGURATION = {"profil": "vaillant_gastherme_heizkoerper", "hebelsatz": "vaillant_vrc720", "bindung": {},
                  "raumfuehler": ["sensor.wohnzimmer_temperatur"],
                  "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"], "shift_lever": "room_setpoint"}
@@ -56,9 +65,11 @@ class FakeServer:
     Seiteneffekten unten; die Klasse selbst bleibt unveraendert. Zaehlt Aufrufe, haelt das Token wie der
     echte Client nur im Speicher und merkt sich die Adresse (`base_url`, None: nie ein Client gebaut). Fehler je Route
     ueber `fehler[route]` (eine Ausnahme, die der Aufruf wirft). Nach einem angenommenen Entfernen antwortet `auftrag`
-    wie der Server mit 401 (die Freigabe widerruft das Token)."""
+    wie der Server mit 401 (die Freigabe widerruft das Token). `abholen_folge`: die Antworten des Abholens in
+    Reihenfolge (die letzte gilt weiter; `bestaetigt` setzt das Token wie der echte Client); `halten`: das Abholen wartet,
+    bis `freigabe` gesetzt ist."""
 
-    ROUTEN = ("anmelden", "abmelden", "uebernehmen", "geraet", "inventur", "vorschlag", "zuordnung", "pruefen",
+    ROUTEN = ("geraetecode_anfordern", "geraetecode_abholen", "abmelden", "uebernehmen", "geraet", "inventur", "vorschlag", "zuordnung", "pruefen",
               "einrichten", "neu_konfigurieren", "entfernen", "auftrag")
 
     def __init__(self) -> None:
@@ -75,6 +86,11 @@ class FakeServer:
         self.entfernen_ergebnis: dict = {"job_id": "j3"}
         self.entfernt = False
         self.fehler: dict[str, Exception] = {}
+        self.code_antwort = dict(CODE_ANTWORT)
+        self.abholen_folge: list[dict] = [{"zustand": "bestaetigt"}]
+        self.abholen_fehler_folge: list = []  # je Abholen eine Ausnahme oder None (dann gilt abholen_folge)
+        self.halten = False
+        self.freigabe = asyncio.Event()
         self._client = None
 
     def client(self, base_url: str):
@@ -91,10 +107,22 @@ class FakeServer:
         if route in self.fehler:
             raise self.fehler[route]
 
-    async def _anmelden(self, email, password):
-        self.calls.append(("anmelden", email))
-        self._check("anmelden")
-        self._client.token = TOKEN
+    async def _geraetecode_anfordern(self, nachweis, sprache):
+        self.calls.append(("geraetecode_anfordern", nachweis, sprache))
+        self._check("geraetecode_anfordern")
+        return dict(self.code_antwort)
+
+    async def _geraetecode_abholen(self, geraetecode):
+        self.calls.append(("geraetecode_abholen", geraetecode))
+        if self.halten:
+            await self.freigabe.wait()
+        if self.abholen_fehler_folge and (fehler := self.abholen_fehler_folge.pop(0)) is not None:
+            raise fehler
+        self._check("geraetecode_abholen")
+        stand = dict(self.abholen_folge.pop(0) if len(self.abholen_folge) > 1 else self.abholen_folge[0])
+        if stand["zustand"] == "bestaetigt":
+            self._client.token = TOKEN
+        return stand
 
     async def _abmelden(self):
         self.calls.append(("abmelden",))
@@ -154,4 +182,5 @@ class FakeServer:
         return dict(self.auftrag_ergebnis)
 
 
-__all__ = ["CannotConnect", "Conflict", "FakeServer", "InvalidAuth", "NotFound", "Rejected", "TokenUngueltig"]
+__all__ = ["CannotConnect", "Conflict", "ErneutAnmelden", "FakeServer", "InvalidAuth", "NotFound", "PortalBestaetigung",
+           "Rejected", "TokenUngueltig"]

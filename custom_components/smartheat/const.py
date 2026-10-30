@@ -58,7 +58,19 @@ GERAET_ID_RE = re.compile(r"shg-[a-z2-7]{16}")
 # stdin-Zeile der Integration an die Heizungsbruecke beim Loeschen des Eintrags: Kopie von
 # heizungsbruecke/stdin_befehl.py (Add-on), Contract-Check Vertrag V5 (tools/contract_check.py im Dev-Root).
 STDIN_BEFEHL_ENTFERNEN = "entfernen"
+# Nachweis: die Integration schreibt `nachweis <geraet_id>`, das Add-on antwortet mit dem Ereignis NACHWEIS_EVENT
+# (Felder NACHWEIS_EVENT_FIELDS: Schema, eigene Geraete-ID, Unix-Sekunden, Signatur des Geraeteschluessels ueber den festen
+# Pfad der Route `geraetecode`). Kopie von heizungsbruecke/stdin_befehl.py und dem Ereignis des Add-ons (Vertrag V5).
+STDIN_BEFEHL_NACHWEIS = "nachweis"
 STDIN_ZEILE_FORMAT = "{befehl} {geraet_id}\n"
+NACHWEIS_EVENT = "smartheat_nachweis"
+NACHWEIS_EVENT_SCHEMA = 1
+NACHWEIS_EVENT_FIELDS = ("schema", "geraet_id", "zeitstempel", "signatur")
+NACHWEIS_SIGNATUR_MAX = 512
+# Koepfe der Anfrage `geraetecode` (dieselben wie beim Bootstrap des Geraets, Vertrag V1).
+NACHWEIS_KOPF_GERAET = "X-SHG-Device"
+NACHWEIS_KOPF_ZEITSTEMPEL = "X-SHG-Timestamp"
+NACHWEIS_KOPF_SIGNATUR = "X-SHG-Signature"
 WUNSCH_EVENT = "smartheat_wunsch"
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
 # Grenzen der Auswahl im Assistenten: Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER,
@@ -70,7 +82,8 @@ EINRICHTUNG_MAX_HANDYS = 10
 # Einrichtungs-API (Server einrichtung/api.py ROUTEN).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"
 EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
-    "anmelden": ("POST", "/anmelden"),
+    "geraetecode": ("POST", "/geraetecode"),
+    "geraetecode_token": ("POST", "/geraetecode/token"),
     "abmelden": ("POST", "/abmelden"),
     "uebernehmen": ("POST", "/geraete/uebernehmen"),
     "geraet": ("GET", "/geraet"),
@@ -87,7 +100,8 @@ EINRICHTUNG_ROUTEN: dict[str, tuple[str, str]] = {
 # V3). Je Route (Pflicht, optional) bzw. die Felder der Antwort; die Werte stehen ausgeschrieben, damit der Vergleich
 # wortlich bleibt.
 EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "anmelden": (("email", "password"), ()),
+    "geraetecode": ((), ()),
+    "geraetecode_token": (("geraetecode",), ()),
     "abmelden": ((), ()),
     "uebernehmen": (("device_id",), ("code",)),
     "geraet": ((), ()),
@@ -104,7 +118,8 @@ EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] =
     "auftrag": ((), ()),
 }
 EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
-    "anmelden": ("token", "gueltig_bis"),
+    "geraetecode": ("geraetecode", "anmeldecode", "link", "link_komplett", "gueltig_s", "abfrage_s"),
+    "geraetecode_token": ("zustand", "abfrage_s", "token", "gueltig_bis"),
     "abmelden": (),
     "uebernehmen": ("device_id",),
     "geraet": ("device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
@@ -133,9 +148,32 @@ EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreis", "profil")
 EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar")
 EINRICHTUNG_GERAET_INVENTUR_FELDER = ("zustand", "command_id", "zeit", "fehler")
 EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever")
+# Zustaende der Route `geraetecode_token` (Antwort `zustand`) und die Zustaende, die jede Route als Antwort tragen kann.
+GERAETECODE_ZUSTAND_WARTET = "wartet"
+GERAETECODE_ZUSTAND_BESTAETIGT = "bestaetigt"
+GERAETECODE_ZUSTAND_ABGELEHNT = "abgelehnt"
+GERAETECODE_ZUSTAND_ABGELAUFEN = "abgelaufen"
+GERAETECODE_ZUSTAND_LANGSAMER = "langsamer"
+GERAETECODE_ZUSTAENDE = (GERAETECODE_ZUSTAND_WARTET, GERAETECODE_ZUSTAND_BESTAETIGT, GERAETECODE_ZUSTAND_ABGELEHNT,
+                         GERAETECODE_ZUSTAND_ABGELAUFEN, GERAETECODE_ZUSTAND_LANGSAMER)
+ZUSTAND_ERNEUT_ANMELDEN = "erneut_anmelden"
+ZUSTAND_PORTAL_BESTAETIGUNG = "portal_bestaetigung"
+# Anmeldecode wie ihn das Portal anzeigt (Alphabet ohne Zeichen, die sich verwechseln lassen), Link nur https ohne
+# Zeichen, die Markdown oder die Anzeige umbrechen; Zeiten des Servers sind Sekunden in sinnvollen Grenzen.
+ANMELDECODE_RE = re.compile(r"[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}")
+LINK_RE = re.compile(r"https://[^\s()\[\]<>\"'`\\]+")
+GERAETECODE_MAX_ZEICHEN = 256
+GERAETECODE_SEKUNDEN_MAX = 3600
 AUFTRAG_FERTIG = "fertig"
 AUFTRAG_FEHLGESCHLAGEN = "fehlgeschlagen"
 
+# Warten auf den Nachweis des Add-ons; Polling des Geraetecodes: Takt hoechstens 60 s, Wartezeit des Codes hoechstens 900 s
+# (der Server nennt 600 s), nach `langsamer` mindestens 5 s mehr, so viele Netzfehler hintereinander werden uebergangen.
+NACHWEIS_WAIT_SECONDS = 15
+ABFRAGE_MAX_SECONDS = 60
+ABFRAGE_ZUWACHS_SECONDS = 5
+CODE_WAIT_MAX_SECONDS = 900
+ABFRAGE_FEHLER_MAX = 3
 DISCOVERY_WAIT_SECONDS = 300
 INVENTUR_WAIT_SECONDS = 120
 AUFTRAG_WAIT_SECONDS = 900
