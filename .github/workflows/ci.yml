@@ -101,6 +101,6 @@ jobs:
         run: >-
           bash scripts/ci/siblings.sh "$RUNNER_TEMP/dev" SmartHeat-Integration "$GITHUB_WORKSPACE"
           "$SIBLINGS_REF"
-          HeizungssteuerungServer SmartHeat-for-HomeAssistant
+          SmartHeat-for-HomeAssistant
       - run: pip install --require-hashes -r "$DEV_ROOT/tools/requirements-dev.txt"
       - run: PYTHON=python bash scripts/check.sh --only contract
