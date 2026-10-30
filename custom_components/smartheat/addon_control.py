@@ -1,9 +1,11 @@
 """Add-on-Steuerung der Integration: Heizungsbruecke finden, bei Bedarf installieren und ohne Optionen
-starten, Watchdog/Autostart, Discovery und die Option bootstrap_url lesen. Die Integration schreibt keine Optionen;
-nur das Add-on schreibt auf die Anlage."""
+starten, Watchdog/Autostart, Discovery und die Option bootstrap_url lesen, den Nachweis des Geraets anfordern. Die
+Integration schreibt keine Optionen; nur das Add-on schreibt auf die Anlage."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import urllib.parse
 from dataclasses import dataclass
 
@@ -11,7 +13,7 @@ from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonBoot, AddonsOptions
 from aiohasupervisor.models.addons import StoreAddRepository
 from homeassistant.components.hassio import AddonError, AddonManager, AddonState, get_supervisor_client
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.hassio import is_hassio
 
 from .const import (
@@ -22,13 +24,22 @@ from .const import (
     DISCOVERY_SERVICE,
     GERAET_ID_RE,
     HEIZUNGSBRUECKE_ADDON_SLUG,
+    NACHWEIS_EVENT,
+    NACHWEIS_EVENT_FIELDS,
+    NACHWEIS_EVENT_SCHEMA,
+    NACHWEIS_SIGNATUR_MAX,
+    NACHWEIS_WAIT_SECONDS,
     OPTION_BOOTSTRAP_URL,
     STDIN_BEFEHL_ENTFERNEN,
+    STDIN_BEFEHL_NACHWEIS,
     STDIN_ZEILE_FORMAT,
 )
 from .supervisor_client import async_repository_slug, async_repository_slugs, fremde_bruecken, matching_addons
 
 _LOGGER = logging.getLogger(__name__)
+# Signatur im Ereignis: Zeichen von Base64 (der Geraetekern sendet base64url ohne Fuellzeichen); ein Zeilenumbruch
+# oder anderes Zeichen wuerde als Kopfzeile der Anfrage an den Server gehen.
+_SIGNATUR_RE = re.compile(r"[A-Za-z0-9_+/=-]+")
 
 
 async def async_bridge_slug(hass: HomeAssistant) -> str | None:
@@ -210,3 +221,64 @@ async def async_entfernen_melden(hass: HomeAssistant, geraet_id: object) -> None
     except Exception as error:  # noqa: BLE001 - der Eintrag wird trotzdem entfernt
         _LOGGER.warning("Abmelden des Geraets bei der Heizungsbruecke gescheitert (%s): Geraet im Portal abmelden",
                         type(error).__name__)
+
+
+class NachweisFehlt(Exception):
+    """Das Add-on hat in der Wartefrist keinen Nachweis geliefert: es laeuft nicht, ist zu alt, nicht erreichbar oder
+    die Geraete-ID ist ungueltig. Der Text nennt nie einen Wert."""
+
+
+def _nachweis_aus(daten: object, geraet_id: str) -> dict | None:
+    """Der Nachweis aus den Daten des Ereignisses, oder None, wenn sie nicht zu diesem Geraet und Schema passen oder ein
+    Feld unbrauchbar ist (ein fremdes oder kaputtes Ereignis wird uebergangen, es bricht nichts ab)."""
+    if not isinstance(daten, dict) or not all(feld in daten for feld in NACHWEIS_EVENT_FIELDS):
+        return None
+    schema, zeitstempel, signatur = daten.get("schema"), daten.get("zeitstempel"), daten.get("signatur")
+    if (type(schema) is not int or schema != NACHWEIS_EVENT_SCHEMA or daten.get("geraet_id") != geraet_id
+            or type(zeitstempel) is not int or zeitstempel <= 0
+            or not isinstance(signatur, str) or len(signatur) > NACHWEIS_SIGNATUR_MAX
+            or not _SIGNATUR_RE.fullmatch(signatur)):
+        return None
+    return {"geraet_id": geraet_id, "zeitstempel": zeitstempel, "signatur": signatur}
+
+
+async def async_nachweis_anfordern(hass: HomeAssistant, geraet_id: object,
+                                   wartefrist: float = NACHWEIS_WAIT_SECONDS) -> dict:
+    """Fordert den Besitznachweis beim eigenen Add-on an: schreibt `nachweis <geraet_id>` als stdin-Zeile und wartet
+    hoechstens `wartefrist` Sekunden auf das Ereignis `smartheat_nachweis`. Gibt `{geraet_id, zeitstempel, signatur}`
+    zurueck. Der Lauscher steht vor dem Schreiben (die Antwort kann sofort kommen); nur ein Ereignis nach dem Befehl
+    zaehlt, das erste gueltige gewinnt. Wirft `NachweisFehlt` ohne Wartefrist, wenn schon der Befehl nicht ankommt
+    (keine oder ungueltige Geraete-ID, kein Supervisor, Bruecke fehlt oder mehrfach, Add-on gestoppt). Signatur und
+    Geraete-ID stehen nie im Log; `fullmatch`, damit kein Zeilenumbruch eine zweite Zeile einschmuggelt."""
+    if not isinstance(geraet_id, str) or not GERAET_ID_RE.fullmatch(geraet_id):
+        raise NachweisFehlt("Keine gueltige Geraete-ID")
+    antwort: asyncio.Future[dict] = hass.loop.create_future()
+
+    @callback
+    def _ereignis(event: Event) -> None:
+        if not antwort.done() and (nachweis := _nachweis_aus(event.data, geraet_id)) is not None:
+            antwort.set_result(nachweis)
+
+    unsub = hass.bus.async_listen(NACHWEIS_EVENT, _ereignis)
+    try:
+        try:
+            if not is_hassio(hass):
+                raise NachweisFehlt("Kein Supervisor")
+            slug = await async_bridge_slug(hass)
+            if slug is None:
+                raise NachweisFehlt("Heizungsbruecke nicht gefunden")
+            zeile = STDIN_ZEILE_FORMAT.format(befehl=STDIN_BEFEHL_NACHWEIS, geraet_id=geraet_id)
+            await get_supervisor_client(hass).addons.write_addon_stdin(slug, zeile.encode())
+        except NachweisFehlt:
+            raise
+        except Exception as error:  # noqa: BLE001 - jeder Fehler hier heisst: kein Nachweis
+            _LOGGER.warning("Nachweis beim Heizungsbruecke-Add-on nicht angefordert (%s)", type(error).__name__)
+            raise NachweisFehlt("Befehl nicht zugestellt") from None
+        try:
+            async with asyncio.timeout(wartefrist):
+                return await antwort
+        except TimeoutError:
+            _LOGGER.warning("Das Heizungsbruecke-Add-on hat keinen Nachweis geliefert (aus oder zu alt?)")
+            raise NachweisFehlt("Kein Nachweis in der Wartefrist") from None
+    finally:
+        unsub()

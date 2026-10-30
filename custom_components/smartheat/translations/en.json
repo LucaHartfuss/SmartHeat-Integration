@@ -7,9 +7,8 @@
         "description": "The Heizungsbrücke add-on (device {geraet}) is ready. Connect it to your SmartHeat account now?"
       },
       "anmelden": {
-        "title": "SmartHeat account",
-        "description": "Sign in with your SmartHeat account. The sign-in is only used for this setup.",
-        "data": {"email": "Email", "password": "Password"}
+        "title": "Connect to SmartHeat",
+        "description": "A new code is needed to connect the device to your SmartHeat account. Submit to request it; you confirm it in the SmartHeat portal. No password is entered here."
       },
       "schon_eingerichtet": {
         "title": "Already set up",
@@ -98,20 +97,22 @@
     },
     "progress": {
       "addon_starten": "Installing and starting the add-on …",
+      "anfordern": "Requesting a sign-in code …",
+      "warten": "Open [{link}]({link_komplett}), sign in and confirm the code **{anmeldecode}**. The link already contains the code; compare it with the one shown here. This page continues by itself as soon as you have confirmed the code in the portal. The code is valid for 10 minutes.",
+      "warten_eigener_server": "Open [{link}]({link_komplett}), sign in and confirm the code **{anmeldecode}**. The link already contains the code; compare it with the one shown here. This page continues by itself as soon as you have confirmed the code in the portal. The code is valid for 10 minutes.\n\nThis setup talks to **{server}** (option bootstrap_url of the add-on), not to the SmartHeat default server.",
       "inventur": "Searching Home Assistant for the heating …",
       "einrichten": "The device is applying the settings …",
       "entfernen": "The device is being reset …"
     },
     "error": {
-      "invalid_auth": "Wrong email or password.",
-      "too_many": "Too many sign-in attempts, please wait a moment.",
       "uebernahme_gesperrt": "Claiming is locked after too many failed attempts: {grund}",
       "uebernahme_fehlgeschlagen": "The device could not be claimed: {grund}",
       "anmeldung_gebunden": "The device could not be claimed with this sign-in: {grund}",
       "cannot_connect": "The SmartHeat service cannot be reached.",
-      "server_veraltet": "The SmartHeat server does not know the setup for Home Assistant (outdated server version?).",
       "unknown": "Unexpected error.",
-      "sitzung_abgelaufen": "The sign-in has expired. Please sign in again.",
+      "sitzung_abgelaufen": "The sign-in has expired. Submit to get a new code.",
+      "erneut_anmelden": "The confirmation in the portal is more than ten minutes old. Submit to get a new code.",
+      "code_abgelaufen": "The code has expired. Submit to get a new one.",
       "required": "Please assign.",
       "wrong_domain": "This entity does not fit this field.",
       "entity_not_found": "Entity not found.",
@@ -137,6 +138,11 @@
       "bootstrap_url_ungueltig": "The bootstrap_url option of the Heizungsbrücke add-on is invalid. Please correct or clear it and start the setup again.",
       "repository_mehrdeutig": "The SmartHeat repository is registered more than once in the add-on store. Please remove the duplicate entries and start the setup again.",
       "fremde_heizungsbruecke": "A Heizungsbrücke from another repository is installed. Please remove it and start the setup again.",
+      "nachweis_fehlt": "The Heizungsbrücke add-on did not answer. Is it running and up to date? Please start or update it and start the setup again.",
+      "nachweis_abgelehnt": "The SmartHeat service did not accept the proof of the device. Please check date and time of Home Assistant and that the device is not blocked or released, then start the setup again.",
+      "code_abgelehnt": "The code was rejected in the portal. Please start the setup again.",
+      "server_veraltet": "The SmartHeat server does not know the setup for Home Assistant (outdated server version?).",
+      "portal_bestaetigung": "This step takes effect only after the owner has confirmed it in the SmartHeat portal. Please confirm it there and start the setup again.",
       "keine_discovery": "The add-on did not report. Please check the add-on log.",
       "discovery_ungueltig": "Invalid message from the add-on.",
       "geraet_nicht_gemeldet": "The Heizungsbrücke add-on does not report this device (any more). Please start the setup again.",

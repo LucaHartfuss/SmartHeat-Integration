@@ -37,7 +37,8 @@ class ProgressFlowMixin:
         """Wird vom konkreten Flow ueberschrieben (config_flow.py)."""
         raise NotImplementedError
 
-    async def _run_progress(self, step_id: str, progress_action: str, job):
+    async def _run_progress(self, step_id: str, progress_action: str, job,
+                            description_placeholders: dict[str, str] | None = None):
         if self._progress_task is None:
             # Nicht eager: sonst kann der Job schon vor der done()-Pruefung fertig sein, und der
             # Schritt gaebe nie ein Fortschrittsergebnis zurueck.
@@ -45,6 +46,7 @@ class ProgressFlowMixin:
         if not self._progress_task.done():
             return self.async_show_progress(
                 step_id=step_id, progress_action=progress_action, progress_task=self._progress_task,
+                description_placeholders=description_placeholders,
             )
         task, self._progress_task = self._progress_task, None
         try:

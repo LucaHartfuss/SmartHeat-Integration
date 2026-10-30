@@ -1,13 +1,17 @@
 """Assistent der SmartHeat-Integration: feste Schritte, Inhalte vom Server.
 
 Start aus der Supervisor-Discovery des Add-ons (Geraete-ID, Uebernahme-Code) oder manuell (Add-on installieren und
-starten, dann dessen Discovery lesen); beide Wege pruefen vorher die Mindestversion des Add-ons. Anmelden gibt ein
-kurzlebiges Einrichtungs-Token, das nur dieser Flow im Speicher haelt (Regel 6); es wird bei jedem Ende
-(Eintrag, Abbruch, Schliessen) beim Server beendet. Inventur, Vorschlag, Zuordnung und Pruefung laufen auf dem Server,
-die Uebernahme der Konfiguration im Geraet; der Assistent zeigt nur an. "Neu konfigurieren": nach neuer Anmeldung ein
-Menue "Zuordnung aendern" (Auftrag neu_konfigurieren) bzw. "Geraet entfernen" (Auftrag entfernen).
+starten, dann dessen Discovery lesen); beide Wege pruefen vorher die Mindestversion des Add-ons. Die Anmeldung braucht
+kein Passwort: der Assistent fordert beim Add-on den Besitznachweis des Geraets an (Schritt `anfordern`), holt damit beim
+Server einen Anmeldecode, zeigt Code und Link (Schritt `warten`, der Kunde bestaetigt im Portal) und fragt im Takt des
+Servers nach, bis das kurzlebige Einrichtungs-Token da ist. Das Token haelt nur dieser Flow im Speicher (Regel 6); es wird
+bei jedem Ende (Eintrag, Abbruch, Schliessen) beim Server beendet. Inventur, Vorschlag, Zuordnung und Pruefung laufen auf
+dem Server, die Uebernahme der Konfiguration im Geraet; der Assistent zeigt nur an. "Neu konfigurieren": nach neuer
+Anmeldung ein Menue "Zuordnung aendern" (Auftrag neu_konfigurieren) bzw. "Geraet entfernen" (Auftrag entfernen).
 
-Fehler der Einrichtungs-API: abgelaufenes Token -> zurueck zur Anmeldung; Feldfehler der Pruefung -> zurueck ins
+Fehler der Einrichtungs-API: abgelaufenes Token oder zu alte Bestaetigung (`erneut_anmelden`) -> neuer Ablauf mit neuem
+Code (Formular `anmelden` mit Hinweis); abgelaufener Code ebenso, abgelehnter Code oder fehlender Nachweis -> Abbruch;
+`portal_bestaetigung` -> Abbruch mit eigenem Text; Feldfehler der Pruefung -> zurueck ins
 Formular mit dem Feld; nicht erreichbar -> Abbruch cannot_connect; alles andere -> Abbruch mit dem Text des Servers.
 Mehr als 8 Raumfuehler, 16 Batterien oder 10 Handys markiert der Assistent selbst (`zu_viele`), ohne Kandidaten fuer
 Raumfuehler oder Raum-Soll bricht er ab. Antwortet das Geraet beim "Geraet entfernen" nicht, ist der Eintrag trotzdem
@@ -33,9 +37,14 @@ from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from . import addon_control, supervisor_client, vertrag_pin
 from . import anfrage as v3_anfrage
 from .const import (
+    ABFRAGE_FEHLER_MAX,
+    ABFRAGE_MAX_SECONDS,
+    ABFRAGE_ZUWACHS_SECONDS,
     AUFTRAG_FEHLGESCHLAGEN,
     AUFTRAG_FERTIG,
     AUFTRAG_WAIT_SECONDS,
+    CODE_WAIT_MAX_SECONDS,
+    DEFAULT_BASE_URL,
     DISCOVERY_FIELDS,
     DISCOVERY_WAIT_SECONDS,
     DOMAIN,
@@ -55,9 +64,14 @@ from .const import (
     EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER,
     ENTFERNEN_WAIT_SECONDS,
     GERAET_ID_RE,
+    GERAETECODE_ZUSTAND_ABGELAUFEN,
+    GERAETECODE_ZUSTAND_ABGELEHNT,
+    GERAETECODE_ZUSTAND_BESTAETIGT,
+    GERAETECODE_ZUSTAND_LANGSAMER,
     HEIZUNGSBRUECKE_ADDON_SLUG,
     INVENTUR_WAIT_SECONDS,
     MIN_ADDON_VERSIONS,
+    NACHWEIS_WAIT_SECONDS,
     POLL_SECONDS,
     RAUM_SOLL_MAX,
     RAUM_SOLL_MIN,
@@ -68,9 +82,11 @@ from .einrichtung_client import (
     CannotConnect,
     Conflict,
     EinrichtungClient,
+    ErneutAnmelden,
     InvalidAuth,
     InvalidResponse,
     NotFound,
+    PortalBestaetigung,
     Rejected,
     ServerError,
     TokenUngueltig,
@@ -124,7 +140,12 @@ class _Unterbrechung(Exception):
 
 
 class _NeuAnmelden(_Unterbrechung):
-    """Token abgelaufen oder widerrufen."""
+    """Token abgelaufen oder widerrufen (`sitzung_abgelaufen`) oder die Bestaetigung im Portal ist zu alt
+    (`erneut_anmelden`): `grund` ist der Fehlerschluessel des Formulars."""
+
+    def __init__(self, grund: str) -> None:
+        super().__init__(grund)
+        self.grund = grund
 
 
 class _Feldfehler(_Unterbrechung):
@@ -139,6 +160,11 @@ class _Abbruch(_Unterbrechung):
         super().__init__(reason)
         self.reason = reason
         self.placeholders = placeholders
+
+
+async def _pause(sekunden: float) -> None:
+    """Wartezeit des Pollings (die Tests ersetzen sie)."""
+    await asyncio.sleep(sekunden)
 
 
 def _discovery(config: Any) -> dict[str, str]:
@@ -188,6 +214,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         self._zuordnung: dict = {}
         self._eingaben: dict = {}
         self._tenant: str | None = None
+        self._code: dict | None = None
+        self._server: str | None = None
         self._ersetzen = False
         self._reconfigure = False
         self._fehler: dict[str, str] = {}
@@ -210,12 +238,20 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         return self.async_abort(reason=reason, description_placeholders=placeholders or None)
 
     async def _api(self, call: Callable[..., Awaitable[Any]], *args: Any, konflikt: str = "abgelehnt",
-                   **kwargs: Any) -> Any:
-        """Aufruf mit festem Token; Fehler werden zur passenden Unterbrechung (siehe Modul-Doku)."""
+                   veraltet: str | None = None, **kwargs: Any) -> Any:
+        """Aufruf mit festem Token; Fehler werden zur passenden Unterbrechung (siehe Modul-Doku). `veraltet`: Abbruchgrund,
+        wenn die Adresse die Route nicht kennt (404 oder 405: ein Server ohne Geraetecode)."""
         try:
             return await call(*args, **kwargs)
         except TokenUngueltig:
-            raise _NeuAnmelden() from None
+            raise _NeuAnmelden("sitzung_abgelaufen") from None
+        except ErneutAnmelden:
+            raise _NeuAnmelden("erneut_anmelden") from None
+        except PortalBestaetigung:
+            raise _Abbruch("portal_bestaetigung") from None
+        except InvalidAuth:
+            # 401 ohne Token: der Server nimmt den Nachweis nicht an (Geraet unbekannt, gesperrt, Uhr falsch, Wiederholung)
+            raise _Abbruch("nachweis_abgelehnt") from None
         except (CannotConnect, ServerError) as error:
             _LOGGER.info("Einrichtung: Server nicht erreichbar (%s)", type(error).__name__)
             raise _Abbruch("cannot_connect") from None
@@ -224,6 +260,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                 raise _Feldfehler(error.fehler, error.text) from None
             raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
         except NotFound as error:
+            if veraltet is not None:
+                raise _Abbruch(veraltet) from None
             raise _Abbruch("geraet_unbekannt", grund=_text(error.text)) from None
         except Conflict as error:
             raise _Abbruch(konflikt, grund=_text(error.text)) from None
@@ -232,6 +270,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             _LOGGER.warning("Einrichtung: unbrauchbare Antwort des Servers")
             raise _Abbruch("unknown") from None
         except ApiError as error:
+            if veraltet is not None and error.status == 405:
+                raise _Abbruch(veraltet) from None
             raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
 
     def _merken(self, unterbrechung: _Unterbrechung) -> str:
@@ -246,7 +286,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     async def _unterbrechung(self, unterbrechung: _Unterbrechung) -> ConfigFlowResult:
         if isinstance(unterbrechung, _NeuAnmelden):
             await self._abmelden()
-            return self._anmelden_formular({"base": "sitzung_abgelaufen"})
+            self._code = None
+            return self._anmelden_formular({"base": unterbrechung.grund})
         if isinstance(unterbrechung, _Feldfehler):
             self._fehler = dict(unterbrechung.fehler)
             if self._fehler_ohne_feld():
@@ -352,27 +393,99 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         self.context["title_placeholders"] = {"geraet": self._discovery["geraet_id"]}
         return await self.async_step_anmelden()
 
-    # --- Anmelden und Uebernehmen ---
+    # --- Anmelden mit Geraetecode und Uebernehmen ---
 
     def _anmelden_formular(self, errors: dict[str, str], grund: str = "-") -> ConfigFlowResult:
-        schema = vol.Schema({
-            vol.Required("email"): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.EMAIL)),
-            vol.Required("password"): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-        })
-        return self.async_show_form(step_id="anmelden", data_schema=schema, errors=errors,
-                                    description_placeholders={"grund": grund})
+        """Formular ohne Eingabefelder: es sagt, warum ein neuer Code noetig ist; Absenden beginnt den Ablauf neu."""
+        return self.async_show_form(step_id="anmelden", errors=errors, description_placeholders={"grund": grund})
 
     async def async_step_anmelden(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Beginn eines Ablaufs (auch nach dem Formular mit Fehler): Adresse des Servers bestimmen, dann Nachweis und
+        Code anfordern."""
         if self._client is None:
             bootstrap = await addon_control.async_bootstrap_url(self.hass)
             if bootstrap.url is None:
                 return self.async_abort(reason=bootstrap.grund or "bootstrap_url_ungueltig")
             self._client = EinrichtungClient(async_get_clientsession(self.hass), bootstrap.url)
-        if user_input is None:
-            return self._anmelden_formular({})
+            self._server = bootstrap.url
+        return await self.async_step_anfordern()
+
+    async def async_step_anfordern(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._run_progress("anfordern", "anfordern", self._anfordern)
+
+    async def _anfordern(self) -> str:
+        """Nachweis beim Add-on holen und damit den Anmeldecode beim Server anfordern."""
+        assert self._client is not None
         try:
-            fehler = await self._anmelden(user_input["email"], user_input["password"])
+            nachweis = await addon_control.async_nachweis_anfordern(
+                self.hass, self._discovery["geraet_id"], NACHWEIS_WAIT_SECONDS)
+        except addon_control.NachweisFehlt:
+            return self._merken(_Abbruch("nachweis_fehlt"))
+        try:
+            self._code = await self._api(self._client.geraetecode_anfordern, nachweis, self.hass.config.language,
+                                         veraltet="server_veraltet")
+        except _Unterbrechung as unterbrechung:
+            return self._merken(unterbrechung)
+        return "warten"
+
+    async def async_step_warten(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Code und Link stehen im Fortschrittstext; weicht die Adresse des Servers von der Produktion ab, nennt der Text
+        sie (der Kunde hat sie als Option des Add-ons gesetzt)."""
+        code = self._code
+        assert code is not None and self._server is not None
+        platzhalter = {"anmeldecode": code["anmeldecode"], "link": code["link"], "link_komplett": code["link_komplett"]}
+        aktion = "warten"
+        if self._server != DEFAULT_BASE_URL:
+            platzhalter["server"], aktion = self._server, "warten_eigener_server"
+        return await self._run_progress("warten", aktion, self._warten, platzhalter)
+
+    async def _warten(self) -> str:
+        """Im Takt des Servers nach dem Token fragen, bis der Kunde bestaetigt oder abgelehnt hat oder der Code ablaeuft.
+        Der Takt kommt aus der Antwort (nach oben begrenzt), `langsamer` verlaengert ihn immer; einzelne Netzfehler werden
+        uebergangen, erst `ABFRAGE_FEHLER_MAX` hintereinander brechen ab."""
+        assert self._client is not None and self._code is not None
+        code = self._code
+        abfrage = code["abfrage_s"]
+        ende = time.monotonic() + min(code["gueltig_s"], CODE_WAIT_MAX_SECONDS)
+        fehler = 0
+        try:
+            while True:
+                await _pause(min(abfrage, ABFRAGE_MAX_SECONDS))
+                try:
+                    stand = await self._api(self._client.geraetecode_abholen, code["geraetecode"],
+                                            veraltet="server_veraltet")
+                except _Abbruch as abbruch:
+                    fehler += 1
+                    if abbruch.reason != "cannot_connect" or fehler >= ABFRAGE_FEHLER_MAX:
+                        raise
+                else:
+                    fehler = 0
+                    zustand, genannt = stand["zustand"], stand.get("abfrage_s")
+                    if zustand == GERAETECODE_ZUSTAND_BESTAETIGT:
+                        return "uebernehmen"
+                    if zustand == GERAETECODE_ZUSTAND_ABGELEHNT:
+                        raise _Abbruch("code_abgelehnt")
+                    if zustand == GERAETECODE_ZUSTAND_ABGELAUFEN:
+                        return "code_abgelaufen"
+                    if zustand == GERAETECODE_ZUSTAND_LANGSAMER:
+                        abfrage = max(genannt or 0, abfrage + ABFRAGE_ZUWACHS_SECONDS)
+                    elif genannt is not None:
+                        abfrage = genannt
+                if time.monotonic() >= ende:
+                    return "code_abgelaufen"
+        except _Unterbrechung as unterbrechung:
+            return self._merken(unterbrechung)
+
+    async def async_step_code_abgelaufen(self, user_input: dict | None = None) -> ConfigFlowResult:
+        self._code = None
+        return self._anmelden_formular({"base": "code_abgelaufen"})
+
+    async def async_step_uebernehmen(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Das Token ist da: das Geraet uebernehmen (ein eigenes, schon uebernommenes Geraet: ohne Fehler erneut). Ein
+        Fehler steht im Formular `anmelden` (neuer Ablauf mit neuem Code); _Abbruch, wenn das Add-on das Geraet nicht
+        (mehr) meldet."""
+        try:
+            fehler = await self._uebernehmen()
         except _Abbruch as abbruch:
             return await self._unterbrechung(abbruch)
         if fehler is not None:
@@ -380,30 +493,18 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return self._anmelden_formular({"base": fehler[0]}, fehler[1])
         return await self.async_step_geraet()
 
-    async def _anmelden(self, email: str, password: str) -> tuple[str, str] | None:
-        """Anmelden und das Geraet uebernehmen (ein eigenes, schon uebernommenes Geraet: ohne Fehler erneut);
-        (Fehlerschluessel des Formulars, Text des Servers) oder None. _Abbruch, wenn das Add-on das Geraet nicht
-        (mehr) meldet."""
+    async def _uebernehmen(self) -> tuple[str, str] | None:
+        """(Fehlerschluessel des Formulars, Text des Servers) oder None."""
         assert self._client is not None
-        try:
-            await self._client.anmelden(email, password)
-        except InvalidAuth:
-            return "invalid_auth", "-"
-        except TooMany:
-            return "too_many", "-"
-        except (CannotConnect, ServerError):
-            return "cannot_connect", "-"
-        except ApiError as error:
-            _LOGGER.warning("Einrichtung: Anmelden fehlgeschlagen (%s)", type(error).__name__)
-            if error.status in (404, 405):
-                # Die Adresse antwortet, kennt /einrichtung/v1 aber nicht: Server ohne Einrichtungs-API.
-                return "server_veraltet", "-"
-            return "unknown", "-"
         code = await self._uebernahme_code()
         try:
             await self._client.uebernehmen(self._discovery["geraet_id"], code)
         except TokenUngueltig:
             return "sitzung_abgelaufen", "-"
+        except ErneutAnmelden:
+            return "erneut_anmelden", "-"
+        except PortalBestaetigung:
+            raise _Abbruch("portal_bestaetigung") from None
         except TooMany as error:
             return "uebernahme_gesperrt", _text(error.text)
         except Conflict as error:

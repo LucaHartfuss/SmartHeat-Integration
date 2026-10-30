@@ -21,9 +21,11 @@ from custom_components.smartheat.einrichtung_client import (
     CannotConnect,
     Conflict,
     EinrichtungClient,
+    ErneutAnmelden,
     InvalidAuth,
     InvalidResponse,
     NotFound,
+    PortalBestaetigung,
     Rejected,
     ServerError,
     TokenUngueltig,
@@ -50,46 +52,174 @@ def _antwort(status, body):
     return handler
 
 
-async def test_login_keeps_the_token_in_memory_and_sends_it(aiohttp_client):
-    seen = {}
+NACHWEIS = {"geraet_id": "shg-aaaaaaaaaaaaaaaa", "zeitstempel": 1761800000, "signatur": "MEUCIQDsig-geheim_9"}
+CODE_ANTWORT = {"geraetecode": "gc-" + "x" * 40, "anmeldecode": "BCDF-GHJK", "link": "https://app.example.test/geraetecode",
+                "link_komplett": "https://app.example.test/geraetecode#code=BCDF-GHJK", "gueltig_s": 600, "abfrage_s": 5}
 
-    async def login(request):
-        seen["login_auth"] = request.headers.get("Authorization")
-        seen["body"] = await request.json()
-        return web.json_response({"token": "t-123", "gueltig_bis": "x"})
+
+async def test_anfordern_sendet_nachweis_koepfe_und_leeren_koerper_ohne_token(aiohttp_client):
+    gesehen = {}
+
+    async def anfordern(request):
+        gesehen["koerper"] = await request.read()
+        gesehen["koepfe"] = {k: request.headers.get(k) for k in (
+            "X-SHG-Device", "X-SHG-Timestamp", "X-SHG-Signature", "Accept-Language", "Authorization")}
+        return web.json_response(CODE_ANTWORT)
+
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", anfordern)], token="t-alt")
+    antwort = await client.geraetecode_anfordern(NACHWEIS, "de")
+    # Der Koerper ist byte-genau das, was der Geraetekern signiert hat.
+    assert gesehen["koerper"] == b"{}"
+    assert gesehen["koepfe"] == {"X-SHG-Device": NACHWEIS["geraet_id"], "X-SHG-Timestamp": "1761800000",
+                                 "X-SHG-Signature": NACHWEIS["signatur"], "Accept-Language": "de",
+                                 "Authorization": None}
+    assert antwort == CODE_ANTWORT and client.token == "t-alt"
+
+
+@pytest.mark.parametrize("feld, wert", [
+    ("geraetecode", ""), ("geraetecode", 5), ("anmeldecode", "bcdf-ghjk"), ("anmeldecode", "BCDFGHJK"),
+    ("anmeldecode", "BCDA-GHJK"), ("anmeldecode", "BCDF-GHJK\n"), ("anmeldecode", None),
+    ("link", "http://app.example.test/geraetecode"), ("link", "https://app.example.test/a b"),
+    ("link", "https://app.example.test/a)[x](https://boese.example.test"), ("link_komplett", "javascript:alert(1)"),
+    ("link_komplett", ""), ("gueltig_s", 0), ("gueltig_s", "600"), ("gueltig_s", True), ("gueltig_s", 100000),
+    ("abfrage_s", 0), ("abfrage_s", 5.5), ("abfrage_s", -1), ("abfrage_s", 3601),
+])
+async def test_anfordern_antwort_mit_unbrauchbarem_feld_ist_invalid_response(aiohttp_client, feld, wert):
+    """Code und Link werden dem Kunden angezeigt (Markdown), Zeiten steuern das Polling: nichts davon wird ungeprueft
+    uebernommen."""
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(200, {**CODE_ANTWORT, feld: wert}))])
+    with pytest.raises(InvalidResponse):
+        await client.geraetecode_anfordern(NACHWEIS, "de")
+
+
+@pytest.mark.parametrize("feld", ["gueltig_s", "abfrage_s"])
+@pytest.mark.parametrize("wert", [1, 3600])
+async def test_anfordern_zeitgrenzen_gelten_beidseitig(aiohttp_client, feld, wert):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(200, {**CODE_ANTWORT, feld: wert}))])
+    assert (await client.geraetecode_anfordern(NACHWEIS, "de"))[feld] == wert
+
+
+@pytest.mark.parametrize("wert", [1, 3600])
+async def test_abholen_zeitgrenzen_gelten_beidseitig(aiohttp_client, wert):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode/token",
+                                             _antwort(200, {"zustand": "langsamer", "abfrage_s": wert}))])
+    assert (await client.geraetecode_abholen("gc"))["abfrage_s"] == wert
+
+
+async def test_anfordern_ohne_feld_ist_invalid_response(aiohttp_client):
+    rest = {k: v for k, v in CODE_ANTWORT.items() if k != "link_komplett"}
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(200, rest))])
+    with pytest.raises(InvalidResponse):
+        await client.geraetecode_anfordern(NACHWEIS, "de")
+
+
+async def test_anfordern_401_ist_invalid_auth_aber_nicht_token_weg(aiohttp_client):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(401, {"error": "Nicht angemeldet."}))],
+                           token=None)
+    with pytest.raises(InvalidAuth) as caught:
+        await client.geraetecode_anfordern(NACHWEIS, "de")
+    assert not isinstance(caught.value, TokenUngueltig) and caught.value.text == "Nicht angemeldet."
+
+
+async def test_anfordern_drossel_ist_too_many_mit_text(aiohttp_client):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(429, {"error": "Zu viele Anfragen."}))],
+                           token=None)
+    with pytest.raises(TooMany) as caught:
+        await client.geraetecode_anfordern(NACHWEIS, "de")
+    assert caught.value.text == "Zu viele Anfragen." and caught.value.status == 429
+
+
+def test_v3_anmelden_mit_passwort_gibt_es_nicht_mehr():
+    assert not hasattr(EinrichtungClient, "anmelden")
+    assert "anmelden" not in einrichtung_client.EINRICHTUNG_ROUTEN
+
+
+async def test_abholen_sendet_nur_den_geraetecode_und_bestaetigt_haelt_das_token_nur_im_client(aiohttp_client):
+    gesehen = {}
+
+    async def abholen(request):
+        gesehen["koerper"] = await request.json()
+        gesehen["auth"] = request.headers.get("Authorization")
+        return web.json_response({"zustand": "bestaetigt", "token": "tok-geheim-1", "gueltig_bis": "2026-10-30T12:00:00Z"})
 
     async def geraet(request):
-        seen["auth"] = request.headers.get("Authorization")
+        gesehen["auth_danach"] = request.headers.get("Authorization")
         return web.json_response({"device_id": "shg-a"})
 
-    client = await _client(aiohttp_client, [("POST", "/anmelden", login), ("GET", "/geraet", geraet)], token=None)
-    await client.anmelden("a@b.de", "pw")
-    assert client.token == "t-123" and seen["body"] == {"email": "a@b.de", "password": "pw"}
-    assert (await client.geraet())["device_id"] == "shg-a"
-    assert seen["auth"] == "Bearer t-123" and seen["login_auth"] is None
+    client = await _client(aiohttp_client, [("POST", "/geraetecode/token", abholen), ("GET", "/geraet", geraet)],
+                           token=None)
+    stand = await client.geraetecode_abholen("gc-1")
+    assert gesehen["koerper"] == {"geraetecode": "gc-1"} and gesehen["auth"] is None
+    assert stand == {"zustand": "bestaetigt"} and client.token == "tok-geheim-1"
+    await client.geraet()
+    assert gesehen["auth_danach"] == "Bearer tok-geheim-1"
 
 
-async def test_login_without_token_is_invalid_response(aiohttp_client):
-    client = await _client(aiohttp_client, [("POST", "/anmelden", _antwort(200, {"gueltig_bis": "x"}))], token=None)
-    with pytest.raises(InvalidResponse):
-        await client.anmelden("a@b.de", "pw")
+@pytest.mark.parametrize("antwort, erwartet", [
+    ({"zustand": "wartet"}, {"zustand": "wartet"}),
+    ({"zustand": "wartet", "abfrage_s": 5}, {"zustand": "wartet", "abfrage_s": 5}),
+    ({"zustand": "langsamer", "abfrage_s": 10}, {"zustand": "langsamer", "abfrage_s": 10}),
+    ({"zustand": "abgelehnt"}, {"zustand": "abgelehnt"}),
+    ({"zustand": "abgelaufen", "fremd": 1}, {"zustand": "abgelaufen"}),
+])
+async def test_abholen_zustaende_ohne_token(aiohttp_client, antwort, erwartet):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode/token", _antwort(200, antwort))], token=None)
+    assert await client.geraetecode_abholen("gc-1") == erwartet
     assert client.token is None
 
 
-async def test_login_401_is_invalid_auth_but_not_token_gone(aiohttp_client):
-    client = await _client(aiohttp_client, [("POST", "/anmelden", _antwort(401, {"error": "Ungueltige Zugangsdaten"}))],
-                           token=None)
-    with pytest.raises(InvalidAuth) as caught:
-        await client.anmelden("a@b.de", "pw")
-    assert not isinstance(caught.value, TokenUngueltig) and caught.value.text == "Ungueltige Zugangsdaten"
+@pytest.mark.parametrize("antwort", [
+    {}, {"zustand": "unbekannt"}, {"zustand": 7}, {"zustand": "bestaetigt"}, {"zustand": "bestaetigt", "token": ""},
+    {"zustand": "bestaetigt", "token": 7}, {"zustand": "langsamer"}, {"zustand": "langsamer", "abfrage_s": 0},
+    {"zustand": "wartet", "abfrage_s": "5"},
+])
+async def test_abholen_unbrauchbare_antwort_ist_invalid_response_und_setzt_kein_token(aiohttp_client, antwort):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode/token", _antwort(200, antwort))], token=None)
+    with pytest.raises(InvalidResponse):
+        await client.geraetecode_abholen("gc-1")
+    assert client.token is None
 
 
-async def test_login_lockout_is_too_many_with_text(aiohttp_client):
-    text = "Zu viele Fehlversuche, bitte kurz warten"
-    client = await _client(aiohttp_client, [("POST", "/anmelden", _antwort(429, {"error": text}))], token=None)
-    with pytest.raises(TooMany) as caught:
-        await client.anmelden("a@b.de", "pw")
-    assert caught.value.text == text and caught.value.status == 429
+async def test_ein_bestaetigtes_token_ersetzt_ein_altes_nur_bei_bestaetigung(aiohttp_client):
+    client = await _client(aiohttp_client, [("POST", "/geraetecode/token", _antwort(200, {"zustand": "wartet"}))],
+                           token="t-alt")
+    await client.geraetecode_abholen("gc-1")
+    assert client.token == "t-alt"
+
+
+async def test_403_mit_zustand_erneut_anmelden_ist_eine_eigene_ausnahme(aiohttp_client):
+    text = "Bitte das Gerät erneut anmelden."
+    client = await _client(aiohttp_client, [("POST", "/geraete/uebernehmen",
+                                             _antwort(403, {"error": text, "zustand": "erneut_anmelden"}))])
+    with pytest.raises(ErneutAnmelden) as caught:
+        await client.uebernehmen("shg-a", None)
+    assert caught.value.text == text and caught.value.status == 403
+    assert not isinstance(caught.value, InvalidAuth)
+
+
+@pytest.mark.parametrize("status, body", [
+    (403, {"error": "Nein."}), (403, {"error": "x", "zustand": "etwas_anderes"}), (403, {"error": "x", "zustand": 5}),
+    (409, {"error": "x", "zustand": "erneut_anmelden"}), (401, {"error": "x", "zustand": "erneut_anmelden"}),
+])
+async def test_nur_403_mit_genau_diesem_zustand_ist_erneut_anmelden(aiohttp_client, status, body):
+    client = await _client(aiohttp_client, [("POST", "/geraet/entfernen", _antwort(status, body))])
+    with pytest.raises(ApiError) as caught:
+        await client.entfernen()
+    assert not isinstance(caught.value, ErneutAnmelden)
+
+
+@pytest.mark.parametrize("status", [200, 202, 403, 409])
+async def test_zustand_portal_bestaetigung_ist_eine_eigene_ausnahme_bei_jedem_status(aiohttp_client, status):
+    body = {"zustand": "portal_bestaetigung", "error": "Der Eigentuemer muss im Portal bestaetigen."}
+    client = await _client(aiohttp_client, [("POST", "/geraet/entfernen", _antwort(status, body))])
+    with pytest.raises(PortalBestaetigung) as caught:
+        await client.entfernen()
+    assert caught.value.status == (None if status == 200 else status)
+
+
+async def test_auftrag_zustand_fertig_ist_keine_portal_bestaetigung(aiohttp_client):
+    client = await _client(aiohttp_client, [("GET", "/geraet/auftraege/j", _antwort(200, {"zustand": "fertig"}))])
+    assert (await client.auftrag("j"))["zustand"] == "fertig"
 
 
 @pytest.mark.parametrize("status, error", [(404, NotFound), (409, Conflict), (429, TooMany), (500, ServerError),
@@ -169,7 +299,7 @@ async def unreachable():
 
 async def test_unreachable_server_is_cannot_connect(unreachable):
     with pytest.raises(CannotConnect):
-        await unreachable.anmelden("a@b.de", "pw")
+        await unreachable.geraetecode_anfordern(NACHWEIS, "de")
 
 
 async def test_timeout_is_cannot_connect(aiohttp_client, monkeypatch):
@@ -298,12 +428,14 @@ async def test_remaining_routes_use_their_method_and_path(aiohttp_client):
 
 async def test_secrets_never_reach_the_log(aiohttp_client, unreachable, caplog):
     caplog.set_level(logging.DEBUG)
-    zugangs = [("POST", "/anmelden", _antwort(200, {"token": "tok-geheim-9"})),
+    zugangs = [("POST", "/geraetecode", _antwort(200, CODE_ANTWORT)),
+               ("POST", "/geraetecode/token", _antwort(200, {"zustand": "bestaetigt", "token": "tok-geheim-9"})),
                ("POST", "/geraete/uebernehmen", _antwort(400, {"error": "Falscher Code"})),
                ("GET", "/geraet", _antwort(404, {"error": "unbekanntes Gerät"})),
                ("POST", "/abmelden", _antwort(500, {"error": "x"}))]
     client = await _client(aiohttp_client, zugangs, token=None)
-    await client.anmelden("a@b.de", "pw-geheim-7")
+    await client.geraetecode_anfordern(NACHWEIS, "de")
+    await client.geraetecode_abholen("gc-geheim-4")
     with pytest.raises(Rejected):
         await client.uebernehmen("shg-a", "code-geheim-3")
     with pytest.raises(NotFound):
@@ -314,24 +446,24 @@ async def test_secrets_never_reach_the_log(aiohttp_client, unreachable, caplog):
         await unreachable.geraet()
     ours = "\n".join(r.getMessage() for r in caplog.records if r.name.startswith("custom_components"))
     assert ours  # es wird etwas geloggt
-    for secret in ("tok-geheim-9", "pw-geheim-7", "code-geheim-3", "Bearer"):
+    for secret in ("tok-geheim-9", "gc-geheim-4", "code-geheim-3", "BCDF-GHJK", NACHWEIS["signatur"], "Bearer"):
         assert secret not in caplog.text
 
 
 @pytest.mark.parametrize("status", [301, 302, 307, 308])
-async def test_redirects_are_not_followed_and_never_resend_the_password(aiohttp_client, status):
+async def test_redirects_are_not_followed_and_never_resend_the_proof(aiohttp_client, status):
     seen = {"target": 0}
 
-    async def login(request):
+    async def anfordern(request):
         return web.Response(status=status, headers={"Location": f"{P}/ziel"}, text="Ziel: geheim-im-body")
 
     async def ziel(request):
         seen["target"] += 1
-        return web.json_response({"token": "t"})
+        return web.json_response(CODE_ANTWORT)
 
-    client = await _client(aiohttp_client, [("POST", "/anmelden", login), ("POST", "/ziel", ziel)], token=None)
+    client = await _client(aiohttp_client, [("POST", "/geraetecode", anfordern), ("POST", "/ziel", ziel)], token=None)
     with pytest.raises(ApiError) as caught:
-        await client.anmelden("a@b.de", "pw")
+        await client.geraetecode_anfordern(NACHWEIS, "de")
     assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
     assert seen["target"] == 0 and client.token is None
 
@@ -419,7 +551,8 @@ def test_felder_aus_nimmt_genau_die_konstanten_der_pfadtabelle_auf():
 # Bruchtest (K2) je Route: die Felder der obersten Ebene als Literale aus V3 (nicht ueber die Konstanten). Die
 # Antwort traegt zusaetzlich ein fremdes Feld, das der Filter verwirft; fehlende Felder bleiben fehlend.
 _OBERSTE_EBENE = [
-    ("anmelden", {"token", "gueltig_bis"}),
+    ("geraetecode", {"geraetecode", "anmeldecode", "link", "link_komplett", "gueltig_s", "abfrage_s"}),
+    ("geraetecode_token", {"zustand", "abfrage_s", "token", "gueltig_bis"}),
     ("uebernehmen", {"device_id"}),
     ("geraet", {"device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
                 "konfiguration", "raum_soll"}),
@@ -614,6 +747,18 @@ async def test_erwartete_ablehnungen_loggen_info(aiohttp_client, caplog, status,
         assert stufen() == [logging.WARNING], unerwartet
 
 
+@pytest.mark.parametrize("status, zustand", [(403, "erneut_anmelden"), (403, "portal_bestaetigung"),
+                                             (409, "portal_bestaetigung")])
+async def test_erwartete_zustaende_der_einrichtung_loggen_info(aiohttp_client, caplog, status, zustand):
+    """`erneut_anmelden` und `portal_bestaetigung` sind der Normalbetrieb, keine Stoerung: INFO ohne Servertext."""
+    client = await _client(aiohttp_client, [("POST", "/geraet/entfernen",
+                                             _antwort(status, {"error": "Text", "zustand": zustand}))])
+    with caplog.at_level(logging.INFO, logger=einrichtung_client.__name__), pytest.raises(ApiError):
+        await client.entfernen()
+    assert [r.levelno for r in caplog.records if r.name == einrichtung_client.__name__] == [logging.INFO]
+    assert "Text" not in caplog.text
+
+
 # --- Angreifer im LAN: Zertifikat des Servers (F-ha-host-32) ---------------------------------------------------------
 
 def _selbstsigniert(tmp_path) -> ssl.SSLContext:
@@ -638,18 +783,18 @@ def _selbstsigniert(tmp_path) -> ssl.SSLContext:
     return context
 
 
-async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_passwort_noch_token(hass, tmp_path):
+async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_nachweis_noch_token(hass, tmp_path):
     """Die Integration baut den Client mit der Sitzung von HA (`async_get_clientsession`, wie config_flow): gegen einen
     HTTPS-Server mit selbst signiertem Zertifikat bricht die Verbindung ab, bevor ein Body hinausgeht. Gegenprobe:
-    derselbe Aufruf mit `ssl=False` erreicht den Server mit dem Passwort."""
+    derselbe Aufruf mit `ssl=False` erreicht den Server mit dem Nachweis."""
     bodies = []
 
-    async def anmelden(request):
-        bodies.append(await request.json())
+    async def anfordern(request):
+        bodies.append((await request.read(), request.headers.get("X-SHG-Signature")))
         return web.json_response({"token": "t-mitm"})
 
     app = web.Application()
-    app.router.add_post(f"{P}/anmelden", anmelden)
+    app.router.add_post(f"{P}/geraetecode", anfordern)
     runner = web.AppRunner(app)
     await runner.setup()
     # Der Client legt nach der fehlgeschlagenen Pruefung auf; asyncio meldet das auf der Seite des Servers (des
@@ -675,15 +820,15 @@ async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_passwort_noch_tok
         client.token = "t-alt"  # ein Token des echten Servers darf nicht durch das des Angreifers ersetzt werden
 
         with pytest.raises(CannotConnect) as caught:
-            await client.anmelden("a@b.de", "pw-geheim-42")
+            await client.geraetecode_anfordern(NACHWEIS, "de")
 
         assert isinstance(caught.value.__cause__, aiohttp.ClientConnectorCertificateError)
         assert bodies == [] and client.token == "t-alt"
         # Gegenprobe: ohne Zertifikatspruefung kaeme das Passwort an.
-        async with session.post(f"{base_url}{P}/anmelden", json={"email": "a@b.de", "password": "pw-geheim-42"},
+        async with session.post(f"{base_url}{P}/geraetecode", json={}, headers={"X-SHG-Signature": "sig-geheim"},
                                 ssl=False) as response:
             assert response.status == 200
-        assert bodies == [{"email": "a@b.de", "password": "pw-geheim-42"}]
+        assert bodies == [(b"{}", "sig-geheim")]
     finally:
         loop.set_exception_handler(handler_vorher)
         await runner.cleanup()
@@ -693,7 +838,10 @@ async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_passwort_noch_tok
 
 # Methode und voller Pfad je Route als Literale aus V3 (Server `einrichtung/api.py`), nicht ueber die Konstanten.
 _ROUTEN_V3 = [
-    ("anmelden", "POST", "/einrichtung/v1/anmelden", {"token": "t"}, lambda c: c.anmelden("a@b.de", "pw")),
+    ("geraetecode", "POST", "/einrichtung/v1/geraetecode", CODE_ANTWORT,
+     lambda c: c.geraetecode_anfordern(NACHWEIS, "de")),
+    ("geraetecode_token", "POST", "/einrichtung/v1/geraetecode/token", {"zustand": "wartet"},
+     lambda c: c.geraetecode_abholen("gc-1")),
     ("abmelden", "POST", "/einrichtung/v1/abmelden", {}, lambda c: c.abmelden()),
     ("uebernehmen", "POST", "/einrichtung/v1/geraete/uebernehmen", {}, lambda c: c.uebernehmen("shg-a", "C")),
     ("geraet", "GET", "/einrichtung/v1/geraet", {}, lambda c: c.geraet()),
