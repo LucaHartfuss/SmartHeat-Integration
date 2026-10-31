@@ -5,6 +5,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Der Standardserver ist jetzt `https://accounts.setwell.de` (vorher `https://accounts.hartfussha.org`). Die Adresse
+  gilt nur für eine neue Einrichtung und nur, wenn die Option `bootstrap_url` des Add-ons Heizungsbrücke nicht gesetzt
+  ist; bestehende Einträge sprechen nicht mit dem Server und bleiben unberührt. Das Add-on selbst wechselt beim
+  Update mit seinem Standard (siehe sein Changelog).
 - Die Einrichtung meldet sich nicht mehr mit E-Mail und Passwort an. Die Integration zeigt einen Anmeldecode und einen
   Link; Sie bestätigen den Code im SmartHeat-Portal, die Einrichtung geht dann von selbst weiter. Dafür fordert die
   Integration vom Add-on einen Besitznachweis des Geräts an (`nachweis <Geräte-ID>`, Ereignis `smartheat_nachweis`):

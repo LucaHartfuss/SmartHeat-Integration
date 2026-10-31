@@ -73,7 +73,7 @@ def test_nachweis_contract_with_the_addon():
 
 
 def test_addon_and_wait_constants():
-    assert const.DEFAULT_BASE_URL == "https://accounts.hartfussha.org"
+    assert const.DEFAULT_BASE_URL == "https://accounts.setwell.de"
     assert const.OPTION_BOOTSTRAP_URL == "bootstrap_url"
     assert (const.DISCOVERY_WAIT_SECONDS, const.INVENTUR_WAIT_SECONDS, const.AUFTRAG_WAIT_SECONDS,
             const.ENTFERNEN_WAIT_SECONDS, const.POLL_SECONDS) == (300, 120, 900, 300, 2)
