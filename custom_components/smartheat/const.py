@@ -4,7 +4,7 @@ und Wunschtemperatur ueber das lokale Add-on. Ereignis-, Discovery- und Routen-W
 import re
 
 DOMAIN = "smartheat"
-DEFAULT_BASE_URL = "https://accounts.hartfussha.org"
+DEFAULT_BASE_URL = "https://accounts.setwell.de"
 OPTION_BOOTSTRAP_URL = "bootstrap_url"
 REQUEST_TIMEOUT_SECONDS = 30
 ERROR_TEXT_MAX = 300
