@@ -78,6 +78,8 @@ RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
 EINRICHTUNG_MAX_RAUMFUEHLER = 8
 EINRICHTUNG_MAX_BATTERIEN = 16
 EINRICHTUNG_MAX_HANDYS = 10
+# Kopie von device_protocol.KREISE_MAX (Heizkreise je Geraet; Contract-Check 76).
+EINRICHTUNG_MAX_KREISE = 4
 
 # Einrichtungs-API (Server einrichtung/api.py ROUTEN).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"
@@ -108,12 +110,12 @@ EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] =
     "inventur": ((), ()),
     "vorschlag": ((), ()),
     "zuordnung": (("kreis", "profil", "hebelsatz"), ("tenant_id",)),
-    "pruefen": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler"),
-                ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll", "tenant_id", "ersetzen")),
-    "einrichten": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "tenant_id", "raum_soll"),
+    "pruefen": (("profil", "hebelsatz", "kreise"),
+                ("batterien", "benachrichtigung", "hinweise_aus", "tenant_id", "ersetzen")),
+    "einrichten": (("profil", "hebelsatz", "kreise", "tenant_id"),
                    ("batterien", "benachrichtigung", "hinweise_aus", "ersetzen")),
-    "neu_konfigurieren": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler"),
-                          ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")),
+    "neu_konfigurieren": (("profil", "hebelsatz", "kreise"),
+                          ("batterien", "benachrichtigung", "hinweise_aus")),
     "entfernen": ((), ()),
     "auftrag": ((), ()),
 }
@@ -123,7 +125,7 @@ EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
     "abmelden": (),
     "uebernehmen": ("device_id",),
     "geraet": ("device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
-               "konfiguration", "raum_soll"),
+               "abos", "konfiguration", "raum_soll"),
     "inventur": ("command_id",),
     "vorschlag": ("integrationen",),
     "zuordnung": ("kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "room_target", "batterie_je_entity",
@@ -136,18 +138,23 @@ EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
 }
 EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER = ("rolle", "pflicht", "vorschlag", "herkunft", "kandidaten")
 EINRICHTUNG_RAUMFUEHLER_FELDER = ("kandidaten", "vorschlag")
-EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "label", "hinweis", "kreise", "profile", "vorschlag")
+EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "weg", "label", "hinweis", "kreise", "profile", "vorschlag")
 # Verschachtelte Objekte eines Integrationseintrags der Antwort `vorschlag` (kreise, profile, hebelsaetze, vorschlag).
-EINRICHTUNG_VORSCHLAG_KREIS_FELDER = ("schluessel", "label")
+EINRICHTUNG_VORSCHLAG_KREIS_FELDER = ("schluessel", "label", "nummer")
 EINRICHTUNG_VORSCHLAG_PROFIL_FELDER = ("profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
                                        "hebelsaetze")
 EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER = ("id", "hebel")
-EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreis", "profil")
+EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreise", "profil")
 # Verschachtelte Objekte der Antwort `geraet`, die der Assistent liest (Eintrag von `anlagen`, `inventur`, Zusatzfelder
 # der `konfiguration`).
 EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar")
 EINRICHTUNG_GERAET_INVENTUR_FELDER = ("zustand", "command_id", "zeit", "fehler")
-EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever")
+EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever", "kreise")
+EINRICHTUNG_GERAET_KREIS_FELDER = ("nummer", "bindung", "raumfuehler", "raum_soll")
+EINRICHTUNG_GERAET_ABO_FELDER = ("abo_id", "name")
+# Aufbau der Kreise und Raeume der Anfragen `pruefen`, `einrichten`, `neu_konfigurieren` (Pflicht, optional).
+EINRICHTUNG_ANFRAGE_KREIS_FELDER = (("nummer", "kreis", "rollen", "raeume"), ("raum_soll", "abo_id"))
+EINRICHTUNG_ANFRAGE_RAUM_FELDER = (("name", "rolle", "fuehler"), ("soll_quelle", "versatz_k", "ziel_fest"))
 # Zustaende der Route `geraetecode_token` (Antwort `zustand`) und die Zustaende, die jede Route als Antwort tragen kann.
 GERAETECODE_ZUSTAND_WARTET = "wartet"
 GERAETECODE_ZUSTAND_BESTAETIGT = "bestaetigt"

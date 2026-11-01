@@ -35,6 +35,8 @@ from . import const, vertrag_pin
 from .const import (
     ANMELDECODE_RE,
     EINRICHTUNG_ANFRAGE_FELDER,
+    EINRICHTUNG_ANFRAGE_KREIS_FELDER,
+    EINRICHTUNG_ANFRAGE_RAUM_FELDER,
     EINRICHTUNG_ANTWORT_FELDER,
     EINRICHTUNG_PREFIX,
     EINRICHTUNG_ROUTEN,
@@ -252,6 +254,11 @@ class EinrichtungClient:
             raise InvalidResponse(f"{route}: Antwort ohne {feld}")
         return wert
 
+    @staticmethod
+    def _deklariert(route: str, objekt: dict, felder: tuple[tuple[str, ...], tuple[str, ...]]) -> None:
+        if fremd := sorted(set(objekt) - set(felder[0]) - set(felder[1])):
+            raise ValueError(f"{route}: nicht deklarierte Felder {fremd}")  # Programmfehler, nie Nutzereingabe
+
     async def _call(self, route: str, *, json: dict | None = None, job_id: str | None = None, auth: bool = True,
                     ok: tuple[int, ...] = (200,), expect_json: bool = True,
                     headers: dict[str, str] | None = None) -> Any:
@@ -260,6 +267,10 @@ class EinrichtungClient:
             pflicht, optional = EINRICHTUNG_ANFRAGE_FELDER[route]
             if fremd := sorted(set(json) - set(pflicht) - set(optional)):
                 raise ValueError(f"{route}: nicht deklarierte Felder {fremd}")  # Programmfehler, nie Nutzereingabe
+            for kreis in json.get("kreise") or ():
+                self._deklariert(route, kreis, EINRICHTUNG_ANFRAGE_KREIS_FELDER)
+                for raum in kreis.get("raeume") or ():
+                    self._deklariert(route, raum, EINRICHTUNG_ANFRAGE_RAUM_FELDER)
         if job_id is not None:
             path = path.replace("<job_id>", quote(job_id, safe=""))
         headers = {**(headers or {}), **({"Authorization": f"Bearer {self.token}"} if auth and self.token else {})}

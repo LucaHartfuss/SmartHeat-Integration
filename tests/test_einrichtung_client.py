@@ -480,24 +480,36 @@ async def test_nicht_deklariertes_anfragefeld_ist_ein_programmfehler(aiohttp_cli
                               "erfunden": 1})
 
 
+@pytest.mark.parametrize("raum_extra,kreis_extra", [({"erfunden": 1}, {}), ({}, {"erfunden": 1})])
+async def test_nicht_deklariertes_feld_eines_kreises_oder_raums_ist_ein_programmfehler(
+        aiohttp_client, raum_extra, kreis_extra):
+    client = await _client(aiohttp_client, [])
+    raum = {"name": "Wohnzimmer", "rolle": "referenz", "fuehler": [], "soll_quelle": True, **raum_extra}
+    kreis = {"nummer": 1, "kreis": "k", "rollen": {}, "raeume": [raum], **kreis_extra}
+    with pytest.raises(ValueError):
+        await client.pruefen({"profil": "p", "hebelsatz": "h", "kreise": [kreis], "batterien": [],
+                              "benachrichtigung": [], "hinweise_aus": []})
+
+
 async def test_verschachtelte_fremde_felder_fallen_weg(aiohttp_client):
-    integration = {"plattform": "p", "label": "l", "hinweis": None, "neu": 1,
-                   "kreise": [{"schluessel": "s", "label": "k", "neu": 1}],
+    integration = {"plattform": "p", "weg": "mypyllant", "label": "l", "hinweis": None, "neu": 1,
+                   "kreise": [{"schluessel": "s", "label": "k", "nummer": None, "neu": 1}],
                    "profile": [{"profile_id": "x", "label": "l", "erzeuger_typ": "e", "verteilsystem": "v",
                                 "shift_lever": None, "hebelsaetze": [{"id": "h", "hebel": [], "neu": 1}], "neu": 1}],
-                   "vorschlag": {"kreis": None, "profil": None, "neu": 1}}
+                   "vorschlag": {"kreise": [], "profil": None, "neu": 1}}
     client = await _client(aiohttp_client, [("GET", "/geraet/vorschlag",
                                              _antwort(200, {"integrationen": [integration], "neu": 1}))])
     antwort = await client.vorschlag()
     eintrag = antwort["integrationen"][0]
     # Literale aus V3
     assert set(antwort) == {"integrationen"}
-    assert set(eintrag) == {"plattform", "label", "hinweis", "kreise", "profile", "vorschlag"}
-    assert set(eintrag["kreise"][0]) == {"schluessel", "label"}
+    assert set(eintrag) == {"plattform", "weg", "label", "hinweis", "kreise", "profile",
+                                "vorschlag"}
+    assert set(eintrag["kreise"][0]) == {"schluessel", "label", "nummer"}
     assert set(eintrag["profile"][0]) == {"profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
                                           "hebelsaetze"}
     assert set(eintrag["profile"][0]["hebelsaetze"][0]) == {"id", "hebel"}
-    assert set(eintrag["vorschlag"]) == {"kreis", "profil"}
+    assert set(eintrag["vorschlag"]) == {"kreise", "profil"}
 
 
 async def test_zuordnung_und_geraet_werden_verschachtelt_gefiltert(aiohttp_client):
@@ -517,6 +529,18 @@ async def test_zuordnung_und_geraet_werden_verschachtelt_gefiltert(aiohttp_clien
     assert set(sicht["anlagen"][0]) == {"tenant_id", "aktiv", "belegt", "ersetzbar"}
     assert set(sicht["inventur"]) == {"zustand", "command_id", "zeit", "fehler"}
     assert sicht["konfiguration"] == konfiguration  # Auszug des V1-Dokuments: ungekuerzt
+
+
+async def test_geraet_kuerzt_abos_und_die_kreise_der_konfiguration(aiohttp_client):
+    """Literale aus V3: ein Abo traegt abo_id und name, ein Kreis der Konfiguration nummer, bindung, raumfuehler und
+    raum_soll; fremde Felder fallen weg."""
+    abo = {"abo_id": "a1", "name": "Heizkreis-Abo", "neu": 1}
+    kreis = {"nummer": 2, "bindung": {}, "raumfuehler": ["sensor.x"], "raum_soll": 20.0, "neu": 1}
+    client = await _client(aiohttp_client, [("GET", "/geraet", _antwort(200, {
+        "anlagen": [], "inventur": None, "abos": [abo], "konfiguration": {"profil": "p", "kreise": [kreis]}}))])
+    sicht = await client.geraet()
+    assert set(sicht["abos"][0]) == {"abo_id", "name"}
+    assert set(sicht["konfiguration"]["kreise"][0]) == {"nummer", "bindung", "raumfuehler", "raum_soll"}
 
 
 @pytest.mark.parametrize("kaputt", [
