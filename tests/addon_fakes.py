@@ -2,25 +2,24 @@
 `supervisor_fakes.FakeSupervisor` an der Grenze nach; der `AddonManager` wird nicht ersetzt."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.const import DOMAIN, STATUS_EVENT_SCHEMA
+from custom_components.smartheat.const import DOMAIN
 
 GERAET_ID = "shg-a"
+STATUS_EREIGNIS_FIXTURE = Path(__file__).parent / "fixtures" / "status_ereignis_v3.json"
 VAILLANT_HEBEL = ["curve", "room_setpoint", "heat_limit", "min_flow"]
 
 
 def status_event(tenant_id, status, *, grund=None, **overrides) -> dict:
-    """Volles Status-Ereignis Schema 3 (Laufzeit-Teil plus die Geraete-Felder; Geraet GERAET_ID)."""
-    event = {
-        "schema": STATUS_EVENT_SCHEMA, "tenant_id": tenant_id, "addon_version": "0.20.0",
-        "status": status, "grund": grund, "notbetrieb": False, "datenfehler": None, "boost": "keiner",
-        "letzte_serverantwort": None, "hebelsatz": "vaillant_vrc720", "hebel": None, "gelernt": None,
-        "abo": "aktiv", "abo_frist_ende": None,
-        "hinweise": {"raumfuehler_ausgefallen": [], "batterie_niedrig": [], "manueller_eingriff": None},
-        "geraet_id": GERAET_ID, "geraet_zustand": "regelt", "server_verbunden": True, "raum_soll": None,
-        "geraet_hinweise": [],
-    }
+    """Volles Status-Ereignis Schema 3 (Laufzeit-Teil plus die Geraete-Felder; Geraet GERAET_ID). Grundlage ist das
+    echte Ereignis des Add-ons (Fixture, erzeugt mit `tools/contract_check.py --status-ereignis`); die Parameter und
+    overrides ueberschreiben einzelne Felder."""
+    event = json.loads(STATUS_EREIGNIS_FIXTURE.read_text())
+    event.update({"tenant_id": tenant_id, "status": status, "grund": grund, "geraet_id": GERAET_ID})
     event.update(overrides)
     return event
 
