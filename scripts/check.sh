@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
-# Lokale und CI-Pruefung (docs/ci-cd-runbook.md). Aufruf: scripts/check.sh [--full] [--only SCHRITT]
-# Docker-Schritte: im Add-on laeuft "docker" nur mit --full oder --only docker. Docker wird direkt genutzt;
-# ohne Docker auf dem PATH enden die Docker-Schritte mit einer Meldung.
-# Ein unbekannter Schrittname bei --only bricht mit Exit 2 ab (gueltige Namen: check_only-Aufruf unten).
+# Lokale und CI-Pruefung (docs/ci-cd-runbook.md). Aufruf: scripts/check.sh [--only SCHRITT]
+# Eine volle Stufe gibt es hier nicht (hassfest und hacs laufen nur in der CI): jede andere Option, auch --full,
+# bricht mit Exit 2 ab. Ein unbekannter Schrittname bei --only bricht mit Exit 2 ab (gueltige Namen: check_only-Aufruf unten).
 set -uo pipefail
 cd "$(dirname "$0")/.."
-FULL=0
 ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --full) FULL=1 ;;
     --only) ONLY="${2:?--only braucht einen Schrittnamen}"; shift ;;
     *) echo "Unbekannte Option: $1" >&2; exit 2 ;;
   esac
