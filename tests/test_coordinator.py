@@ -483,8 +483,9 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clo
     event = status_event(
         TENANT, "regelt", boost="unbekannt", datenfehler={"art": "unbekannt", "rollen": []},
         letzte_serverantwort="2026-10-01T12:00:05",  # kein Zeitzonen-Offset: naiv
+        hebel=None, gelernt=None,  # fehlende Werte (kein Hebel-Objekt im Event); das echte Ereignis hat immer eines
     )
-    assert event["hebel"] is None and event["gelernt"] is None  # fehlende Werte (kein Hebel-Objekt im Event)
+    assert event["hebel"] is None and event["gelernt"] is None
 
     _fire(hass, event)
     await hass.async_block_till_done()
