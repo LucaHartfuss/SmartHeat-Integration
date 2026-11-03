@@ -12,14 +12,20 @@ ERROR_TEXT_MAX = 300
 FEHLER_BODY_MAX_BYTES = 65536
 FEHLER_WERT_MAX = 200
 
-# Status-Ereignis des Add-ons: Schema 2 der Laufzeit plus Geraete-Felder.
+# Status-Ereignis des Add-ons, Schema 4: Felder der Anlage und je Kreis ein Eintrag in `kreise` (aufsteigend nach
+# Kreisnummer). Anlage und Kreis haben je eine eigene Feldliste; was nicht benannt ist, uebernimmt der Coordinator nicht.
 STATUS_EVENT = "smartheat_status"
-STATUS_EVENT_SCHEMA = 3
+STATUS_EVENT_SCHEMA = 4
 STATUS_EVENT_FIELDS = (
-    "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-    "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
-    "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise",
+    "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
+    "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise",
 )
+STATUS_KREIS_FIELDS = (
+    "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
+    "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende",
+)
+# Bis die Entities je Kreis kommen, zeigen die heutigen den ersten Kreis.
+ERSTER_KREIS = 1
 # Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen.
 HINWEIS_FIELDS = ("key", "stufe", "text")
 HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = HINWEIS_FIELDS
@@ -72,6 +78,8 @@ NACHWEIS_KOPF_GERAET = "X-SHG-Device"
 NACHWEIS_KOPF_ZEITSTEMPEL = "X-SHG-Timestamp"
 NACHWEIS_KOPF_SIGNATUR = "X-SHG-Signature"
 WUNSCH_EVENT = "smartheat_wunsch"
+# Daten des Wunsch-Ereignisses: schema, kreis (Pflicht, ab 1) und raum_soll; ohne gueltigen Kreis verwirft das Add-on es.
+WUNSCH_EVENT_SCHEMA = 4
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
 # Grenzen der Auswahl im Assistenten: Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER,
 # MAX_BATTERIEN, MAX_HANDYS (V3, Contract-Check 76); mehr lehnt der Server mit 400 ab.

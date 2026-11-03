@@ -1,0 +1,62 @@
+{
+  "addon_version": "0.20.0",
+  "anlage_name": "Zuhause",
+  "datenfehler": null,
+  "geraet_hinweise": [],
+  "geraet_id": "shg-a",
+  "geraet_zustand": "regelt",
+  "grund": null,
+  "hinweise": {
+    "batterie_niedrig": [],
+    "manueller_eingriff": null,
+    "raumfuehler_ausgefallen": []
+  },
+  "kreise": [
+    {
+      "abo": "aktiv",
+      "abo_frist_ende": null,
+      "befunde": [],
+      "boost": "keiner",
+      "einlernphase_tag": null,
+      "gelernt": null,
+      "hebel": {
+        "curve": null,
+        "heat_limit": null,
+        "min_flow": null,
+        "room_setpoint": null
+      },
+      "hebelsatz": "vaillant_vrc720",
+      "kreis": 1,
+      "name": "Wohnung",
+      "raum_ist": null,
+      "raum_soll": null,
+      "testphase_bis": null
+    },
+    {
+      "abo": "aktiv",
+      "abo_frist_ende": null,
+      "befunde": [],
+      "boost": "keiner",
+      "einlernphase_tag": null,
+      "gelernt": null,
+      "hebel": {
+        "curve": null,
+        "heat_limit": null,
+        "min_flow": null,
+        "room_setpoint": null
+      },
+      "hebelsatz": "vaillant_vrc720",
+      "kreis": 2,
+      "name": "Dachboden",
+      "raum_ist": null,
+      "raum_soll": null,
+      "testphase_bis": null
+    }
+  ],
+  "letzte_serverantwort": null,
+  "notbetrieb": false,
+  "schema": 4,
+  "server_verbunden": true,
+  "status": "regelt",
+  "tenant_id": "wohnung1"
+}

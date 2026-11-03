@@ -31,8 +31,9 @@ def _listen(hass) -> list:
 
 
 def _event(**overrides) -> dict:
-    return {"schema": 3, "geraet_id": "shg-a", "tenant_id": "zuhause2", "status": "regelt", "raum_soll": 21.5,
-            "geraet_hinweise": [], **overrides}
+    raum_soll = overrides.pop("raum_soll", 21.5)
+    return {"schema": 4, "geraet_id": "shg-a", "tenant_id": "zuhause2", "status": "regelt",
+            "kreise": [{"kreis": 1, "raum_soll": raum_soll}], "geraet_hinweise": [], **overrides}
 
 
 async def test_entity_follows_the_effective_target(hass):
@@ -53,7 +54,7 @@ async def test_setting_fires_only_the_local_event(hass, aioclient_mock, hass_adm
     await hass.services.async_call("number", "set_value", {
         "entity_id": WUNSCH, "value": 22.5}, blocking=True, context=context)
     await hass.async_block_till_done()
-    assert [e.data for e in events] == [{"raum_soll": 22.5}]
+    assert [e.data for e in events] == [{"schema": 4, "kreis": 1, "raum_soll": 22.5}]
     assert (events[0].context.id, events[0].context.user_id) == (context.id, hass_admin_user.id)
     assert aioclient_mock.call_count == 0
     # Die Anzeige folgt nur dem Status-Ereignis, nicht dem Setzen (siehe test_wert_erscheint_erst_...).
@@ -111,7 +112,7 @@ async def test_an_automation_context_is_passed_on(hass):
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 21}, blocking=True,
                                    context=context)
     await hass.async_block_till_done()
-    assert [e.data for e in events] == [{"raum_soll": 21.0}]
+    assert [e.data for e in events] == [{"schema": 4, "kreis": 1, "raum_soll": 21.0}]
     assert (events[0].context.id, events[0].context.parent_id, events[0].context.user_id) == (
         context.id, "ausloeser", None)
 
@@ -122,7 +123,7 @@ async def test_the_value_is_rounded_to_the_half_degree_step(hass, value, sent):
     events = _listen(hass)
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": value}, blocking=True)
     await hass.async_block_till_done()
-    assert [e.data for e in events] == [{"raum_soll": sent}]
+    assert [e.data for e in events] == [{"schema": 4, "kreis": 1, "raum_soll": sent}]
 
 
 async def test_a_non_finite_value_is_refused_without_an_event(hass):

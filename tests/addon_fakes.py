@@ -7,19 +7,23 @@ from pathlib import Path
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.smartheat.const import DOMAIN
+from custom_components.smartheat.const import DOMAIN, STATUS_KREIS_FIELDS
 
 GERAET_ID = "shg-a"
-STATUS_EREIGNIS_FIXTURE = Path(__file__).parent / "fixtures" / "status_ereignis_v3.json"
+STATUS_EREIGNIS_FIXTURE = Path(__file__).parent / "fixtures" / "status_ereignis_v4.json"
 VAILLANT_HEBEL = ["curve", "room_setpoint", "heat_limit", "min_flow"]
 
 
-def status_event(tenant_id, status, *, grund=None, **overrides) -> dict:
-    """Volles Status-Ereignis Schema 3 (Laufzeit-Teil plus die Geraete-Felder; Geraet GERAET_ID). Grundlage ist das
-    echte Ereignis des Add-ons (Fixture, erzeugt mit `tools/contract_check.py --status-ereignis`); die Parameter und
-    overrides ueberschreiben einzelne Felder."""
+def status_event(tenant_id, status, *, grund=None, kreise=None, **overrides) -> dict:
+    """Volles Status-Ereignis Schema 4 (Anlage plus zwei Kreise; Geraet GERAET_ID). Grundlage ist das echte Ereignis
+    des Add-ons (Fixture, erzeugt mit `tools/contract_check.py --status-ereignis`). Felder eines Kreises in overrides
+    gelten fuer Kreis 1; `kreise` ersetzt die ganze Liste; die uebrigen overrides ueberschreiben Anlagenfelder."""
     event = json.loads(STATUS_EREIGNIS_FIXTURE.read_text())
     event.update({"tenant_id": tenant_id, "status": status, "grund": grund, "geraet_id": GERAET_ID})
+    kreisfelder = {key: overrides.pop(key) for key in list(overrides) if key in STATUS_KREIS_FIELDS}
+    event["kreise"][0].update(kreisfelder)
+    if kreise is not None:
+        event["kreise"] = kreise
     event.update(overrides)
     return event
 

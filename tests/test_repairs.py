@@ -16,7 +16,7 @@ from custom_components.smartheat.const import DOMAIN, ERROR_TEXT_MAX, HINWEIS_KE
 DATA = {"geraet_id": "shg-a", "tenant_id": "zuhause2", "profile_id": "vaillant_gastherme_heizkoerper",
         "lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
         "shift_lever": "room_setpoint"}
-EVENT = {"schema": 3, "geraet_id": "shg-a", "tenant_id": "zuhause2", "status": "regelt", "raum_soll": 21.0,
+EVENT = {"schema": 4, "geraet_id": "shg-a", "tenant_id": "zuhause2", "status": "regelt", "kreise": [{"kreis": 1}],
          "geraet_hinweise": []}
 _COMPONENT = Path(__file__).parents[1] / "custom_components" / "smartheat"
 

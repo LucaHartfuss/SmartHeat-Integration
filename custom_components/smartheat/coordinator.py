@@ -1,5 +1,5 @@
 """Status und zweiter Waechter je Config-Entry. Die Integration laeuft im
-HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte Status-Ereignis (Schema 3) ihres Geraets
+HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte Status-Ereignis (Schema 4) ihres Geraets
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
 meldet, meldet Befunde per persistent_notification (Push an die Handys ist Sache des Add-ons, Nutzer-Entscheidung
@@ -23,6 +23,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from . import repairs
 from .const import (
     ADDON_STATUS_VALUES,
+    ERSTER_KREIS,
     MAX_RESTARTS_PER_WINDOW,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
@@ -30,6 +31,7 @@ from .const import (
     STATUS_EVENT,
     STATUS_EVENT_FIELDS,
     STATUS_EVENT_SCHEMA,
+    STATUS_KREIS_FIELDS,
     STATUS_REAGIERT_NICHT,
     STOPPED_AFTER_CHECKS,
     WATCHDOG_INTERVAL_SECONDS,
@@ -121,6 +123,20 @@ class Watchdog:
         return False
 
 
+def _kreise(liste) -> dict[int, dict] | None:
+    """Die Kreise des Ereignisses nach Nummer; None, wenn die Liste fehlt, ein Eintrag kein Objekt mit gueltiger
+    Nummer (ganze Zahl ab 1, kein bool) ist oder eine Nummer doppelt vorkommt."""
+    if not isinstance(liste, list):
+        return None
+    kreise: dict[int, dict] = {}
+    for eintrag in liste:
+        nummer = eintrag.get("kreis") if isinstance(eintrag, dict) else None
+        if not isinstance(nummer, int) or isinstance(nummer, bool) or nummer < 1 or nummer in kreise:
+            return None
+        kreise[nummer] = {key: eintrag[key] for key in STATUS_KREIS_FIELDS if key in eintrag}
+    return kreise
+
+
 class SmartHeatCoordinator:
     """Letzter Status-Event und Waechter-Befund eines Eintrags; verteilt Aenderungen per
     Dispatcher-Signal an die Entities."""
@@ -130,7 +146,8 @@ class SmartHeatCoordinator:
         self.entry = entry
         self.tenant_id: str = entry.data["tenant_id"]
         self.geraet_id: str = entry.data["geraet_id"]
-        self.data: dict | None = None
+        self.data: dict | None = None  # Felder der Anlage (ohne `kreise`)
+        self.kreise: dict[int, dict] = {}
         self.watchdog_status: str | None = None
         self._watchdog_reason: str | None = None
         self._watchdog = Watchdog(started_at=_now())
@@ -140,6 +157,17 @@ class SmartHeatCoordinator:
     @property
     def signal(self) -> str:
         return signal_update(self.entry.entry_id)
+
+    def kreis(self, nummer: int) -> dict | None:
+        """Die Felder eines Kreises aus dem letzten Ereignis; None, wenn die Anlage ihn nicht meldet."""
+        return self.kreise.get(nummer)
+
+    @property
+    def sicht(self) -> dict | None:
+        """Anlage und erster Kreis in einem Dict: das lesen die Entities, bis sie je Kreis angelegt werden."""
+        if self.data is None:
+            return None
+        return {**self.data, **(self.kreis(ERSTER_KREIS) or {})}
 
     @property
     def status(self) -> str | None:
@@ -171,8 +199,9 @@ class SmartHeatCoordinator:
 
     @callback
     def async_handle_event(self, event: Event) -> None:
-        """Nur Ereignisse des eigenen Geraets (geraet_id) im Schema 3. Vor der Einrichtung ist der Laufzeit-Teil leer
-        (status startet, tenant_id None); den Zustand des Geraets traegt dann geraet_zustand."""
+        """Nur Ereignisse des eigenen Geraets (geraet_id) im Schema 4. Vor der Einrichtung ist der Laufzeit-Teil leer
+        (status startet, tenant_id None, keine Kreise); den Zustand des Geraets traegt dann geraet_zustand. Ein Kreis
+        ohne gueltige Nummer oder eine doppelte Nummer verwirft das ganze Ereignis (Warnung ohne Kreisnamen)."""
         data = event.data
         if data.get("geraet_id") != self.geraet_id:
             return
@@ -181,8 +210,13 @@ class SmartHeatCoordinator:
                 "Status-Event mit unbekanntem schema/status ignoriert: %r/%r", data.get("schema"), data.get("status"),
             )
             return
-        # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS); fehlende bleiben fehlend.
-        self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data}
+        kreise = _kreise(data.get("kreise"))
+        if kreise is None:
+            _LOGGER.warning("Status-Event mit ungueltiger Kreisliste ignoriert")
+            return
+        # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS); fehlende bleiben fehlend.
+        self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data and key != "kreise"}
+        self.kreise = kreise
         self._watchdog.event_received(_now())
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])

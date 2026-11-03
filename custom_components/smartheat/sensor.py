@@ -178,7 +178,7 @@ class EventSensor(SmartHeatEntity, SensorEntity):
         self._attr_suggested_display_precision = event_field.precision
 
     def _apply(self) -> None:
-        data = self.coordinator.data
+        data = self.coordinator.sicht
         # _apply() laeuft laut SmartHeatEntity nur, wenn _has_value() True ist, d.h.
         # self.coordinator.data ist nicht None (siehe entity.py).
         assert data is not None

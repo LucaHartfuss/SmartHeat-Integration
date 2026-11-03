@@ -17,6 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    ERSTER_KREIS,
     HINWEIS_FELD_KEY,
     HINWEIS_SOLL_QUELLE_AUS,
     RAUM_SOLL_MAX,
@@ -25,6 +26,7 @@ from .const import (
     STATUS_ADDON_GESTOPPT,
     STATUS_REAGIERT_NICHT,
     WUNSCH_EVENT,
+    WUNSCH_EVENT_SCHEMA,
 )
 from .entity import SmartHeatEntity
 
@@ -64,7 +66,7 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         super().__init__(coordinator, "number", KEY)
 
     def _apply(self) -> None:
-        self._attr_native_value = _temperature((self.coordinator.data or {}).get("raum_soll"))
+        self._attr_native_value = _temperature((self.coordinator.sicht or {}).get("raum_soll"))
 
     def _restore(self, last: State) -> None:
         try:
@@ -85,4 +87,6 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         raum_soll = _auf_schritt(float(value))
         # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet nur bei
         # einer Aenderung, binnen etwa einer Sekunde), also dem, was das Add-on wirklich anwendet.
-        self.hass.bus.async_fire(WUNSCH_EVENT, {"raum_soll": raum_soll}, context=self._context)
+        self.hass.bus.async_fire(
+            WUNSCH_EVENT, {"schema": WUNSCH_EVENT_SCHEMA, "kreis": ERSTER_KREIS, "raum_soll": raum_soll},
+            context=self._context)
