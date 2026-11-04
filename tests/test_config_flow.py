@@ -117,7 +117,7 @@ async def _bis_raeume(hass):
     assert result["step_id"] == "anlage"
     result = await _configure(hass, result, {"anlage": TENANT})
     assert result["step_id"] == "system"
-    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0",
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"],
                                              "profil": "vaillant_gastherme_heizkoerper"})
     assert result["step_id"] == "raeume"
     return result
@@ -126,7 +126,7 @@ async def _bis_raeume(hass):
 async def _bis_benachrichtigung(hass):
     result = await _bis_raeume(hass)
     result = await _configure(hass, result, {"raumfuehler": ["sensor.wohnzimmer_temperatur"],
-                                             "room_target": "climate.wohnzimmer_thermostat"})
+                                             "room_target": "climate.wohnzimmer_thermostat", "raum_soll": 21.0})
     assert result["step_id"] == "anlagenwerte"
     result = await _configure(hass, result, {
         "curve": "number.zuhause_circuit_0_heating_curve", "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
@@ -138,8 +138,7 @@ async def _bis_benachrichtigung(hass):
 async def _bis_zusammenfassung(hass):
     result = await _bis_benachrichtigung(hass)
     result = await _configure(hass, result, {
-        "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "batterien": ["sensor.wohnzimmer_batterie"],
-        "raum_soll": 21.0})
+        "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "batterien": ["sensor.wohnzimmer_batterie"]})
     assert result["step_id"] == "zusammenfassung"
     return result
 
@@ -176,13 +175,17 @@ async def test_discovery_flow_creates_the_entry(hass, server):
         in server.calls
     anfrage = next(call[1] for call in server.calls if call[0] == "einrichten")
     assert anfrage == {
-        "tenant_id": TENANT, "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper",
-        "hebelsatz": "vaillant_vrc720",
-        "rollen": {"curve": "number.zuhause_circuit_0_heating_curve",
-                   "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
-                   "outdoor_temp": "sensor.zuhause_outdoor_temperature", "room_target": "climate.wohnzimmer_thermostat"},
-        "raumfuehler": ["sensor.wohnzimmer_temperatur"], "batterien": ["sensor.wohnzimmer_batterie"],
-        "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "raum_soll": 21.0}
+        "tenant_id": TENANT, "profil": "vaillant_gastherme_heizkoerper", "hebelsatz": "vaillant_vrc720",
+        "kreise": [{"nummer": 1, "kreis": "mypyllant|e1|SYSTEM|0",
+                    "rollen": {"curve": "number.zuhause_circuit_0_heating_curve",
+                               "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
+                               "outdoor_temp": "sensor.zuhause_outdoor_temperature",
+                               "room_target": "climate.wohnzimmer_thermostat"},
+                    "raeume": [{"name": "Referenzraum", "rolle": "referenz", "soll_quelle": True,
+                                "fuehler": ["sensor.wohnzimmer_temperatur"]}],
+                    "raum_soll": 21.0}],
+        "batterien": ["sensor.wohnzimmer_batterie"], "benachrichtigung": ["notify.mobile_app_handy"],
+        "hinweise_aus": []}
     assert server.calls[-1] == ("abmelden",)
 
 
@@ -536,7 +539,7 @@ async def test_portal_bestaetigung_hat_einen_eigenen_abbruch(hass, server):
     server.fehler["zuordnung"] = PortalBestaetigung("Der Eigentümer muss im Portal bestätigen.", 403)
 
     result = await _configure(hass, await _bis_raeume_vorher(hass), {
-        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "portal_bestaetigung")
     assert server.calls[-1] == ("abmelden",)
@@ -590,8 +593,7 @@ async def test_server_check_errors_return_to_the_step(hass, server):
     server.pruef_ergebnis = {"fehler": {"raumfuehler": "out_of_range"}, "warnungen": {}}
     result = await _bis_benachrichtigung(hass)
 
-    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": [],
-                                             "raum_soll": 21.0})
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
 
     assert result["step_id"] == "raeume" and result["errors"] == {"raumfuehler": "out_of_range"}
 
@@ -621,7 +623,7 @@ async def test_unusable_server_answer_is_an_unexpected_error(hass, server):
     server.fehler["zuordnung"] = InvalidResponse("zuordnung: Antwort ist kein Objekt")
 
     result = await _configure(hass, await _bis_raeume_vorher(hass), {
-        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "unknown")
     assert "description_placeholders" not in result or not result["description_placeholders"]
@@ -908,7 +910,7 @@ async def test_replace_needs_confirmation_and_uses_the_old_mapping(hass, server)
 
     result = await _configure(hass, result, {})
     assert result["step_id"] == "system"
-    await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+    await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert ("zuordnung", "mypyllant|e1|SYSTEM|0", "vaillant_gastherme_heizkoerper", "vaillant_vrc720", TENANT) \
         in server.calls
@@ -918,14 +920,14 @@ async def test_replace_sends_the_replace_flag(hass, server):
     server.geraet_sicht["anlagen"] = [{"tenant_id": TENANT, "aktiv": True, "belegt": True, "ersetzbar": True}]
     result = await _bis_anlage(hass)
     result = await _configure(hass, await _configure(hass, result, {"anlage": TENANT}), {})
-    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0",
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"],
                                              "profil": "vaillant_gastherme_heizkoerper"})
     result = await _configure(hass, result, {"raumfuehler": ["sensor.wohnzimmer_temperatur"],
-                                             "room_target": "climate.wohnzimmer_thermostat"})
+                                             "room_target": "climate.wohnzimmer_thermostat", "raum_soll": 20.0})
     result = await _configure(hass, result, {"curve": "number.zuhause_circuit_0_heating_curve",
                                              "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
                                              "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
-    result = await _configure(hass, result, {"raum_soll": 20.0})
+    result = await _configure(hass, result, {})
     await _configure(hass, result, {})
 
     anfrage = next(call[1] for call in server.calls if call[0] == "einrichten")
@@ -1066,7 +1068,7 @@ async def test_one_integration_and_one_lever_set_skip_their_steps(hass, server):
     result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
     assert result["step_id"] == "system"
 
-    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert result["step_id"] == "raeume"
     assert ("zuordnung", "mypyllant|e1|SYSTEM|0", "vaillant_gastherme_heizkoerper", "vaillant_vrc720", None) \
@@ -1081,8 +1083,8 @@ async def test_several_systems_and_lever_sets_are_offered(hass, server):
 
     result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
     assert result["step_id"] == "system"
-    assert _optionen(result, "kreis") == ["mypyllant|e1|SYSTEM|0", "mypyllant|e1|SYSTEM|1"]
-    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|1", "profil": "vaillant_gastherme_heizkoerper"})
+    assert _optionen(result, "kreise") == ["mypyllant|e1|SYSTEM|0", "mypyllant|e1|SYSTEM|1"]
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|1"], "profil": "vaillant_gastherme_heizkoerper"})
     assert result["step_id"] == "hebelsatz"
     assert _optionen(result, "hebelsatz") == ["vaillant_vrc720", "vaillant_vrc700"]
     assert not any(call[0] == "zuordnung" for call in server.calls)
@@ -1116,9 +1118,9 @@ async def test_server_rejection_aborts_with_its_text_and_logs_out(hass, server, 
 
     if route == "zuordnung":
         result = await _configure(hass, await _bis_raeume_vorher(hass), {
-            "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+            "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
     else:
-        result = await _configure(hass, await _bis_benachrichtigung(hass), {"raum_soll": 21.0})
+        result = await _configure(hass, await _bis_benachrichtigung(hass), {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "abgelehnt")
     assert result["description_placeholders"]["grund"] == error.text
@@ -1136,7 +1138,7 @@ async def test_server_unreachable_aborts(hass, server):
     server.fehler["zuordnung"] = CannotConnect("Der SmartHeat-Dienst ist nicht erreichbar.")
 
     result = await _configure(hass, await _bis_raeume_vorher(hass), {
-        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "cannot_connect")
 
@@ -1145,7 +1147,7 @@ async def test_expired_token_goes_back_to_login(hass, server):
     server.fehler["pruefen"] = TokenUngueltig("", 401)
     result = await _bis_benachrichtigung(hass)
 
-    result = await _configure(hass, result, {"raum_soll": 21.0})
+    result = await _configure(hass, result, {})
 
     assert result["step_id"] == "anmelden" and result["errors"] == {"base": "sitzung_abgelaufen"}
     del server.fehler["pruefen"]
@@ -1160,7 +1162,7 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
                                                                        "kandidaten": []}]}
 
     result = await _configure(hass, await _bis_raeume_vorher(hass), {
-        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
     assert result["description_placeholders"]["rolle"] == "Außentemperatur"
@@ -1175,7 +1177,7 @@ async def test_ohne_raumfuehler_kandidaten_bricht_ab(hass, server, feld, bezeich
     server.zuordnung_antwort = {**ZUORDNUNG, feld: {"kandidaten": [], "vorschlag": None}}
 
     result = await _configure(hass, await _bis_raeume_vorher(hass), {
-        "kreis": "mypyllant|e1|SYSTEM|0", "profil": "vaillant_gastherme_heizkoerper"})
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
     assert result["description_placeholders"] == {"rolle": bezeichnung}
@@ -1208,15 +1210,17 @@ async def test_eine_auswahl_an_der_grenze_wird_angenommen(hass, server, feld):
     _viele_kandidaten(server)
     auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld][:grenze]}
     result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": auswahl["raumfuehler"],
-                                                              "room_target": "climate.wohnzimmer_thermostat"})
+                                                              "room_target": "climate.wohnzimmer_thermostat",
+                                                              "raum_soll": 21.0})
     result = await _configure(hass, result, _ANLAGENWERTE)
 
     result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"], "hinweise_aus": [],
-                                             "batterien": auswahl["batterien"], "raum_soll": 21.0})
+                                             "batterien": auswahl["batterien"]})
 
     assert result["step_id"] == "zusammenfassung" and not result.get("errors")
     anfrage = next(call[1] for call in server.calls if call[0] == "pruefen")
-    assert len(anfrage[feld]) == grenze
+    zaehlt = anfrage["kreise"][0]["raeume"][0]["fuehler"] if feld == "raumfuehler" else anfrage[feld]
+    assert len(zaehlt) == grenze
 
 
 async def test_neun_raumfuehler_markieren_das_feld(hass, server):
@@ -1247,12 +1251,13 @@ async def test_zu_viele_batterien_oder_handys_markieren_das_feld(hass, server, f
     auswahl = {key: werte[:1] for key, werte in _VIELE.items()} | {feld: _VIELE[feld]}
     assert len(auswahl[feld]) == zu_viele
     result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": auswahl["raumfuehler"],
-                                                              "room_target": "climate.wohnzimmer_thermostat"})
+                                                              "room_target": "climate.wohnzimmer_thermostat",
+                                                              "raum_soll": 21.0})
     result = await _configure(hass, result, _ANLAGENWERTE)
     assert result["step_id"] == "benachrichtigung"
 
     result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"], "hinweise_aus": [],
-                                             "batterien": auswahl["batterien"], "raum_soll": 21.0})
+                                             "batterien": auswahl["batterien"]})
 
     assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "benachrichtigung")
     assert result["errors"] == {feld: "zu_viele"}
@@ -1260,8 +1265,7 @@ async def test_zu_viele_batterien_oder_handys_markieren_das_feld(hass, server, f
     # korrigiert (auf die Grenze): weiter zur Zusammenfassung
     grenze = {"batterien": 16, "benachrichtigung": 10}[feld]
     result = await _configure(hass, result, {"benachrichtigung": auswahl["benachrichtigung"][:grenze],
-                                             "hinweise_aus": [], "batterien": auswahl["batterien"][:grenze],
-                                             "raum_soll": 21.0})
+                                             "hinweise_aus": [], "batterien": auswahl["batterien"][:grenze]})
     assert result["step_id"] == "zusammenfassung" and not result.get("errors")
 
 
@@ -1270,11 +1274,12 @@ async def test_die_grenzen_gelten_auch_unmittelbar_vor_der_pruefung(hass, server
     die Pruefung vor `pruefen` schickt in das Formular des Felds zurueck."""
     _viele_kandidaten(server)
     result = await _configure(hass, await _bis_raeume(hass), {"raumfuehler": _VIELE["raumfuehler"][:1],
-                                                              "room_target": "climate.wohnzimmer_thermostat"})
+                                                              "room_target": "climate.wohnzimmer_thermostat",
+                                                              "raum_soll": 21.0})
     result = await _configure(hass, result, _ANLAGENWERTE)
-    hass.config_entries.flow._progress[result["flow_id"]]._eingaben["raumfuehler"] = _VIELE["raumfuehler"]
+    hass.config_entries.flow._progress[result["flow_id"]]._kreise[0]["eingaben"]["raumfuehler"] = _VIELE["raumfuehler"]
 
-    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "raum_soll": 21.0})
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": []})
 
     assert (result["type"], result["step_id"]) == (FlowResultType.FORM, "raeume")
     assert result["errors"] == {"raumfuehler": "zu_viele"}
@@ -1459,19 +1464,20 @@ async def test_reconfigure_changes_the_mapping(hass, server):
 
     result = await _configure(hass, result, {"next_step_id": "zuordnung_aendern"})
     assert result["step_id"] == "system"
-    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0",
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"],
                                              "profil": "vaillant_gastherme_heizkoerper"})
     result = await _configure(hass, result, {"raumfuehler": ["climate.wohnzimmer_thermostat"],
-                                             "room_target": "climate.wohnzimmer_thermostat"})
+                                             "room_target": "climate.wohnzimmer_thermostat", "raum_soll": 20.0})
     result = await _configure(hass, result, {"curve": "number.zuhause_circuit_0_heating_curve",
                                              "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
                                              "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
-    result = await _configure(hass, result, {"raum_soll": 20.0})
+    result = await _configure(hass, result, {})
     result = await _configure(hass, result, {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "reconfigure_successful")
     anfrage = next(call[1] for call in server.calls if call[0] == "neu_konfigurieren")
-    assert "tenant_id" not in anfrage and anfrage["raumfuehler"] == ["climate.wohnzimmer_thermostat"]
+    assert "tenant_id" not in anfrage
+    assert anfrage["kreise"][0]["raeume"][0]["fuehler"] == ["climate.wohnzimmer_thermostat"]
     assert not any(call[0] == "einrichten" for call in server.calls)
     assert entry.data["geraet_id"] == GERAET_ID and entry.data["tenant_id"] == TENANT
     assert server.calls[-1] == ("abmelden",)
@@ -1479,15 +1485,16 @@ async def test_reconfigure_changes_the_mapping(hass, server):
 
 async def test_reconfigure_keeps_phones_hints_and_batteries(hass, server):
     entry = await _eingerichtet(hass, server)
-    server.geraet_sicht["konfiguration"] = {**KONFIGURATION, "bindung": {
-        "benachrichtigung": ["notify.mobile_app_handy", "notify.mobile_app_weg"], "hinweise_aus": ["batterie", "alt"],
-        "batterien": ["sensor.wohnzimmer_batterie", "sensor.weg_batterie"]}}
+    bindung = {"benachrichtigung": ["notify.mobile_app_handy", "notify.mobile_app_weg"],
+               "hinweise_aus": ["batterie", "alt"], "batterien": ["sensor.wohnzimmer_batterie", "sensor.weg_batterie"]}
+    server.geraet_sicht["konfiguration"] = {
+        **KONFIGURATION, "kreise": [{**KONFIGURATION["kreise"][0], "bindung": bindung}]}
     result = await _reconfigure(hass, entry)
     result = await _configure(hass, result, {"next_step_id": "zuordnung_aendern"})
-    result = await _configure(hass, result, {"kreis": "mypyllant|e1|SYSTEM|0",
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"],
                                              "profil": "vaillant_gastherme_heizkoerper"})
     result = await _configure(hass, result, {"raumfuehler": ["sensor.wohnzimmer_temperatur"],
-                                             "room_target": "sensor.wohnzimmer_temperatur"})
+                                             "room_target": "sensor.wohnzimmer_temperatur", "raum_soll": 20.0})
     # nur eine Rolle aendern (Rest bleibt vorbelegt)
     result = await _configure(hass, result, {"curve": "number.zuhause_circuit_0_heating_curve",
                                              "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
@@ -1498,7 +1505,7 @@ async def test_reconfigure_keeps_phones_hints_and_batteries(hass, server):
     assert defaults["hinweise_aus"] == ["batterie"]
     assert defaults["batterien"] == ["sensor.wohnzimmer_batterie"]
 
-    result = await _configure(hass, result, {"raum_soll": 20.0})
+    result = await _configure(hass, result, {})
     result = await _configure(hass, result, {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "reconfigure_successful")
@@ -1593,10 +1600,12 @@ _ERRORS = {
     "sitzung_abgelaufen", "erneut_anmelden", "code_abgelaufen", "required", "wrong_domain", "entity_not_found", "entity_unavailable", "not_numeric",
     "unit_mismatch", "out_of_range", "duplicate_entity", "zone_is_room_target", "entity_wrong_integration",
     "entity_wrong_installation", "room_sensors_required", "wrong_state_class", "unknown_service", "unknown_hint",
-    "zu_viele",
+    "zu_viele", "kreis_nicht_entfernbar", "kreise_anzahl", "nummer_doppelt", "kreis_doppelt", "kreis_1_fehlt",
+    "weg_gemischt", "abo_doppelt", "kreis_belegt", "abo_unbekannt", "abo_nicht_verbindbar", "name", "soll_quelle",
+    "fuehler_zahl", "fuehler_form", "keine_raeume",
 }
 _STEPS = {"bestaetigen", "anmelden", "schon_eingerichtet", "anlage", "ersetzen", "inventur_zeit", "integration",
-          "system", "hebelsatz", "raeume", "anlagenwerte", "benachrichtigung", "zusammenfassung", "menue",
+          "system", "hebelsatz", "abo", "raeume", "anlagenwerte", "benachrichtigung", "zusammenfassung", "menue",
           "geraet_entfernen"}
 
 
@@ -1660,3 +1669,189 @@ def test_translations_have_the_same_keys():
     german = json.loads((_COMPONENT / "translations/de.json").read_text())
 
     assert keys(english) == keys(german)
+
+
+# --- Mehrere Heizkreise ---
+
+
+def _kreis_schluessel(k):
+    return f"mypyllant|e1|SYSTEM|{k}"
+
+
+def _angebot(anzahl, *, nummern=()):
+    """Die erkannten Kreise 0 ... anzahl-1; `nummern`: Nummern schon eingerichteter Kreise (Index = Kreis)."""
+    return [{"schluessel": _kreis_schluessel(k), "label": f"Kreis {k}", "nummer": nummern[k] if k < len(nummern) else None}
+            for k in range(anzahl)]
+
+
+_RAUM_EINGABE = {"raumfuehler": ["sensor.wohnzimmer_temperatur"], "room_target": "climate.wohnzimmer_thermostat",
+                 "raum_soll": 21.0}
+
+
+async def _system(hass, server, angebot, abos=()):
+    server.vorschlag_antwort = {"integrationen": [_integration(kreise=angebot)]}
+    server.geraet_sicht["abos"] = [{"abo_id": abo, "name": f"Abo {abo}"} for abo in abos]
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+    assert result["step_id"] == "system"
+    return result
+
+
+async def _kreis_ausfuellen(hass, result, *, abo=None, raeume=_RAUM_EINGABE):
+    """Ein Kreis: (Abo,) Raeume und Anlagenwerte; liefert das naechste Formular."""
+    if result["step_id"] == "abo":
+        result = await _configure(hass, result, {"abo_id": abo} if abo else {})
+        if abo is None:
+            return result
+    assert result["step_id"] == "raeume"
+    result = await _configure(hass, result, raeume)
+    assert result["step_id"] == "anlagenwerte"
+    return await _configure(hass, result, _ANLAGENWERTE)
+
+
+async def test_zwei_kreise_gehen_mit_abo_raeumen_und_rollen_in_die_anfrage(hass, server):
+    result = await _system(hass, server, _angebot(2), abos=["a1"])
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(0), _kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    assert result["step_id"] == "raeume" and result["description_placeholders"] == {"nummer": "1"}
+    result = await _kreis_ausfuellen(hass, result)
+
+    assert result["step_id"] == "abo" and result["description_placeholders"]["nummer"] == "2"
+    assert _optionen(result, "abo_id") == ["a1"]
+    result = await _configure(hass, result, {"abo_id": "a1"})
+    assert result["step_id"] == "raeume" and result["description_placeholders"] == {"nummer": "2"}
+    result = await _configure(hass, result, {
+        "raum_name": "Obergeschoss", "raumfuehler": ["climate.wohnzimmer_thermostat"],
+        "room_target": "sensor.wohnzimmer_temperatur", "raum_soll": 19.5,
+        "kontroll_name": "Bad", "kontroll_fuehler": ["sensor.wohnzimmer_temperatur"]})
+    result = await _configure(hass, result, _ANLAGENWERTE)
+    assert result["step_id"] == "benachrichtigung"
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+    assert result["step_id"] == "zusammenfassung"
+    result = await _configure(hass, result, {})
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    anfrage = next(call[1] for call in server.calls if call[0] == "einrichten")
+    assert [k["nummer"] for k in anfrage["kreise"]] == [1, 2]
+    assert [k["kreis"] for k in anfrage["kreise"]] == [_kreis_schluessel(0), _kreis_schluessel(1)]
+    assert "abo_id" not in anfrage["kreise"][0] and anfrage["kreise"][1]["abo_id"] == "a1"
+    assert anfrage["kreise"][1]["raum_soll"] == 19.5
+    assert anfrage["kreise"][1]["raeume"] == [
+        {"name": "Obergeschoss", "rolle": "referenz", "soll_quelle": True, "fuehler": ["climate.wohnzimmer_thermostat"]},
+        {"name": "Bad", "rolle": "kontroll", "fuehler": ["sensor.wohnzimmer_temperatur"]}]
+    assert ("zuordnung", _kreis_schluessel(1), "vaillant_gastherme_heizkoerper", "vaillant_vrc720", None) in server.calls
+
+
+async def test_vier_kreise_bekommen_je_ein_eigenes_abo(hass, server):
+    result = await _system(hass, server, _angebot(4), abos=["a1", "a2", "a3"])
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(k) for k in range(4)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _kreis_ausfuellen(hass, result)
+    optionen = []
+    for abo in ("a1", "a2", "a3"):
+        assert result["step_id"] == "abo"
+        optionen.append(_optionen(result, "abo_id"))
+        result = await _kreis_ausfuellen(hass, result, abo=abo)
+
+    assert optionen == [["a1", "a2", "a3"], ["a2", "a3"], ["a3"]]
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+    await _configure(hass, result, {})
+    anfrage = next(call[1] for call in server.calls if call[0] == "einrichten")
+    assert [(k["nummer"], k.get("abo_id")) for k in anfrage["kreise"]] == [(1, None), (2, "a1"), (3, "a2"), (4, "a3")]
+
+
+async def test_mehr_als_vier_kreise_lehnt_der_assistent_ab(hass, server):
+    result = await _system(hass, server, _angebot(5))
+
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(k) for k in range(5)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert result["step_id"] == "system" and result["errors"] == {"kreise": "zu_viele"}
+    assert not any(call[0] in ("zuordnung", "pruefen", "einrichten") for call in server.calls)
+
+
+async def test_ein_kreis_ohne_abo_bleibt_erkannt_und_kommt_nicht_in_die_anfrage(hass, server):
+    result = await _system(hass, server, _angebot(2), abos=[])
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(0), _kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _kreis_ausfuellen(hass, result)
+
+    assert result["step_id"] == "abo" and "abo_id" not in {str(k) for k in result["data_schema"].schema}
+    result = await _configure(hass, result, {})
+    assert result["step_id"] == "benachrichtigung"
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+    await _configure(hass, result, {})
+
+    anfrage = next(call[1] for call in server.calls if call[0] == "einrichten")
+    assert [k["nummer"] for k in anfrage["kreise"]] == [1]
+
+
+async def test_keine_kreise_gewaehlt_zeigt_den_fehler(hass, server):
+    result = await _system(hass, server, _angebot(2))
+
+    result = await _configure(hass, result, {"kreise": [], "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert result["step_id"] == "system" and result["errors"] == {"kreise": "required"}
+
+
+async def test_der_server_lehnt_ein_abo_ab_und_der_assistent_geht_in_den_abo_schritt(hass, server):
+    result = await _system(hass, server, _angebot(2), abos=["a1"])
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(0), _kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _kreis_ausfuellen(hass, result)
+    result = await _kreis_ausfuellen(hass, result, abo="a1")
+    server.pruef_ergebnis = {"fehler": {"k2.abo_id": "abo_unbekannt"}, "warnungen": {}}
+
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+
+    assert result["step_id"] == "abo" and result["errors"] == {"abo_id": "abo_unbekannt"}
+
+
+async def test_der_server_lehnt_die_raeume_eines_weiteren_kreises_ab(hass, server):
+    result = await _system(hass, server, _angebot(2), abos=["a1"])
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(0), _kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _kreis_ausfuellen(hass, result)
+    result = await _kreis_ausfuellen(hass, result, abo="a1")
+    server.pruef_ergebnis = {"fehler": {"k2.raumfuehler": "duplicate_entity"}, "warnungen": {}}
+
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+
+    assert result["step_id"] == "raeume" and result["description_placeholders"] == {"nummer": "2"}
+    assert result["errors"] == {"raumfuehler": "duplicate_entity"}
+
+
+async def test_neu_konfigurieren_nimmt_einen_weiteren_kreis_hinzu(hass, server):
+    entry = await _eingerichtet(hass, server)
+    server.vorschlag_antwort = {"integrationen": [_integration(kreise=_angebot(2, nummern=[1]))]}
+    server.geraet_sicht["abos"] = [{"abo_id": "a1", "name": "Abo a1"}]
+    result = await _reconfigure(hass, entry)
+    result = await _configure(hass, result, {"next_step_id": "zuordnung_aendern"})
+    assert result["step_id"] == "system"
+
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(0), _kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    assert result["step_id"] == "raeume" and result["description_placeholders"] == {"nummer": "1"}
+    result = await _kreis_ausfuellen(hass, result)
+    assert result["step_id"] == "abo"
+    result = await _kreis_ausfuellen(hass, result, abo="a1")
+    result = await _configure(hass, result, {})
+    result = await _configure(hass, result, {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "reconfigure_successful")
+    anfrage = next(call[1] for call in server.calls if call[0] == "neu_konfigurieren")
+    assert "tenant_id" not in anfrage
+    assert [(k["nummer"], k.get("abo_id")) for k in anfrage["kreise"]] == [(1, None), (2, "a1")]
+
+
+async def test_neu_konfigurieren_ohne_einen_vorhandenen_kreis_wird_abgelehnt(hass, server):
+    entry = await _eingerichtet(hass, server)
+    server.vorschlag_antwort = {"integrationen": [_integration(kreise=_angebot(2, nummern=[1, 2]))]}
+    result = await _reconfigure(hass, entry)
+    result = await _configure(hass, result, {"next_step_id": "zuordnung_aendern"})
+
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert result["step_id"] == "system" and result["errors"] == {"kreise": "kreis_nicht_entfernbar"}
+    assert not any(call[0] in ("zuordnung", "neu_konfigurieren") for call in server.calls)
+

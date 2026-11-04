@@ -1,6 +1,7 @@
-"""Coordinator, Entities und zweiter Waechter (Schema 3, Zuordnung ueber die
+"""Coordinator, Entities und zweiter Waechter (Schema 4, Zuordnung ueber die
 Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur per persistent_notification)."""
 import asyncio
+import logging
 from datetime import timedelta
 
 import pytest
@@ -15,7 +16,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
 )
 
-from custom_components.smartheat.const import STATUS_EVENT, WATCHDOG_MESSAGES
+from custom_components.smartheat.const import STATUS_EVENT, STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS, WATCHDOG_MESSAGES
 from custom_components.smartheat.coordinator import Watchdog
 
 from .addon_fakes import make_device_entry, status_event
@@ -240,18 +241,24 @@ async def test_an_event_updates_every_entity(hass, clock):
 
 
 async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, clock):
-    """Der Coordinator filtert das Ereignis auf STATUS_EVENT_FIELDS; ein umbenanntes Feld dort faellt hier
-    auf."""
+    """Der Coordinator filtert Anlage und Kreise auf STATUS_EVENT_FIELDS bzw. STATUS_KREIS_FIELDS; ein umbenanntes
+    Feld dort faellt hier auf. Unbekannte Felder (Anlage wie Kreis) werden ignoriert."""
     entry = await _setup(hass)
     event = status_event(TENANT, "regelt", raum_soll=21.0)
-    _fire(hass, {**event, "fremd": 1})
+    fremd = {**event, "fremd": 1, "kreise": [{**kreis, "fremd": 2} for kreis in event["kreise"]]}
+    _fire(hass, fremd)
     await hass.async_block_till_done()
-    assert entry.runtime_data.data == event
+    coordinator = entry.runtime_data
+    assert coordinator.data == {key: event[key] for key in STATUS_EVENT_FIELDS if key != "kreise"}
+    assert coordinator.kreis(1) == {key: event["kreise"][0][key] for key in STATUS_KREIS_FIELDS}
+    assert coordinator.kreis(2) == {key: event["kreise"][1][key] for key in STATUS_KREIS_FIELDS}
+    assert coordinator.kreis(3) is None
 
 
 @pytest.mark.parametrize("event", [
     status_event(TENANT, "regelt", geraet_id="shg-b"),
     {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"},
+    {**status_event(TENANT, "regelt"), "schema": 3},
     {**status_event(TENANT, "regelt"), "schema": 2},
     {**status_event(TENANT, "regelt"), "schema": 1},
     status_event(TENANT, "bereit"),
@@ -264,17 +271,108 @@ async def test_foreign_or_unknown_events_are_ignored(hass, clock, event):
 
     assert hass.states.get(STATUS).state == "unknown"
     assert entry.runtime_data.data is None
+    assert entry.runtime_data.kreis(1) is None
+
+
+def _ohne(event, feld):
+    return {key: value for key, value in event.items() if key != feld}
+
+
+@pytest.mark.parametrize("kreise", [
+    "fehlt", None, "kaputt", {"kreis": 1}, ["kreis"],
+    [{"name": "Geheim"}], [{"kreis": 0, "name": "Geheim"}], [{"kreis": -1, "name": "Geheim"}],
+    [{"kreis": True, "name": "Geheim"}], [{"kreis": "1", "name": "Geheim"}], [{"kreis": 1.0, "name": "Geheim"}],
+    [{"kreis": None, "name": "Geheim"}],
+    [{"kreis": 1, "name": "Geheim"}, {"kreis": 1, "name": "Geheim"}],
+    [{"kreis": 1, "name": "Geheim"}, {"kreis": 2, "name": "Geheim"}, {"kreis": 1, "name": "Geheim"}],
+    [{"kreis": 1, "name": "Geheim"}, {"name": "Geheim"}],
+])
+async def test_an_event_with_a_bad_circuit_list_is_discarded_whole_without_the_name_in_the_log(
+        hass, clock, caplog, kreise):
+    """Ein Kreis ohne gueltige Nummer (int >= 1) oder doppelt: das ganze Ereignis faellt, der letzte gute Stand
+    bleibt; die Warnung nennt keinen Kreisnamen (Kundendatum)."""
+    entry = await _setup(hass)
+    gut = status_event(TENANT, "regelt", raum_soll=21.0)
+    _fire(hass, gut)
+    await hass.async_block_till_done()
+    schlecht = _ohne(gut, "kreise") if kreise == "fehlt" else {**gut, "kreise": kreise}
+    schlecht["status"] = "notbetrieb"
+
+    with caplog.at_level(logging.WARNING, logger=CO):
+        _fire(hass, schlecht)
+        await hass.async_block_till_done()
+
+    coordinator = entry.runtime_data
+    assert coordinator.data["status"] == "regelt"
+    assert coordinator.kreis(1)["raum_soll"] == 21.0
+    assert [r for r in caplog.records if r.levelno == logging.WARNING and "Kreis" in r.getMessage()]
+    assert "Geheim" not in caplog.text
+
+
+async def test_two_circuits_are_read_apart_and_circuit_2_never_changes_the_entities_of_circuit_1(hass, clock):
+    """Bis die Entities je Kreis kommen, zeigen sie Kreis 1; was Kreis 2 meldet, aendert keine Entity."""
+    entry = await _setup(hass)
+    eins = {"kreis": 1, "name": "Wohnung", "raum_soll": 21.0, "boost": "komfort", "abo": "aktiv"}
+    zwei = {"kreis": 2, "name": "Dachboden", "raum_soll": 17.0, "boost": "keiner", "abo": "aktiv"}
+    basis = status_event(TENANT, "regelt")
+    kreis_eins, kreis_zwei = (({**basis["kreise"][n], **werte}) for n, werte in ((0, eins), (1, zwei)))
+
+    _fire(hass, {**basis, "kreise": [kreis_eins, kreis_zwei]})
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert (coordinator.kreis(1)["raum_soll"], coordinator.kreis(2)["raum_soll"]) == (21.0, 17.0)
+    assert (coordinator.kreis(1)["boost"], coordinator.kreis(2)["boost"]) == ("komfort", "keiner")
+    vorher = {state.entity_id: (state.state, dict(state.attributes)) for state in hass.states.async_all()
+              if state.entity_id.startswith(("sensor.smartheat", "binary_sensor.smartheat", "number.smartheat"))}
+    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "komfort"
+    assert float(hass.states.get("number.smartheat_wohnung1_wunschtemperatur").state) == 21.0
+
+    veraendert = {**kreis_zwei, "raum_soll": 24.0, "boost": "notfall", "abo": "beendet", "name": "Anderer"}
+    _fire(hass, {**basis, "kreise": [kreis_eins, veraendert]})
+    await hass.async_block_till_done()
+
+    assert coordinator.kreis(2)["raum_soll"] == 24.0
+    nachher = {state.entity_id: (state.state, dict(state.attributes)) for state in hass.states.async_all()
+               if state.entity_id.startswith(("sensor.smartheat", "binary_sensor.smartheat", "number.smartheat"))}
+    assert nachher == vorher
+
+
+async def test_one_circuit_ended_and_the_other_active_are_shown_for_circuit_1_only(hass, clock):
+    await _setup(hass)
+    basis = status_event(TENANT, "regelt")
+    beendet, aktiv = {**basis["kreise"][0], "abo": "beendet"}, {**basis["kreise"][1], "abo": "aktiv"}
+
+    _fire(hass, {**basis, "kreise": [beendet, aktiv]})
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.smartheat_wohnung1_abo").state == "beendet"
+
+    _fire(hass, {**basis, "kreise": [aktiv | {"kreis": 1}, beendet | {"kreis": 2}]})
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.smartheat_wohnung1_abo").state == "aktiv"
+
+
+async def test_an_event_without_circuits_yet_leaves_the_circuit_entities_unknown(hass, clock):
+    """Vor der Einrichtung hat die Anlage keinen Kreis: das Ereignis gilt (leere Liste), die Kreis-Entities bleiben
+    ohne Wert."""
+    entry = await _setup(hass)
+
+    _fire(hass, status_event(None, "startet", geraet_zustand="wartet_auf_einrichtung", kreise=[]))
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.kreis(1) is None
+    assert hass.states.get(STATUS).state == "startet"
+    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
 
 
 async def test_event_of_another_device_is_ignored(hass, clock):
-    """Zuordnung ueber die Geraete-ID, nicht den Tenant; nur Schema 3."""
+    """Zuordnung ueber die Geraete-ID, nicht den Tenant; nur Schema 4."""
     entry = await _setup(hass)
     event = status_event(TENANT, "regelt", raum_soll=21.0)
 
     _fire(hass, {**event, "geraet_id": "shg-b", "status": "notbetrieb"})
     await hass.async_block_till_done()
     assert entry.runtime_data.data is None
-    _fire(hass, {**event, "schema": 2})
+    _fire(hass, {**event, "schema": 3})
     await hass.async_block_till_done()
     assert entry.runtime_data.data is None
     _fire(hass, event)
@@ -485,7 +583,7 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clo
         letzte_serverantwort="2026-10-01T12:00:05",  # kein Zeitzonen-Offset: naiv
         hebel=None, gelernt=None,  # fehlende Werte (kein Hebel-Objekt im Event); das echte Ereignis hat immer eines
     )
-    assert event["hebel"] is None and event["gelernt"] is None
+    assert event["kreise"][0]["hebel"] is None and event["kreise"][0]["gelernt"] is None
 
     _fire(hass, event)
     await hass.async_block_till_done()

@@ -12,14 +12,20 @@ ERROR_TEXT_MAX = 300
 FEHLER_BODY_MAX_BYTES = 65536
 FEHLER_WERT_MAX = 200
 
-# Status-Ereignis des Add-ons: Schema 2 der Laufzeit plus Geraete-Felder.
+# Status-Ereignis des Add-ons, Schema 4: Felder der Anlage und je Kreis ein Eintrag in `kreise` (aufsteigend nach
+# Kreisnummer). Anlage und Kreis haben je eine eigene Feldliste; was nicht benannt ist, uebernimmt der Coordinator nicht.
 STATUS_EVENT = "smartheat_status"
-STATUS_EVENT_SCHEMA = 3
+STATUS_EVENT_SCHEMA = 4
 STATUS_EVENT_FIELDS = (
-    "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-    "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise",
-    "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise",
+    "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
+    "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise",
 )
+STATUS_KREIS_FIELDS = (
+    "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
+    "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende",
+)
+# Bis die Entities je Kreis kommen, zeigen die heutigen den ersten Kreis.
+ERSTER_KREIS = 1
 # Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen.
 HINWEIS_FIELDS = ("key", "stufe", "text")
 HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = HINWEIS_FIELDS
@@ -72,12 +78,16 @@ NACHWEIS_KOPF_GERAET = "X-SHG-Device"
 NACHWEIS_KOPF_ZEITSTEMPEL = "X-SHG-Timestamp"
 NACHWEIS_KOPF_SIGNATUR = "X-SHG-Signature"
 WUNSCH_EVENT = "smartheat_wunsch"
+# Daten des Wunsch-Ereignisses: schema, kreis (Pflicht, ab 1) und raum_soll; ohne gueltigen Kreis verwirft das Add-on es.
+WUNSCH_EVENT_SCHEMA = 4
 RAUM_SOLL_MIN, RAUM_SOLL_MAX, RAUM_SOLL_STEP = 15.0, 25.0, 0.5
 # Grenzen der Auswahl im Assistenten: Kopie von heizungsserver einrichtung/ha.py MAX_RAUMFUEHLER,
 # MAX_BATTERIEN, MAX_HANDYS (V3, Contract-Check 76); mehr lehnt der Server mit 400 ab.
 EINRICHTUNG_MAX_RAUMFUEHLER = 8
 EINRICHTUNG_MAX_BATTERIEN = 16
 EINRICHTUNG_MAX_HANDYS = 10
+# Kopie von device_protocol.KREISE_MAX (Heizkreise je Geraet; Contract-Check 76).
+EINRICHTUNG_MAX_KREISE = 4
 
 # Einrichtungs-API (Server einrichtung/api.py ROUTEN).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"
@@ -108,12 +118,12 @@ EINRICHTUNG_ANFRAGE_FELDER: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] =
     "inventur": ((), ()),
     "vorschlag": ((), ()),
     "zuordnung": (("kreis", "profil", "hebelsatz"), ("tenant_id",)),
-    "pruefen": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler"),
-                ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll", "tenant_id", "ersetzen")),
-    "einrichten": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "tenant_id", "raum_soll"),
+    "pruefen": (("profil", "hebelsatz", "kreise"),
+                ("batterien", "benachrichtigung", "hinweise_aus", "tenant_id", "ersetzen")),
+    "einrichten": (("profil", "hebelsatz", "kreise", "tenant_id"),
                    ("batterien", "benachrichtigung", "hinweise_aus", "ersetzen")),
-    "neu_konfigurieren": (("kreis", "profil", "hebelsatz", "rollen", "raumfuehler"),
-                          ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")),
+    "neu_konfigurieren": (("profil", "hebelsatz", "kreise"),
+                          ("batterien", "benachrichtigung", "hinweise_aus")),
     "entfernen": ((), ()),
     "auftrag": ((), ()),
 }
@@ -123,7 +133,7 @@ EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
     "abmelden": (),
     "uebernehmen": ("device_id",),
     "geraet": ("device_id", "host", "eingerichtet", "tenant_id", "anlagen", "inventur", "auftrag", "soll_bereich",
-               "konfiguration", "raum_soll"),
+               "abos", "konfiguration", "raum_soll"),
     "inventur": ("command_id",),
     "vorschlag": ("integrationen",),
     "zuordnung": ("kreis", "profil", "hebelsatz", "rollen", "raumfuehler", "room_target", "batterie_je_entity",
@@ -136,18 +146,23 @@ EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
 }
 EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER = ("rolle", "pflicht", "vorschlag", "herkunft", "kandidaten")
 EINRICHTUNG_RAUMFUEHLER_FELDER = ("kandidaten", "vorschlag")
-EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "label", "hinweis", "kreise", "profile", "vorschlag")
+EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "weg", "label", "hinweis", "kreise", "profile", "vorschlag")
 # Verschachtelte Objekte eines Integrationseintrags der Antwort `vorschlag` (kreise, profile, hebelsaetze, vorschlag).
-EINRICHTUNG_VORSCHLAG_KREIS_FELDER = ("schluessel", "label")
+EINRICHTUNG_VORSCHLAG_KREIS_FELDER = ("schluessel", "label", "nummer")
 EINRICHTUNG_VORSCHLAG_PROFIL_FELDER = ("profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
                                        "hebelsaetze")
 EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER = ("id", "hebel")
-EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreis", "profil")
+EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER = ("kreise", "profil")
 # Verschachtelte Objekte der Antwort `geraet`, die der Assistent liest (Eintrag von `anlagen`, `inventur`, Zusatzfelder
 # der `konfiguration`).
 EINRICHTUNG_GERAET_ANLAGE_FELDER = ("tenant_id", "aktiv", "belegt", "ersetzbar")
 EINRICHTUNG_GERAET_INVENTUR_FELDER = ("zustand", "command_id", "zeit", "fehler")
-EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever")
+EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ = ("hebel", "shift_lever", "kreise")
+EINRICHTUNG_GERAET_KREIS_FELDER = ("nummer", "bindung", "raumfuehler", "raum_soll")
+EINRICHTUNG_GERAET_ABO_FELDER = ("abo_id", "name")
+# Aufbau der Kreise und Raeume der Anfragen `pruefen`, `einrichten`, `neu_konfigurieren` (Pflicht, optional).
+EINRICHTUNG_ANFRAGE_KREIS_FELDER = (("nummer", "kreis", "rollen", "raeume"), ("raum_soll", "abo_id"))
+EINRICHTUNG_ANFRAGE_RAUM_FELDER = (("name", "rolle", "fuehler"), ("soll_quelle", "versatz_k", "ziel_fest"))
 # Zustaende der Route `geraetecode_token` (Antwort `zustand`) und die Zustaende, die jede Route als Antwort tragen kann.
 GERAETECODE_ZUSTAND_WARTET = "wartet"
 GERAETECODE_ZUSTAND_BESTAETIGT = "bestaetigt"

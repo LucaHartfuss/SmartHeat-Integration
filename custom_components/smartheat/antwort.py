@@ -13,7 +13,9 @@ VERSCHACHTELT: dict[str, tuple[tuple[str, ...], ...]] = {
                   ("integrationen", "*", "vorschlag", "VORSCHLAG_AUSWAHL_FELDER")),
     "zuordnung": (("rollen", "*", "ZUORDNUNG_ROLLE_FELDER"), ("raumfuehler", "RAUMFUEHLER_FELDER"),
                   ("room_target", "RAUMFUEHLER_FELDER")),
-    "geraet": (("anlagen", "*", "GERAET_ANLAGE_FELDER"), ("inventur", "GERAET_INVENTUR_FELDER")),
+    "geraet": (("anlagen", "*", "GERAET_ANLAGE_FELDER"), ("inventur", "GERAET_INVENTUR_FELDER"),
+               ("abos", "*", "GERAET_ABO_FELDER"),
+               ("konfiguration", "kreise", "*", "GERAET_KREIS_FELDER")),
 }
 
 

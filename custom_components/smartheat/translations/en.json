@@ -33,19 +33,31 @@
       "system": {
         "title": "Heating",
         "description": "{integration}\n\n{hinweis}",
-        "data": {"kreis": "Heating circuit", "profil": "Installation profile"}
+        "data": {"kreise": "Heating circuits (one to four)", "profil": "Installation profile"}
       },
       "hebelsatz": {
         "title": "Control",
         "data": {"hebelsatz": "Control"}
       },
+      "abo": {
+        "title": "Subscription for heating circuit {nummer}",
+        "description": "Choose the subscription that carries heating circuit {nummer}. Without a choice the circuit stays detected and is not set up. {abos}",
+        "data": {"abo_id": "Subscription"}
+      },
       "raeume": {
-        "title": "Room",
-        "description": "Room sensors and the desired temperature entity (e.g. the thermostat in the living room).",
-        "data": {"raumfuehler": "Room sensors", "room_target": "Desired temperature entity"}
+        "title": "Heating circuit {nummer}: room",
+        "description": "Name of the room, its room sensors and the desired temperature entity (e.g. the thermostat in the living room) of heating circuit {nummer}. A second room only measures.",
+        "data": {
+          "raum_name": "Room name",
+          "raumfuehler": "Room sensors",
+          "room_target": "Desired temperature entity",
+          "raum_soll": "Desired temperature",
+          "kontroll_name": "Second room: name (optional)",
+          "kontroll_fuehler": "Second room: sensors (optional)"
+        }
       },
       "anlagenwerte": {
-        "title": "Heating values",
+        "title": "Heating circuit {nummer}: values",
         "description": "Prefilled from the heating integration; please check.",
         "data": {
           "curve": "Heating curve",
@@ -76,12 +88,11 @@
         }
       },
       "benachrichtigung": {
-        "title": "Notifications and desired temperature",
+        "title": "Notifications",
         "data": {
           "benachrichtigung": "Phones",
           "hinweise_aus": "Notes without push",
-          "batterien": "Batteries",
-          "raum_soll": "Desired temperature"
+          "batterien": "Batteries"
         }
       },
       "zusammenfassung": {"title": "Summary", "description": "Installation {anlage}. Notes:\n{warnungen}\n\nSet up now?"},
@@ -128,7 +139,22 @@
       "wrong_state_class": "Wrong kind of measurement.",
       "unknown_service": "Unknown phone.",
       "unknown_hint": "Unknown note.",
-      "zu_viele": "Too many selected."
+      "zu_viele": "Too many selected.",
+      "kreis_nicht_entfernbar": "A heating circuit that is already set up cannot be removed here.",
+      "kreise_anzahl": "Select one to four heating circuits.",
+      "nummer_doppelt": "A heating circuit number was used twice.",
+      "kreis_doppelt": "A heating circuit was selected twice.",
+      "kreis_1_fehlt": "Heating circuit 1 is required.",
+      "weg_gemischt": "All heating circuits must come from the same heating integration.",
+      "abo_doppelt": "This subscription is already used for another heating circuit.",
+      "kreis_belegt": "This heating circuit already has a subscription.",
+      "abo_unbekannt": "This subscription is not available.",
+      "abo_nicht_verbindbar": "The subscription could not be connected to the heating circuit.",
+      "name": "Please give the room a name (up to 40 characters).",
+      "soll_quelle": "Exactly one room must provide the desired temperature.",
+      "fuehler_zahl": "Select one to eight room sensors per heating circuit.",
+      "fuehler_form": "A room sensor entry is invalid.",
+      "keine_raeume": "At least one room is required."
     },
     "abort": {
       "kein_supervisor": "SmartHeat needs Home Assistant with add-ons (Supervisor).",

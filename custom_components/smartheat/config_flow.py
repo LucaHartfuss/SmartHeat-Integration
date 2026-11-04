@@ -49,11 +49,14 @@ from .const import (
     DISCOVERY_WAIT_SECONDS,
     DOMAIN,
     EINRICHTUNG_ANTWORT_FELDER,
+    EINRICHTUNG_GERAET_ABO_FELDER,
     EINRICHTUNG_GERAET_ANLAGE_FELDER,
     EINRICHTUNG_GERAET_INVENTUR_FELDER,
     EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ,
+    EINRICHTUNG_GERAET_KREIS_FELDER,
     EINRICHTUNG_MAX_BATTERIEN,
     EINRICHTUNG_MAX_HANDYS,
+    EINRICHTUNG_MAX_KREISE,
     EINRICHTUNG_MAX_RAUMFUEHLER,
     EINRICHTUNG_RAUMFUEHLER_FELDER,
     EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER,
@@ -100,10 +103,18 @@ _LOGGER = logging.getLogger(__name__)
 # Abbruchgruende von async_bootstrap_url, die schon vor dem Installieren der Heizungsbruecke gelten
 _VOR_DER_INSTALLATION = frozenset({"repository_mehrdeutig", "fremde_heizungsbruecke"})
 _RAEUME = ("raumfuehler", "room_target")
-_BENACHRICHTIGUNG = ("batterien", "benachrichtigung", "hinweise_aus", "raum_soll")
+# Felder des Schritts `raeume` und die der ganzen Anlage (Schritt `benachrichtigung`)
+_KREIS_FELDER = ("raum_name", "raumfuehler", "room_target", "raum_soll", "kontroll_name", "kontroll_fuehler")
+_ANLAGENWEIT = ("batterien", "benachrichtigung", "hinweise_aus")
 # Obergrenzen der Auswahl je Feld (der Server lehnt mehr ab)
-_MAXIMUM = {"raumfuehler": EINRICHTUNG_MAX_RAUMFUEHLER, "batterien": EINRICHTUNG_MAX_BATTERIEN,
-            "benachrichtigung": EINRICHTUNG_MAX_HANDYS}
+_MAXIMUM = {"batterien": EINRICHTUNG_MAX_BATTERIEN, "benachrichtigung": EINRICHTUNG_MAX_HANDYS}
+
+
+def _fk(nummer: int, feld: str) -> str:
+    """Fehlerschluessel des Servers: Kreis 1 mit dem Feldnamen, ein weiterer Kreis mit `k<Nummer>.` davor."""
+    return feld if nummer == 1 else f"k{nummer}.{feld}"
+
+
 _INVENTUR_FERTIG = "fertig"
 _INVENTUR_FEHLGESCHLAGEN = "fehlgeschlagen"
 # Pin: je Objekt der Einrichtungs-Antworten die Literale, die dieser Assistent liest, gegen die
@@ -112,7 +123,7 @@ _INVENTUR_FEHLGESCHLAGEN = "fehlgeschlagen"
 # zu dessen eigenem Vertrag und stehen hier nicht.
 _VERTRAG_GEPINNT = {
     "ANTWORT_FELDER[geraet]": (EINRICHTUNG_ANTWORT_FELDER["geraet"],
-                               ("eingerichtet", "tenant_id", "anlagen", "inventur", "konfiguration")),
+                               ("eingerichtet", "tenant_id", "anlagen", "abos", "inventur", "konfiguration")),
     "ANTWORT_FELDER[vorschlag]": (EINRICHTUNG_ANTWORT_FELDER["vorschlag"], ("integrationen",)),
     "ANTWORT_FELDER[zuordnung]": (EINRICHTUNG_ANTWORT_FELDER["zuordnung"],
                                   ("rollen", "raumfuehler", "room_target", "batterie_je_entity", "benachrichtigung",
@@ -121,14 +132,16 @@ _VERTRAG_GEPINNT = {
     "ANTWORT_FELDER[entfernen]": (EINRICHTUNG_ANTWORT_FELDER["entfernen"], ("freigegeben", "job_id")),
     "ANTWORT_FELDER[auftrag]": (EINRICHTUNG_ANTWORT_FELDER["auftrag"], ("zustand", "fehler")),
     "GERAET_ANLAGE_FELDER": (EINRICHTUNG_GERAET_ANLAGE_FELDER, ("tenant_id", "aktiv", "belegt", "ersetzbar")),
+    "GERAET_ABO_FELDER": (EINRICHTUNG_GERAET_ABO_FELDER, ("abo_id", "name")),
+    "GERAET_KREIS_FELDER": (EINRICHTUNG_GERAET_KREIS_FELDER, ("nummer", "bindung")),
     "GERAET_INVENTUR_FELDER": (EINRICHTUNG_GERAET_INVENTUR_FELDER, ("zustand", "fehler")),
-    "GERAET_KONFIGURATION_ZUSATZ": (EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ, ("hebel", "shift_lever")),
+    "GERAET_KONFIGURATION_ZUSATZ": (EINRICHTUNG_GERAET_KONFIGURATION_ZUSATZ, ("hebel", "shift_lever", "kreise")),
     "VORSCHLAG_INTEGRATION_FELDER": (EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER,
                                      ("plattform", "label", "hinweis", "kreise", "profile", "vorschlag")),
-    "VORSCHLAG_KREIS_FELDER": (EINRICHTUNG_VORSCHLAG_KREIS_FELDER, ("schluessel", "label")),
+    "VORSCHLAG_KREIS_FELDER": (EINRICHTUNG_VORSCHLAG_KREIS_FELDER, ("schluessel", "label", "nummer")),
     "VORSCHLAG_PROFIL_FELDER": (EINRICHTUNG_VORSCHLAG_PROFIL_FELDER, ("profile_id", "label", "hebelsaetze")),
     "VORSCHLAG_HEBELSATZ_FELDER": (EINRICHTUNG_VORSCHLAG_HEBELSATZ_FELDER, ("id",)),
-    "VORSCHLAG_AUSWAHL_FELDER": (EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER, ("kreis", "profil")),
+    "VORSCHLAG_AUSWAHL_FELDER": (EINRICHTUNG_VORSCHLAG_AUSWAHL_FELDER, ("kreise", "profil")),
     "ZUORDNUNG_ROLLE_FELDER": (EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER, ("rolle", "pflicht", "vorschlag", "kandidaten")),
     "RAUMFUEHLER_FELDER": (EINRICHTUNG_RAUMFUEHLER_FELDER, ("kandidaten", "vorschlag")),
 }
@@ -211,7 +224,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         self._vorschlag: dict = {}
         self._integration: dict = {}
         self._auswahl: dict = {}
-        self._zuordnung: dict = {}
+        self._kreise: list[dict] = []
+        self._index = 0
         self._eingaben: dict = {}
         self._tenant: str | None = None
         self._code: dict | None = None
@@ -625,26 +639,55 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     async def async_step_system(self, user_input: dict | None = None) -> ConfigFlowResult:
         integration = self._integration
-        kreise = [k for k in integration.get("kreise") or [] if isinstance(k, dict)]
+        angebot = [k for k in integration.get("kreise") or [] if isinstance(k, dict)]
         profile = [p for p in integration.get("profile") or [] if isinstance(p, dict) and p.get("hebelsaetze")]
-        if not kreise or not profile:
+        if not angebot or not profile:
             return await self._abbrechen("nicht_unterstuetzt", integration=_text(integration.get("label")))
         if user_input is not None:
-            profil = next(p for p in profile if p["profile_id"] == user_input["profil"])
-            self._auswahl = {"kreis": user_input["kreis"], "profil": profil["profile_id"]}
-            hebelsaetze = profil["hebelsaetze"]
-            if len(hebelsaetze) == 1:
-                return await self.async_step_hebelsatz({"hebelsatz": hebelsaetze[0]["id"]})
-            return await self.async_step_hebelsatz()
+            gewaehlt = list(user_input.get("kreise") or [])
+            fehler = self._wahl_fehler(gewaehlt, angebot)
+            self._fehler = {key: value for key, value in self._fehler.items() if key != "kreise"} | fehler
+            if not fehler:
+                profil = next(p for p in profile if p["profile_id"] == user_input["profil"])
+                self._auswahl = {"profil": profil["profile_id"]}
+                self._kreise = self._nummerieren(gewaehlt, angebot)
+                hebelsaetze = profil["hebelsaetze"]
+                if len(hebelsaetze) == 1:
+                    return await self.async_step_hebelsatz({"hebelsatz": hebelsaetze[0]["id"]})
+                return await self.async_step_hebelsatz()
         vorschlag = integration.get("vorschlag") or {}
+        bisher = [k["schluessel"] for k in self._kreise]
         schema = vol.Schema({
-            _vorbelegt("kreis", self._auswahl.get("kreis") or vorschlag.get("kreis")): _auswahl(
-                [{"value": k["schluessel"], "label": _text(k.get("label"))} for k in kreise]),
+            _vorbelegt("kreise", bisher or vorschlag.get("kreise")): _auswahl(
+                [{"value": k["schluessel"], "label": _text(k.get("label"))} for k in angebot], multiple=True),
             _vorbelegt("profil", self._auswahl.get("profil") or vorschlag.get("profil")): _auswahl(
                 [{"value": p["profile_id"], "label": _text(p.get("label"))} for p in profile]),
         })
-        return self.async_show_form(step_id="system", data_schema=schema, description_placeholders={
-            "integration": _text(integration.get("label")), "hinweis": integration.get("hinweis") or ""})
+        return self.async_show_form(step_id="system", data_schema=schema, errors=self._fehler_fuer(("kreise",)),
+                                    description_placeholders={"integration": _text(integration.get("label")),
+                                                              "hinweis": integration.get("hinweis") or ""})
+
+    def _wahl_fehler(self, gewaehlt: list, angebot: list[dict]) -> dict[str, str]:
+        """Fehler der Auswahl der Heizkreise: keiner, zu viele, oder ein schon eingerichteter Kreis fehlt (er laesst
+        sich hier nicht herausnehmen)."""
+        if not gewaehlt:
+            return {"kreise": "required"}
+        if len(gewaehlt) > EINRICHTUNG_MAX_KREISE:
+            return {"kreise": "zu_viele"}
+        if any(isinstance(k.get("nummer"), int) and k.get("schluessel") not in gewaehlt for k in angebot):
+            return {"kreise": "kreis_nicht_entfernbar"}
+        return {}
+
+    @staticmethod
+    def _nummerieren(gewaehlt: list, angebot: list[dict]) -> list[dict]:
+        """Die gewaehlten Kreise mit Nummern: ein eingerichteter behaelt seine, neue bekommen die kleinsten freien."""
+        fest = {k["schluessel"]: k["nummer"] for k in angebot if isinstance(k.get("nummer"), int)}
+        frei = iter(n for n in range(1, EINRICHTUNG_MAX_KREISE + 1) if n not in fest.values())
+        kreise = [{"nummer": fest.get(k["schluessel"]) or next(frei), "schluessel": k["schluessel"],
+                   "fest": k["schluessel"] in fest, "zuordnung": {}, "eingaben": {}, "abo_id": None,
+                   "ausgelassen": False}
+                  for k in angebot if k["schluessel"] in gewaehlt]
+        return sorted(kreise, key=lambda k: k["nummer"])
 
     async def async_step_hebelsatz(self, user_input: dict | None = None) -> ConfigFlowResult:
         assert self._client is not None
@@ -653,97 +696,177 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return self.async_show_form(step_id="hebelsatz", data_schema=vol.Schema({vol.Required("hebelsatz"): _auswahl(
                 [h["id"] for h in profil["hebelsaetze"]], translation_key="lever_set")}))
         self._auswahl["hebelsatz"] = user_input["hebelsatz"]
-        try:
-            # Beim Ersetzen schlaegt der Server die Zuordnung des alten Geraets vor.
-            self._zuordnung = await self._api(
-                self._client.zuordnung, self._auswahl["kreis"], self._auswahl["profil"], self._auswahl["hebelsatz"],
-                tenant_id=self._tenant if self._ersetzen else None)
-        except _Unterbrechung as unterbrechung:
-            return await self._unterbrechung(unterbrechung)
-        for rolle in self._zuordnung.get("rollen") or []:
-            if rolle.get("pflicht") and not rolle.get("kandidaten"):
-                bezeichnung = await async_role_label(self.hass, _text(rolle.get("rolle")))
-                return await self._abbrechen("rolle_ohne_kandidaten", rolle=bezeichnung)
-        # Raumfuehler und Raum-Soll sind Pflichtfelder des Schritts `raeume`: ohne Kandidaten gabe es nur einen leeren
-        # Selektor, den niemand ausfuellen kann.
-        for feld in _RAEUME:
-            if not (self._zuordnung.get(feld) or {}).get("kandidaten"):
-                return await self._abbrechen("rolle_ohne_kandidaten",
-                                             rolle=await async_role_label(self.hass, feld, schritt="raeume"))
+        for kreis in self._kreise:
+            try:
+                # Beim Ersetzen schlaegt der Server die Zuordnung des alten Geraets vor.
+                kreis["zuordnung"] = await self._api(
+                    self._client.zuordnung, kreis["schluessel"], self._auswahl["profil"], self._auswahl["hebelsatz"],
+                    tenant_id=self._tenant if self._ersetzen else None)
+            except _Unterbrechung as unterbrechung:
+                return await self._unterbrechung(unterbrechung)
+            for rolle in kreis["zuordnung"].get("rollen") or []:
+                if rolle.get("pflicht") and not rolle.get("kandidaten"):
+                    bezeichnung = await async_role_label(self.hass, _text(rolle.get("rolle")))
+                    return await self._abbrechen("rolle_ohne_kandidaten", rolle=bezeichnung)
+            # Raumfuehler und Raum-Soll sind Pflichtfelder des Schritts `raeume`: ohne Kandidaten gabe es nur einen
+            # leeren Selektor, den niemand ausfuellen kann.
+            for feld in _RAEUME:
+                if not (kreis["zuordnung"].get(feld) or {}).get("kandidaten"):
+                    return await self._abbrechen("rolle_ohne_kandidaten",
+                                                 rolle=await async_role_label(self.hass, feld, schritt="raeume"))
+        return await self._kreis_beginnen(0)
+
+    # --- Je Heizkreis: Abo, Raeume, Anlagenwerte ---
+
+    def _aktuell(self) -> dict:
+        return self._kreise[self._index]
+
+    def _dabei(self) -> list[dict]:
+        """Die Kreise, die in die Anfrage kommen (ein neuer weiterer Kreis ohne Abo bleibt erkannt)."""
+        return [k for k in self._kreise if not k["ausgelassen"]]
+
+    def _platzhalter(self) -> dict[str, str]:
+        return {"nummer": str(self._aktuell()["nummer"])}
+
+    async def _kreis_beginnen(self, index: int) -> ConfigFlowResult:
+        """Naechster Kreis: ein neuer weiterer Kreis zuerst mit dem Abo, jeder andere mit den Raeumen."""
+        self._index = index
+        if index >= len(self._kreise):
+            return await self.async_step_benachrichtigung()
+        kreis = self._aktuell()
+        if kreis["nummer"] >= 2 and not kreis["fest"]:
+            return await self.async_step_abo()
         return await self.async_step_raeume()
 
-    # --- Zuordnung ---
+    def _freie_abos(self) -> list[dict]:
+        """Abos des Kontos, die noch an keinem Kreis dieses Ablaufs gewaehlt sind (oder am aktuellen)."""
+        vergeben = {k["abo_id"] for k in self._kreise if k["abo_id"] and k is not self._aktuell()}
+        return [a for a in self._geraet.get("abos") or []
+                if isinstance(a, dict) and isinstance(a.get("abo_id"), str) and a["abo_id"] not in vergeben]
+
+    async def async_step_abo(self, user_input: dict | None = None) -> ConfigFlowResult:
+        kreis = self._aktuell()
+        abos = self._freie_abos()
+        if user_input is not None:
+            kreis["abo_id"] = user_input.get("abo_id") or None
+            kreis["ausgelassen"] = kreis["abo_id"] is None
+            self._fehler = {k: v for k, v in self._fehler.items() if k != _fk(kreis["nummer"], "abo_id")}
+            if kreis["ausgelassen"]:
+                return await self._kreis_beginnen(self._index + 1)
+            return await self.async_step_raeume()
+        felder: dict = {}
+        if abos:
+            felder[_vorbelegt("abo_id", kreis["abo_id"], required=False)] = _auswahl(
+                [{"value": a["abo_id"], "label": _text(a.get("name"))} for a in abos])
+        return self.async_show_form(step_id="abo", data_schema=vol.Schema(felder), description_placeholders={
+            **self._platzhalter(), "abos": "" if abos else "-"}, errors=self._fehler_kreis(("abo_id",)))
 
     async def async_step_raeume(self, user_input: dict | None = None) -> ConfigFlowResult:
-        z = self._zuordnung
+        kreis = self._aktuell()
+        z, e = kreis["zuordnung"], kreis["eingaben"]
         if user_input is not None:
-            self._eingaben.update({key: user_input[key] for key in _RAEUME if key in user_input})
-            if self._grenzen_verletzt(("raumfuehler",)):
+            e.update({key: user_input.get(key) for key in _KREIS_FELDER})
+            if self._raeume_fehler():
                 return await self.async_step_raeume()
             return await self.async_step_anlagenwerte()
+        standard = "Referenzraum" if kreis["nummer"] == 1 else f"Raum {kreis['nummer']}"
         schema = vol.Schema({
-            _vorbelegt("raumfuehler", self._eingaben.get("raumfuehler") or z["raumfuehler"]["vorschlag"]): _entities(
+            vol.Required("raum_name", default=e.get("raum_name") or standard): selector.TextSelector(),
+            _vorbelegt("raumfuehler", e.get("raumfuehler") or z["raumfuehler"]["vorschlag"]): _entities(
                 z["raumfuehler"]["kandidaten"], multiple=True),
-            _vorbelegt("room_target", self._eingaben.get("room_target") or z["room_target"]["vorschlag"]): _entities(
+            _vorbelegt("room_target", e.get("room_target") or z["room_target"]["vorschlag"]): _entities(
                 z["room_target"]["kandidaten"]),
+            _vorbelegt("raum_soll", e.get("raum_soll") or z.get("raum_soll")): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=RAUM_SOLL_MIN, max=RAUM_SOLL_MAX, step=RAUM_SOLL_STEP,
+                                              unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX)),
+            _vorbelegt("kontroll_name", e.get("kontroll_name"), required=False): selector.TextSelector(),
+            _vorbelegt("kontroll_fuehler", e.get("kontroll_fuehler") or [], required=False): _entities(
+                z["raumfuehler"]["kandidaten"], multiple=True),
         })
-        return self.async_show_form(step_id="raeume", data_schema=schema, errors=self._fehler_fuer(_RAEUME))
+        return self.async_show_form(step_id="raeume", data_schema=schema, description_placeholders=self._platzhalter(),
+                                    errors=self._fehler_kreis(_KREIS_FELDER))
 
-    def _rollen(self) -> list[dict]:
+    def _raeume_fehler(self) -> bool:
+        """Prueft die Raeume des aktuellen Kreises; setzt die Feldfehler (alte Fehler der Felder entfallen)."""
+        kreis = self._aktuell()
+        e, nummer = kreis["eingaben"], kreis["nummer"]
+        neu: dict[str, str] = {}
+        fuehler = [*(e.get("raumfuehler") or []), *(e.get("kontroll_fuehler") or [])]
+        if len(fuehler) > EINRICHTUNG_MAX_RAUMFUEHLER:
+            neu["raumfuehler"] = "zu_viele"
+        if e.get("kontroll_fuehler") and not e.get("kontroll_name"):
+            neu["kontroll_name"] = "required"
+        if e.get("kontroll_name") and not e.get("kontroll_fuehler"):
+            neu["kontroll_fuehler"] = "required"
+        eigene = {_fk(nummer, feld) for feld in (*_KREIS_FELDER, "raeume")}
+        self._fehler = {k: v for k, v in self._fehler.items() if k not in eigene} | {
+            _fk(nummer, feld): code for feld, code in neu.items()}
+        return bool(neu)
+
+    def _rollen(self, kreis: dict | None = None) -> list[dict]:
         """Angezeigte Rollen: Pflicht immer (Kandidaten geprueft), optionale nur mit Kandidaten."""
-        return [r for r in self._zuordnung.get("rollen") or [] if r.get("kandidaten")]
+        return [r for r in (kreis or self._aktuell())["zuordnung"].get("rollen") or [] if r.get("kandidaten")]
 
     async def async_step_anlagenwerte(self, user_input: dict | None = None) -> ConfigFlowResult:
+        kreis = self._aktuell()
         rollen = self._rollen()
         if user_input is not None:
-            self._eingaben["rollen"] = {key: value for key, value in user_input.items() if value}
-            return await self.async_step_benachrichtigung()
-        alt = self._eingaben.get("rollen", {})
+            kreis["eingaben"]["rollen"] = {key: value for key, value in user_input.items() if value}
+            return await self._kreis_beginnen(self._index + 1)
+        alt = kreis["eingaben"].get("rollen", {})
         felder = {
             _vorbelegt(r["rolle"], alt.get(r["rolle"]) or r.get("vorschlag"), required=bool(r.get("pflicht"))):
                 _entities(r["kandidaten"])
             for r in rollen
         }
         return self.async_show_form(step_id="anlagenwerte", data_schema=vol.Schema(felder),
-                                    errors=self._fehler_fuer(tuple(r["rolle"] for r in rollen)))
+                                    description_placeholders=self._platzhalter(),
+                                    errors=self._fehler_kreis(tuple(r["rolle"] for r in rollen)))
+
+    def _angebot(self, feld: str) -> list:
+        """Das Angebot der Anlage (Handys, Hinweise): was die Zuordnung eines der Kreise nennt, ohne Doppelte."""
+        return list(dict.fromkeys(w for k in self._dabei() for w in k["zuordnung"].get(feld) or []))
 
     async def async_step_benachrichtigung(self, user_input: dict | None = None) -> ConfigFlowResult:
-        z = self._zuordnung
         if user_input is not None:
-            self._eingaben.update({key: user_input.get(key) for key in _BENACHRICHTIGUNG})
+            self._eingaben.update({key: user_input.get(key) for key in _ANLAGENWEIT})
             if self._grenzen_verletzt(("batterien", "benachrichtigung")):
                 return await self.async_step_benachrichtigung()
             return await self.async_step_zusammenfassung()
-        je_entity = z.get("batterie_je_entity") or {}
-        gewaehlt = [*(self._eingaben.get("raumfuehler") or []), self._eingaben.get("room_target")]
+        je_entity: dict = {}
+        for kreis in self._dabei():
+            je_entity.update(kreis["zuordnung"].get("batterie_je_entity") or {})
+        gewaehlt = [e for k in self._dabei() for e in (*(k["eingaben"].get("raumfuehler") or []),
+                                                       *(k["eingaben"].get("kontroll_fuehler") or []),
+                                                       k["eingaben"].get("room_target"))]
         batterien = list(dict.fromkeys(je_entity[e] for e in gewaehlt if e in je_entity))
         bisher = self._bisherige_bindung()
         # Neu konfigurieren: der Server liefert nur die Auswahlmoeglichkeiten, die bisherige Wahl steht in der
         # Konfiguration des Geraets; sie bleibt erhalten, soweit sie noch angeboten wird.
         if "batterien" in bisher:
             batterien = self._noch_angeboten(bisher["batterien"], set(je_entity.values()))
-        handys = self._noch_angeboten(bisher.get("benachrichtigung"), set(z.get("benachrichtigung") or []))
-        hinweise = self._noch_angeboten(bisher.get("hinweise_aus"), set(z.get("hinweise") or []))
+        handys_angebot, hinweise_angebot = self._angebot("benachrichtigung"), self._angebot("hinweise")
+        handys = self._noch_angeboten(bisher.get("benachrichtigung"), set(handys_angebot))
+        hinweise = self._noch_angeboten(bisher.get("hinweise_aus"), set(hinweise_angebot))
         felder: dict = {}
-        if z.get("benachrichtigung"):
+        if handys_angebot:
             felder[vol.Optional("benachrichtigung", default=self._vorgabe("benachrichtigung", handys))] = _auswahl(
-                list(z["benachrichtigung"]), multiple=True)
+                handys_angebot, multiple=True)
         felder[vol.Optional("hinweise_aus", default=self._vorgabe("hinweise_aus", hinweise))] = _auswahl(
-            list(z.get("hinweise") or []), multiple=True, translation_key="hinweise")
+            hinweise_angebot, multiple=True, translation_key="hinweise")
         if je_entity:
             felder[vol.Optional("batterien", default=self._vorgabe("batterien", batterien))] = _entities(
                 sorted(set(je_entity.values())), multiple=True)
-        felder[_vorbelegt("raum_soll", self._eingaben.get("raum_soll") or z.get("raum_soll"))] = \
-            selector.NumberSelector(selector.NumberSelectorConfig(
-                min=RAUM_SOLL_MIN, max=RAUM_SOLL_MAX, step=RAUM_SOLL_STEP, unit_of_measurement="°C",
-                mode=selector.NumberSelectorMode.BOX))
         return self.async_show_form(step_id="benachrichtigung", data_schema=vol.Schema(felder),
-                                    errors=self._fehler_fuer(_BENACHRICHTIGUNG))
+                                    errors=self._fehler_fuer(_ANLAGENWEIT))
 
     def _bisherige_bindung(self) -> dict:
-        """Bindung der aktuellen Konfiguration des Geraets; nur beim Neu konfigurieren (sonst leer)."""
+        """Bindung des ersten Heizkreises der aktuellen Konfiguration des Geraets (Batterien, Handys und Hinweise gelten
+        fuer die ganze Anlage); nur beim Neu konfigurieren (sonst leer)."""
         konfiguration = self._geraet.get("konfiguration") if self._reconfigure else None
-        bindung = konfiguration.get("bindung") if isinstance(konfiguration, dict) else None
+        kreise = konfiguration.get("kreise") if isinstance(konfiguration, dict) else None
+        erster = next((k for k in kreise or [] if isinstance(k, dict) and k.get("nummer") == 1), None)
+        bindung = erster.get("bindung") if erster else None
         return bindung if isinstance(bindung, dict) else {}
 
     def _vorgabe(self, key: str, sonst: list) -> list:
@@ -755,35 +878,68 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     def _noch_angeboten(werte: object, angebot: set) -> list:
         return [w for w in dict.fromkeys(werte if isinstance(werte, list) else []) if w in angebot]
 
-    def _zu_viele(self, felder: tuple[str, ...]) -> dict[str, str]:
+    def _zu_viele(self) -> dict[str, str]:
         """Felder der Auswahl mit mehr Eintraegen, als der Server annimmt (`zu_viele`)."""
-        return {feld: "zu_viele" for feld in felder if len(self._eingaben.get(feld) or []) > _MAXIMUM[feld]}
+        fehler = {feld: "zu_viele" for feld, maximum in _MAXIMUM.items()
+                  if len(self._eingaben.get(feld) or []) > maximum}
+        for kreis in self._dabei():
+            e = kreis["eingaben"]
+            if len([*(e.get("raumfuehler") or []), *(e.get("kontroll_fuehler") or [])]) > EINRICHTUNG_MAX_RAUMFUEHLER:
+                fehler[_fk(kreis["nummer"], "raumfuehler")] = "zu_viele"
+        return fehler
 
     def _grenzen_verletzt(self, felder: tuple[str, ...]) -> bool:
-        """Setzt die Feldfehler `zu_viele` der Felder (alte Fehler dieser Felder entfallen); True, wenn es welche
-        gibt."""
-        zu_viele = self._zu_viele(felder)
+        """Setzt die Feldfehler `zu_viele` der Felder der Anlage (alte Fehler dieser Felder entfallen); True, wenn es
+        welche gibt."""
+        zu_viele = {feld: code for feld, code in self._zu_viele().items() if feld in felder}
         self._fehler = {key: value for key, value in self._fehler.items() if key not in felder} | zu_viele
         return bool(zu_viele)
 
     def _fehler_fuer(self, felder: tuple[str, ...]) -> dict[str, str]:
         return {key: value for key, value in self._fehler.items() if key in felder}
 
+    def _fehler_kreis(self, felder: tuple[str, ...]) -> dict[str, str]:
+        """Fehler des aktuellen Kreises je Formularfeld; der Fehler `raeume` des Servers gehoert zum Namen."""
+        nummer = self._aktuell()["nummer"]
+        fehler = {feld: self._fehler[_fk(nummer, feld)] for feld in felder if _fk(nummer, feld) in self._fehler}
+        if "raum_name" in felder and _fk(nummer, "raeume") in self._fehler:
+            fehler["raum_name"] = self._fehler[_fk(nummer, "raeume")]
+        return fehler
+
     def _fehler_ohne_feld(self) -> bool:
         """Feldfehler eines Felds, das kein Formular zeigt (z. B. kreis, tenant_id, eine Rolle ohne Kandidaten)."""
-        bekannt = {*_RAEUME, *_BENACHRICHTIGUNG, *(r["rolle"] for r in self._rollen())}
+        bekannt = {*_ANLAGENWEIT, "kreise"}
+        for kreis in self._dabei():
+            nummer = kreis["nummer"]
+            bekannt |= {_fk(nummer, feld) for feld in (*_KREIS_FELDER, "raeume", "abo_id",
+                                                       *(r["rolle"] for r in self._rollen(kreis)))}
         return any(key not in bekannt for key in self._fehler)
 
     async def _formular_mit_fehlern(self) -> ConfigFlowResult:
-        if self._fehler_fuer(_RAEUME):
-            return await self.async_step_raeume()
-        if self._fehler_fuer(_BENACHRICHTIGUNG) and not set(self._fehler) - set(_BENACHRICHTIGUNG):
-            return await self.async_step_benachrichtigung()
-        return await self.async_step_anlagenwerte()
+        if "kreise" in self._fehler:
+            return await self.async_step_system()
+        for index, kreis in enumerate(self._kreise):
+            if kreis["ausgelassen"]:
+                continue
+            nummer = kreis["nummer"]
+
+            def eigene(felder, nummer=nummer):
+                return any(_fk(nummer, feld) in self._fehler for feld in felder)
+
+            self._index = index
+            if eigene(("abo_id",)):
+                return await self.async_step_abo()
+            if eigene((*_KREIS_FELDER, "raeume")):
+                return await self.async_step_raeume()
+            if eigene(tuple(r["rolle"] for r in self._rollen(kreis))):
+                return await self.async_step_anlagenwerte()
+        return await self.async_step_benachrichtigung()
 
     def _anfrage(self) -> dict:
-        return v3_anfrage.anfrage(self._auswahl, self._eingaben, tenant_id=None if self._reconfigure else self._tenant,
-                                  ersetzen=bool(self._ersetzen))
+        kreise = [{"nummer": k["nummer"], "kreis": k["schluessel"], **k["eingaben"], "abo_id": k["abo_id"]}
+                  for k in self._dabei()]
+        return v3_anfrage.anfrage(self._auswahl, kreise, self._eingaben,
+                                  tenant_id=None if self._reconfigure else self._tenant, ersetzen=bool(self._ersetzen))
 
     async def _warnungen(self, warnungen: dict) -> str:
         """Warnungen der Pruefung als Text der UI-Sprache; unbekannte Arten mit ihrem Schluessel."""
@@ -800,7 +956,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return await self.async_step_einrichten()
         try:
-            if zu_viele := self._zu_viele(tuple(_MAXIMUM)):
+            if zu_viele := self._zu_viele():
                 # Der Server wuerde mit 400 ohne Feldfehler ablehnen; hier zurueck in das Formular des Felds.
                 raise _Feldfehler(zu_viele)
             ergebnis = await self._api(self._client.pruefen, self._anfrage())

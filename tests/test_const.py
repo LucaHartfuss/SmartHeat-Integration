@@ -1,21 +1,23 @@
-"""Konstanten der schlanken Integration (Ereignis Schema 3, Discovery, Routen, Bedienbereich)."""
+"""Konstanten der schlanken Integration (Ereignis Schema 4, Discovery, Routen, Bedienbereich)."""
 import pytest
 
 from custom_components.smartheat import const
 
 
-def test_status_event_schema_3_keeps_the_runtime_fields():
-    assert const.STATUS_EVENT_SCHEMA == 3
-    assert const.STATUS_EVENT_FIELDS[:15] == (
-        "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler",
-        "boost", "letzte_serverantwort", "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "hinweise")
-    assert const.STATUS_EVENT_FIELDS[15:] == (
-        "geraet_id", "geraet_zustand", "server_verbunden", "raum_soll", "geraet_hinweise")
+def test_status_event_schema_4_separates_the_plant_from_the_circuits():
+    assert const.STATUS_EVENT_SCHEMA == 4
+    assert const.STATUS_EVENT_FIELDS == (
+        "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
+        "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise")
+    assert const.STATUS_KREIS_FIELDS == (
+        "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
+        "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende")
 
 
 def test_device_contract_values():
     assert (const.DISCOVERY_SERVICE, const.DISCOVERY_FIELDS) == ("smartheat", ("geraet_id", "zustand", "claim_code"))
     assert const.WUNSCH_EVENT == "smartheat_wunsch"
+    assert const.WUNSCH_EVENT_SCHEMA == 4
     assert (const.RAUM_SOLL_MIN, const.RAUM_SOLL_MAX, const.RAUM_SOLL_STEP) == (15.0, 25.0, 0.5)
     assert const.MIN_ADDON_VERSIONS == {"heizungsbruecke": "1.0.0"}
     assert "anmelden" not in const.EINRICHTUNG_ROUTEN

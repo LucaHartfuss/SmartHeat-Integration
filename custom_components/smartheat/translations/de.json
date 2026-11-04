@@ -33,19 +33,31 @@
       "system": {
         "title": "Heizung",
         "description": "{integration}\n\n{hinweis}",
-        "data": {"kreis": "Heizkreis", "profil": "Anlagenprofil"}
+        "data": {"kreise": "Heizkreise (ein bis vier)", "profil": "Anlagenprofil"}
       },
       "hebelsatz": {
         "title": "Ansteuerung",
         "data": {"hebelsatz": "Ansteuerung"}
       },
+      "abo": {
+        "title": "Abo für Heizkreis {nummer}",
+        "description": "Wähle das Abo, das Heizkreis {nummer} trägt. Ohne Auswahl bleibt der Kreis erkannt und wird nicht eingerichtet. {abos}",
+        "data": {"abo_id": "Abo"}
+      },
       "raeume": {
-        "title": "Raum",
-        "description": "Raumfühler und die Wunschtemperatur-Entity (z. B. das Thermostat im Wohnzimmer).",
-        "data": {"raumfuehler": "Raumfühler", "room_target": "Wunschtemperatur-Entity"}
+        "title": "Heizkreis {nummer}: Raum",
+        "description": "Name des Raums, seine Raumfühler und die Wunschtemperatur-Entity (z. B. das Thermostat im Wohnzimmer) von Heizkreis {nummer}. Ein zweiter Raum misst nur.",
+        "data": {
+          "raum_name": "Raumname",
+          "raumfuehler": "Raumfühler",
+          "room_target": "Wunschtemperatur-Entity",
+          "raum_soll": "Wunschtemperatur",
+          "kontroll_name": "Zweiter Raum: Name (optional)",
+          "kontroll_fuehler": "Zweiter Raum: Fühler (optional)"
+        }
       },
       "anlagenwerte": {
-        "title": "Werte der Heizung",
+        "title": "Heizkreis {nummer}: Werte",
         "description": "Vorbelegt aus der Heizungs-Integration; bitte prüfen.",
         "data": {
           "curve": "Heizkurve",
@@ -76,12 +88,11 @@
         }
       },
       "benachrichtigung": {
-        "title": "Benachrichtigungen und Wunschtemperatur",
+        "title": "Benachrichtigungen",
         "data": {
           "benachrichtigung": "Handys",
           "hinweise_aus": "Hinweise ohne Push",
-          "batterien": "Batterien",
-          "raum_soll": "Wunschtemperatur"
+          "batterien": "Batterien"
         }
       },
       "zusammenfassung": {"title": "Zusammenfassung", "description": "Anlage {anlage}. Hinweise:\n{warnungen}\n\nJetzt einrichten?"},
@@ -128,7 +139,22 @@
       "wrong_state_class": "Falscher Messwert-Typ.",
       "unknown_service": "Unbekanntes Handy.",
       "unknown_hint": "Unbekannter Hinweis.",
-      "zu_viele": "Zu viele ausgewählt."
+      "zu_viele": "Zu viele ausgewählt.",
+      "kreis_nicht_entfernbar": "Ein bereits eingerichteter Heizkreis lässt sich hier nicht entfernen.",
+      "kreise_anzahl": "Bitte ein bis vier Heizkreise wählen.",
+      "nummer_doppelt": "Eine Heizkreis-Nummer wurde doppelt verwendet.",
+      "kreis_doppelt": "Ein Heizkreis wurde doppelt gewählt.",
+      "kreis_1_fehlt": "Heizkreis 1 ist erforderlich.",
+      "weg_gemischt": "Alle Heizkreise müssen aus derselben Heizungs-Integration stammen.",
+      "abo_doppelt": "Dieses Abo ist schon für einen anderen Heizkreis gewählt.",
+      "kreis_belegt": "Dieser Heizkreis hat schon ein Abo.",
+      "abo_unbekannt": "Dieses Abo steht nicht zur Verfügung.",
+      "abo_nicht_verbindbar": "Das Abo ließ sich nicht mit dem Heizkreis verbinden.",
+      "name": "Bitte dem Raum einen Namen geben (bis 40 Zeichen).",
+      "soll_quelle": "Genau ein Raum muss die Wunschtemperatur liefern.",
+      "fuehler_zahl": "Bitte ein bis acht Raumfühler je Heizkreis wählen.",
+      "fuehler_form": "Ein Raumfühler-Eintrag ist ungültig.",
+      "keine_raeume": "Mindestens ein Raum ist erforderlich."
     },
     "abort": {
       "kein_supervisor": "SmartHeat braucht Home Assistant mit Add-ons (Supervisor).",

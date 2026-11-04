@@ -28,17 +28,18 @@ ANMELDECODE = "BCDF-GHJK"
 CODE_ANTWORT = {"geraetecode": GERAETECODE, "anmeldecode": ANMELDECODE, "link": "https://app.example.test/geraetecode",
                 "link_komplett": "https://app.example.test/geraetecode#code=BCDF-GHJK", "gueltig_s": 600,
                 "abfrage_s": 5}
-KONFIGURATION = {"profil": "vaillant_gastherme_heizkoerper", "hebelsatz": "vaillant_vrc720", "bindung": {},
-                 "raumfuehler": ["sensor.wohnzimmer_temperatur"],
-                 "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"], "shift_lever": "room_setpoint"}
+KONFIGURATION = {"profil": "vaillant_gastherme_heizkoerper", "hebelsatz": "vaillant_vrc720",
+                 "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"], "shift_lever": "room_setpoint",
+                 "kreise": [{"nummer": 1, "bindung": {}, "raumfuehler": ["sensor.wohnzimmer_temperatur"],
+                             "raum_soll": 20.0}]}
 VORSCHLAG = {"integrationen": [{
-    "plattform": "mypyllant", "label": "myVAILLANT", "hinweis": None,
-    "kreise": [{"schluessel": KREIS, "label": "Zuhause"}],
+    "plattform": "mypyllant", "weg": "mypyllant", "label": "myVAILLANT", "hinweis": None,
+    "kreise": [{"schluessel": KREIS, "label": "Zuhause", "nummer": None}],
     "profile": [{"profile_id": "vaillant_gastherme_heizkoerper", "label": "Vaillant Gastherme", "erzeuger_typ":
                  "Gastherme", "verteilsystem": "Heizkoerper", "shift_lever": "room_setpoint",
                  "hebelsaetze": [{"id": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit",
                                                                      "min_flow"]}]}],
-    "vorschlag": {"kreis": KREIS, "profil": "vaillant_gastherme_heizkoerper"}}]}
+    "vorschlag": {"kreise": [KREIS], "profil": "vaillant_gastherme_heizkoerper"}}]}
 ROLLEN = [
     {"rolle": "curve", "pflicht": True, "vorschlag": "number.zuhause_circuit_0_heating_curve", "herkunft": "integration",
      "kandidaten": ["number.zuhause_circuit_0_heating_curve"]},
@@ -77,7 +78,7 @@ class FakeServer:
         self.calls: list[tuple] = []
         self.geraet_sicht = {"device_id": GERAET_ID, "host": "ha", "eingerichtet": False, "tenant_id": None,
                              "anlagen": [{"tenant_id": TENANT, "aktiv": True, "belegt": False, "ersetzbar": False}],
-                             "inventur": {"zustand": "keine"}, "konfiguration": None, "raum_soll": 20.0}
+                             "abos": [], "inventur": {"zustand": "keine"}, "konfiguration": None, "raum_soll": 20.0}
         self.vorschlag_antwort = VORSCHLAG
         self.zuordnung_antwort = ZUORDNUNG
         self.inventur_ergebnis = {"zustand": "fertig"}
