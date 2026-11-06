@@ -35,6 +35,11 @@ CLIENT1_ENTITIES = {
     "binary_sensor.smartheat_client1_notbetrieb": "client1_notbetrieb",
     "number.smartheat_client1_wunschtemperatur": "client1_wunschtemperatur",
 }
+# Seither neu: Zustand und Kaelteschutz des ersten Kreises; die IDs der 14 alten bleiben unveraendert.
+NEUE_ENTITIES = {
+    "sensor.smartheat_client1_zustand": "client1_zustand",
+    "sensor.smartheat_client1_kaelteschutz": "client1_kaelteschutz",
+}
 
 
 async def _setup(hass, **entry_kwargs):
@@ -50,10 +55,10 @@ async def test_client1_keeps_its_entity_ids_unique_ids_and_device(hass):
 
     registry = er.async_get(hass)
     entities = er.async_entries_for_config_entry(registry, entry.entry_id)
-    assert {e.entity_id: e.unique_id for e in entities} == CLIENT1_ENTITIES
+    assert {e.entity_id: e.unique_id for e in entities} == {**CLIENT1_ENTITIES, **NEUE_ENTITIES}
     device = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, "client1"), entry.entry_id)
     assert device is not None and {e.device_id for e in entities} == {device.id}
-    for entity_id in CLIENT1_ENTITIES:
+    for entity_id in (*CLIENT1_ENTITIES, *NEUE_ENTITIES):
         assert hass.states.get(entity_id) is not None, entity_id
 
 

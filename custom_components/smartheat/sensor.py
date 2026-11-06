@@ -21,6 +21,8 @@ from .const import (
     DATENFEHLER_ARTEN,
     DATENFEHLER_KEINER,
     HINT_FIELDS,
+    KAELTESCHUTZ_VALUES,
+    KREIS_ZUSTAND_VALUES,
     STATUS_SENSOR_VALUES,
 )
 from .entity import SmartHeatEntity
@@ -70,6 +72,14 @@ FIELDS = (
     EventField(
         key="abo", value=lambda d: d["abo"], attributes=lambda d: {"frist_ende": d["abo_frist_ende"]},
         attribute_keys=("frist_ende",), device_class=SensorDeviceClass.ENUM, options=list(ABO_VALUES),
+    ),
+    EventField(
+        key="zustand", value=lambda d: d["zustand"], attributes=lambda d: {"testphase_bis": d["testphase_bis"]},
+        attribute_keys=("testphase_bis",), device_class=SensorDeviceClass.ENUM, options=list(KREIS_ZUSTAND_VALUES),
+    ),
+    EventField(
+        key="kaelteschutz", value=lambda d: d["kaelteschutz"], device_class=SensorDeviceClass.ENUM,
+        options=list(KAELTESCHUTZ_VALUES),
     ),
     EventField(key="addon_version", value=lambda d: d["addon_version"], category=EntityCategory.DIAGNOSTIC),
 )

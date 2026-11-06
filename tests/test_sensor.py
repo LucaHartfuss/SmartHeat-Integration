@@ -1,9 +1,12 @@
 """Sensor-Felder je Hebel (Hebel aus entry.data["hebel"]): stabile Entity-Schluessel,
 Werte aus hebel/gelernt."""
+import json
+from pathlib import Path
+
 import pytest
 
 from custom_components.smartheat import sensor
-from custom_components.smartheat.const import STATUS_EVENT_SCHEMA
+from custom_components.smartheat.const import KAELTESCHUTZ_VALUES, KREIS_ZUSTAND_VALUES, STATUS_EVENT_SCHEMA
 
 VAILLANT = {"lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
             "shift_lever": "room_setpoint"}
@@ -22,7 +25,7 @@ def test_lever_entity_keys_are_stable(lever, shift_lever, key):
 def test_vaillant_entry_keeps_the_client1_entity_keys_in_their_order():
     """Gleiche Schluessel und Reihenfolge wie 0.16.1 fuer client1 (Hebel in LEVER_OPTIONS-Reihenfolge)."""
     assert sensor.entity_keys(VAILLANT) == (
-        "status", "datenfehler", "boost", "letzte_serverantwort", "abo", "addon_version",
+        "status", "datenfehler", "boost", "letzte_serverantwort", "abo", "zustand", "kaelteschutz", "addon_version",
         "heizkurve", "parallelverschiebung", "heizgrenze", "mindestvorlauf", "gelernte_steigung", "gelernte_heizgrenze",
     )
 
@@ -76,3 +79,21 @@ def test_learned_values_are_shown_with_two_decimals(key):
 def test_lever_values_keep_their_display_precision():
     fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
     assert sensor.EventSensor(_Coordinator(), fields["heizkurve"]).suggested_display_precision is None
+
+
+def test_zustand_und_kaelteschutz_sind_enum_sensoren_mit_der_wertemenge_des_vertrags():
+    fields = {f.key: f for f in sensor.entity_fields({})}
+    assert fields["zustand"].options == list(KREIS_ZUSTAND_VALUES)
+    assert fields["kaelteschutz"].options == list(KAELTESCHUTZ_VALUES)
+    assert fields["zustand"].attribute_keys == ("testphase_bis",)
+    assert fields["zustand"].attributes({"testphase_bis": "2026-12-01"}) == {"testphase_bis": "2026-12-01"}
+
+
+@pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_zustand_und_kaelteschutz_haben_name_und_text_je_wert(path):
+    paket = Path(sensor.__file__).parent
+    texte = json.loads((paket / path).read_text(encoding="utf-8"))["entity"]["sensor"]
+    for key, werte in (("zustand", KREIS_ZUSTAND_VALUES), ("kaelteschutz", KAELTESCHUTZ_VALUES)):
+        assert texte[key]["name"]
+        assert set(texte[key]["state"]) == set(werte)
+        assert all(texte[key]["state"].values())

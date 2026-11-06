@@ -26,11 +26,13 @@
         "room_setpoint": null
       },
       "hebelsatz": "vaillant_vrc720",
+      "kaelteschutz": "aus",
       "kreis": 1,
       "name": "Wohnung",
       "raum_ist": null,
       "raum_soll": null,
-      "testphase_bis": null
+      "testphase_bis": null,
+      "zustand": "regelt"
     },
     {
       "abo": "aktiv",
@@ -46,11 +48,13 @@
         "room_setpoint": null
       },
       "hebelsatz": "vaillant_vrc720",
+      "kaelteschutz": "aus",
       "kreis": 2,
       "name": "Dachboden",
       "raum_ist": null,
       "raum_soll": null,
-      "testphase_bis": null
+      "testphase_bis": null,
+      "zustand": "regelt"
     }
   ],
   "letzte_serverantwort": null,

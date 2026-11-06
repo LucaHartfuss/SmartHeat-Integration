@@ -239,6 +239,8 @@
       "gelernte_steigung": {"name": "Gelernte Steigung"},
       "gelernte_heizgrenze": {"name": "Gelernte Heizgrenze (Fußpunkt)"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
+      "zustand": {"name": "Zustand", "state": {"regelt": "Regelt", "abo_inaktiv": "Abo inaktiv", "abo_beendet": "Abo beendet", "testphase": "Testphase ohne SmartHeat", "ausser_betrieb": "Außer Betrieb"}},
+      "kaelteschutz": {"name": "Kälteschutz", "state": {"aus": "Aus", "soll": "Raum zu kalt gegenüber Wunsch", "frost": "Frostnähe"}},
       "addon_version": {"name": "Add-on-Version"}
     },
     "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}},

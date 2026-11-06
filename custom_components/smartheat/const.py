@@ -22,7 +22,7 @@ STATUS_EVENT_FIELDS = (
 )
 STATUS_KREIS_FIELDS = (
     "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
-    "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende",
+    "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "zustand", "kaelteschutz",
 )
 # Bis die Entities je Kreis kommen, zeigen die heutigen den ersten Kreis.
 ERSTER_KREIS = 1
@@ -51,6 +51,10 @@ STATUS_SENSOR_VALUES = ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAG
 BOOST_KEINER = "keiner"
 BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
+# Zustand und Kaelteschutz eines Kreises (Codes des Add-ons; die Texte stehen nur in den Uebersetzungen). Die Menge des
+# Zustands waechst mit dem Add-on; ein Wert ausserhalb der Menge zeigt die Entity als unbekannt.
+KREIS_ZUSTAND_VALUES = ("regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb")
+KAELTESCHUTZ_VALUES = ("aus", "soll", "frost")
 DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
 HINT_FIELDS = ("raumfuehler_ausgefallen", "batterie_niedrig", "manueller_eingriff")

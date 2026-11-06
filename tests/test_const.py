@@ -11,7 +11,9 @@ def test_status_event_schema_4_separates_the_plant_from_the_circuits():
         "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise")
     assert const.STATUS_KREIS_FIELDS == (
         "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
-        "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende")
+        "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "zustand", "kaelteschutz")
+    assert const.KREIS_ZUSTAND_VALUES == ("regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb")
+    assert const.KAELTESCHUTZ_VALUES == ("aus", "soll", "frost")
 
 
 def test_device_contract_values():

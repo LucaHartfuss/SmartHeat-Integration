@@ -597,6 +597,73 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clo
     assert hass.states.get(STATUS).state == "regelt"
 
 
+async def test_zustand_und_kaelteschutz_des_ersten_kreises_erscheinen_als_sensoren(hass, clock):
+    await _setup(hass)
+
+    _fire(hass, status_event(TENANT, "regelt", zustand="testphase", kaelteschutz="soll", testphase_bis="2026-12-01"))
+    await hass.async_block_till_done()
+
+    zustand = hass.states.get("sensor.smartheat_wohnung1_zustand")
+    assert (zustand.state, zustand.attributes["testphase_bis"]) == ("testphase", "2026-12-01")
+    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "soll"
+
+    _fire(hass, status_event(TENANT, "regelt", zustand="ausser_betrieb", kaelteschutz="frost"))
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "ausser_betrieb"
+    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "frost"
+
+
+@pytest.mark.parametrize("zustand, kaelteschutz", [("heizt", "viel"), (7, None), ("", [])])
+async def test_zustand_und_kaelteschutz_ausserhalb_der_wertemenge_sind_unbekannt(hass, clock, zustand, kaelteschutz):
+    await _setup(hass)
+    _fire(hass, status_event(TENANT, "regelt", zustand="regelt", kaelteschutz="aus"))
+    await hass.async_block_till_done()
+
+    _fire(hass, status_event(TENANT, "regelt", zustand=zustand, kaelteschutz=kaelteschutz))
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "unknown"
+    assert hass.states.get(STATUS).state == "regelt"
+
+
+async def test_ein_aelteres_addon_ohne_zustand_und_kaelteschutz_zeigt_unbekannt_statt_zu_scheitern(hass, clock):
+    """Mischstand: das Ereignis eines Add-ons vor diesen Feldern; die uebrigen Entities laufen unveraendert."""
+    await _setup(hass)
+    event = status_event(TENANT, "regelt", boost="komfort")
+    for feld in ("zustand", "kaelteschutz"):
+        del event["kreise"][0][feld]
+
+    _fire(hass, event)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "unknown"
+    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "komfort"
+    assert hass.states.get(STATUS).state == "regelt"
+
+
+async def test_zustand_und_kaelteschutz_werden_aus_dem_gespeicherten_stand_wiederhergestellt(hass, clock):
+    mock_restore_cache(hass, [
+        State("sensor.smartheat_wohnung1_zustand", "ausser_betrieb", {"testphase_bis": "2026-12-01"}),
+        State("sensor.smartheat_wohnung1_kaelteschutz", "frost"),
+    ])
+
+    await _setup(hass)
+
+    zustand = hass.states.get("sensor.smartheat_wohnung1_zustand")
+    assert (zustand.state, zustand.attributes["testphase_bis"]) == ("ausser_betrieb", "2026-12-01")
+    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "frost"
+
+
+async def test_restore_eines_unbekannten_zustands_wird_ignoriert(hass, clock):
+    mock_restore_cache(hass, [State("sensor.smartheat_wohnung1_zustand", "heizt")])
+
+    await _setup(hass)
+
+    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "unknown"
+
+
 async def test_event_without_notbetrieb_and_with_broken_hints_does_not_crash_entities(hass, clock):
     """Ein fehlendes `notbetrieb` (KeyError im Binaersensor) und ein `hinweise`,
     das kein Objekt ist (AttributeError im Status-Sensor), duerfen die Entities nicht haengen

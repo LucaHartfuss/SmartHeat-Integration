@@ -239,6 +239,8 @@
       "gelernte_steigung": {"name": "Learned slope"},
       "gelernte_heizgrenze": {"name": "Learned heating limit (anchor point)"},
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
+      "zustand": {"name": "State", "state": {"regelt": "Controlling", "abo_inaktiv": "Subscription inactive", "abo_beendet": "Subscription ended", "testphase": "Test phase without SmartHeat", "ausser_betrieb": "Out of service"}},
+      "kaelteschutz": {"name": "Cold protection", "state": {"aus": "Off", "soll": "Room too cold compared to the target", "frost": "Near freezing"}},
       "addon_version": {"name": "Add-on version"}
     },
     "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}},
