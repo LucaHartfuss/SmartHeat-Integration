@@ -198,6 +198,20 @@ def _nur(objekt, felder):
     return {k: v for k, v in objekt.items() if k in felder}
 
 
+async def test_ein_server_ohne_die_felder_der_weg_erkennung_reicht_dem_assistenten(hass, server):
+    """Mischstand: ein Server, der `rang`, `einstufung` und `nur_erkennen` noch nicht sendet, bleibt gueltig; die Felder
+    stehen in den Konstanten (der Client behaelt sie), der Assistent liest sie aber nicht."""
+    neue = ("rang", "einstufung", "nur_erkennen")
+    assert set(neue) <= set(config_flow._VERTRAG_GEPINNT["VORSCHLAG_INTEGRATION_FELDER"][0])
+    assert not set(neue) & set(_pin("VORSCHLAG_INTEGRATION_FELDER"))
+    server.vorschlag_antwort = {"integrationen": [
+        {k: v for k, v in i.items() if k not in neue} for i in einrichtung_fakes.VORSCHLAG["integrationen"]]}
+
+    result = await _configure(hass, await _bis_zusammenfassung(hass), {})
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
 async def test_der_assistent_kommt_mit_genau_den_gepinnten_feldern_durch(hass, server):
     """F-ha-host-39 Zeile 1: Antworten des Servers, auf genau die gepinnten Literale gekuerzt (je Objekt nur sie),
     reichen dem Assistenten bis `create_entry`: er liest kein Feld ausserhalb der Pins."""

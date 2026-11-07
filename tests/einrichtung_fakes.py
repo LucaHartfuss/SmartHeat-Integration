@@ -39,7 +39,8 @@ VORSCHLAG = {"integrationen": [{
                  "Gastherme", "verteilsystem": "Heizkoerper", "shift_lever": "room_setpoint",
                  "hebelsaetze": [{"id": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit",
                                                                      "min_flow"]}]}],
-    "vorschlag": {"kreise": [KREIS], "profil": "vaillant_gastherme_heizkoerper"}}]}
+    "vorschlag": {"kreise": [KREIS], "profil": "vaillant_gastherme_heizkoerper"},
+    "rang": 4, "einstufung": "selbst", "nur_erkennen": False}]}
 ROLLEN = [
     {"rolle": "curve", "pflicht": True, "vorschlag": "number.zuhause_circuit_0_heating_curve", "herkunft": "integration",
      "kandidaten": ["number.zuhause_circuit_0_heating_curve"]},

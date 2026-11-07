@@ -150,7 +150,8 @@ EINRICHTUNG_ANTWORT_FELDER: dict[str, tuple[str, ...]] = {
 }
 EINRICHTUNG_ZUORDNUNG_ROLLE_FELDER = ("rolle", "pflicht", "vorschlag", "herkunft", "kandidaten")
 EINRICHTUNG_RAUMFUEHLER_FELDER = ("kandidaten", "vorschlag")
-EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "weg", "label", "hinweis", "kreise", "profile", "vorschlag")
+EINRICHTUNG_VORSCHLAG_INTEGRATION_FELDER = ("plattform", "weg", "label", "hinweis", "kreise", "profile", "vorschlag",
+                                            "rang", "einstufung", "nur_erkennen")
 # Verschachtelte Objekte eines Integrationseintrags der Antwort `vorschlag` (kreise, profile, hebelsaetze, vorschlag).
 EINRICHTUNG_VORSCHLAG_KREIS_FELDER = ("schluessel", "label", "nummer")
 EINRICHTUNG_VORSCHLAG_PROFIL_FELDER = ("profile_id", "label", "erzeuger_typ", "verteilsystem", "shift_lever",
