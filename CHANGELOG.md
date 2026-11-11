@@ -5,6 +5,12 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Neu: Diagnose-Download für den Eintrag (Einstellungen → Geräte & Dienste → SmartHeat → Diagnose herunterladen). Die
+  Datei nennt Versionen (Integration, Add-on, Home Assistant, gelesene Schemata), den Zustand des Wächters, den
+  letzten Status mit allen Kreisen und ob der Server verbunden ist. Sie enthält keine Anlagen-ID, keine Namen
+  (Kreise heißen „Kreis 1“, „Kreis 2“ …), keine Entity-IDs der Zuordnung, keine Benachrichtigungsdienste, keinen
+  Übernahme-Code und keine Texte des Geräts; die Geräte-ID erscheint nur als `shg-` plus sechs Zeichen. Abwesenheit,
+  Wochenplan und Leerstand stünden nur als ja/nein darin, nie mit Zeiten.
 - Eine bestehende Einrichtung zieht beim ersten Laden auf die neuen Entity-IDs um: die Kreis-Entities
   (z. B. `sensor.smartheat_<name>_niveau`) heißen jetzt `…smartheat_k1_…`, die Entities der Anlage
   (`sensor.smartheat_status` usw.) tragen keinen Anlagennamen mehr. Es bleibt jeweils derselbe Registry-Eintrag:

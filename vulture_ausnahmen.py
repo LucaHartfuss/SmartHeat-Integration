@@ -7,6 +7,7 @@ async_setup_entry  # HA-Hook: Integration und jede Plattform (binary_sensor, num
 async_unload_entry  # HA-Hook: Eintrag entladen
 async_remove_entry  # HA-Hook: Eintrag entfernt
 async_remove_config_entry_device  # HA-Hook: Geraet von Hand loeschen (Kreis-Geraete)
+async_get_config_entry_diagnostics  # HA-Hook: Diagnose-Download des Eintrags (diagnostics.py)
 
 # Config-Flow (config_flow.py): HA registriert den Flow ueber domain= und ruft Schritte als async_step_<step_id>.
 SmartHeatConfigFlow  # HA-Hook: ConfigFlow-Unterklasse, registriert ueber domain=

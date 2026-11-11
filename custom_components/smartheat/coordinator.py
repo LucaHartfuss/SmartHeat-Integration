@@ -122,6 +122,15 @@ class Watchdog:
             reference = max(reference, self.restarts[-1])
         return reference
 
+    def stand(self, now: float) -> dict[str, int | None]:
+        """Zaehler fuer die Diagnose: Pruefungen in Folge ohne laufendes Add-on, Neustarts in der letzten Stunde und
+        das Alter des letzten Ereignisses in ganzen Sekunden (None, solange keines kam). Aendert nichts."""
+        return {
+            "nicht_laufend_in_folge": self.not_running,
+            "neustarts_letzte_stunde": sum(1 for start in self.restarts if now - start < RESTART_WINDOW_SECONDS),
+            "alter_letztes_ereignis_s": None if self.last_event_at is None else int(now - self.last_event_at),
+        }
+
     def _restart_allowed(self, now: float) -> bool:
         while self.restarts and now - self.restarts[0] >= RESTART_WINDOW_SECONDS:
             self.restarts.popleft()
@@ -194,6 +203,15 @@ class SmartHeatCoordinator:
     def kreis(self, nummer: int) -> dict | None:
         """Die Felder eines Kreises aus dem letzten Ereignis; None, wenn die Anlage ihn nicht meldet."""
         return self.kreise.get(nummer)
+
+    @property
+    def version(self) -> str:
+        """Die Version dieser Integration, die das Lebenszeichen an das Add-on nennt; leer vor dem Start."""
+        return self._version
+
+    def waechter_stand(self) -> dict[str, int | None]:
+        """Zaehler des Waechters (siehe `Watchdog.stand`) zur aktuellen monotonen Zeit."""
+        return self._watchdog.stand(_now())
 
     @property
     def status(self) -> str | None:
