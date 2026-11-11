@@ -221,7 +221,8 @@
           "startet": "Starting", "regelt": "Controlling", "konfigurationsfehler": "Configuration error",
           "zugang_abgelehnt": "Access denied", "abo_beendet": "Subscription ended",
           "abo_inaktiv": "Subscription inactive", "notbetrieb": "Emergency mode", "datenfehler": "Data fault",
-          "abgemeldet": "Signed off", "addon_gestoppt": "Add-on stopped", "reagiert_nicht": "Add-on not responding"
+          "abgemeldet": "Signed off", "addon_gestoppt": "Add-on stopped", "reagiert_nicht": "Add-on not responding",
+          "integration_veraltet": "Integration outdated", "addon_veraltet": "Add-on outdated"
         }
       },
       "datenfehler": {
@@ -249,7 +250,9 @@
   "exceptions": {
     "wunsch_ungueltig": {"message": "The desired temperature must be a number."},
     "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."},
-    "addon_nicht_bereit": {"message": "The add-on is not running or not responding, so SmartHeat cannot pass on the target temperature. Please wait until the add-on is back."}
+    "addon_nicht_bereit": {"message": "The add-on is not running or not responding, so SmartHeat cannot pass on the target temperature. Please wait until the add-on is back."},
+    "integration_veraltet": {"message": "The SmartHeat integration is older than the add-on and cannot read its messages, so it cannot pass on the target temperature. Please update the integration."},
+    "addon_veraltet": {"message": "The SmartHeat add-on is older than the integration and not understood by it, so the integration cannot pass on the target temperature. Please update the add-on."}
   },
   "issues": {
     "update_noetig": {"title": "SmartHeat: update the add-on", "description": "{text} Settings → Add-ons → Heizungsbrücke → Update."},
@@ -258,7 +261,10 @@
     "soll_quelle_aus": {"title": "SmartHeat: thermostat is off", "description": "{text}"},
     "konfiguration_abgelehnt": {"title": "SmartHeat: setting rejected", "description": "The add-on rejected the new setting: {text} Please check it under SmartHeat → Reconfigure."},
     "gesperrt": {"title": "SmartHeat: device blocked", "description": "{text}"},
-    "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"}
+    "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"},
+    "integration_veraltet": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated to at least version {mindest_integration}. Settings → Devices & services → HACS → SmartHeat → Update."},
+    "integration_veraltet_ohne_version": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated. Settings → Devices & services → HACS → SmartHeat → Update."},
+    "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."}
   },
   "common": {
     "warning_stale": "No update for more than 6 hours: {entities}",

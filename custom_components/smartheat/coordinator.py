@@ -1,5 +1,5 @@
 """Status und zweiter Waechter je Config-Entry. Die Integration laeuft im
-HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte Status-Ereignis (Schema 4) ihres Geraets
+HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte lesbare Status-Ereignis ihres Geraets
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
 meldet, meldet Befunde per persistent_notification (Push an die Handys ist Sache des Add-ons, Nutzer-Entscheidung
@@ -24,7 +24,6 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from . import repairs
 from .const import (
-    ADDON_STATUS_VALUES,
     ERSTER_KREIS,
     INTEGRATION_EVENT,
     INTEGRATION_EVENT_FIELDS,
@@ -33,9 +32,10 @@ from .const import (
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
     STATUS_ADDON_GESTOPPT,
+    STATUS_ADDON_VERALTET,
     STATUS_EVENT,
     STATUS_EVENT_FIELDS,
-    STATUS_EVENT_SCHEMA,
+    STATUS_INTEGRATION_VERALTET,
     STATUS_KREIS_FIELDS,
     STATUS_REAGIERT_NICHT,
     STATUS_STARTET,
@@ -44,6 +44,7 @@ from .const import (
     WATCHDOG_INTERVAL_SECONDS,
     WATCHDOG_MESSAGES,
     WATCHDOG_REASONS,
+    WUNSCH_EVENT_SCHEMA,
     signal_update,
     watchdog_notification_id,
 )
@@ -144,6 +145,19 @@ def _kreise(liste) -> dict[int, dict] | None:
     return kreise
 
 
+def _versionsbefund(schema: object) -> str | None:
+    """Der Versionsbefund zu einem Schema: ueber allen gelesenen Schemata `integration_veraltet` (das Add-on ist
+    neuer), unter allen `addon_veraltet`; ein gelesenes, ein dazwischen liegendes oder kein ganzzahliges Schema gibt
+    keinen Befund."""
+    if isinstance(schema, bool) or not isinstance(schema, int):
+        return None
+    if schema > max(V5_SCHEMAS):
+        return STATUS_INTEGRATION_VERALTET
+    if schema < min(V5_SCHEMAS):
+        return STATUS_ADDON_VERALTET
+    return None
+
+
 class SmartHeatCoordinator:
     """Letzter Status-Event und Waechter-Befund eines Eintrags; verteilt Aenderungen per
     Dispatcher-Signal an die Entities."""
@@ -156,6 +170,10 @@ class SmartHeatCoordinator:
         self.data: dict | None = None  # Felder der Anlage (ohne `kreise`)
         self.kreise: dict[int, dict] = {}
         self.watchdog_status: str | None = None
+        # Versionsbefund (integration_veraltet/addon_veraltet) aus dem Schema des letzten eigenen Ereignisses; None, wenn
+        # die Integration es liest. `wunsch_schema`: das zuletzt gelesene Schema, in dem die Integration antwortet.
+        self.version_status: str | None = None
+        self.wunsch_schema: int = WUNSCH_EVENT_SCHEMA
         self._watchdog_reason: str | None = None
         self._watchdog = Watchdog(started_at=_now())
         self._checking = False
@@ -179,15 +197,20 @@ class SmartHeatCoordinator:
 
     @property
     def status(self) -> str | None:
-        """Waechter-Befund vor dem Status des Add-ons; None, solange nichts bekannt ist."""
+        """Waechter-Befund, dann Versionsbefund, dann Status des Add-ons; None, solange nichts bekannt ist. Der Status des
+        Add-ons ist unveraendert der des Ereignisses, auch ein unbekannter oder fehlender."""
         if self.watchdog_status is not None:
             return self.watchdog_status
-        return None if self.data is None else self.data["status"]
+        if self.version_status is not None:
+            return self.version_status
+        return None if self.data is None else self.data.get("status")
 
     @property
     def reason(self) -> str | None:
         if self.watchdog_status is not None:
             return self._watchdog_reason
+        if self.version_status is not None:
+            return self.version_status
         return None if self.data is None else self.data.get("grund")
 
     @callback
@@ -216,9 +239,11 @@ class SmartHeatCoordinator:
 
     @callback
     def async_handle_event(self, event: Event) -> None:
-        """Nur Ereignisse des eigenen Geraets (geraet_id) im Schema 4. Vor der Einrichtung ist der Laufzeit-Teil leer
-        (status startet, tenant_id None, keine Kreise); den Zustand des Geraets traegt dann geraet_zustand. Ein Kreis
-        ohne gueltige Nummer oder eine doppelte Nummer verwirft das ganze Ereignis (Warnung ohne Kreisnamen)."""
+        """Nur Ereignisse des eigenen Geraets (geraet_id). Ein Schema ausserhalb der gelesenen (V5_SCHEMAS) setzt den
+        Versionsbefund, ein gelesenes hebt ihn auf; ein Schema dazwischen oder ohne Ganzzahl aendert nichts (Warnung).
+        Vor der Einrichtung ist der Laufzeit-Teil leer (status startet, tenant_id None, keine Kreise); den Zustand des
+        Geraets traegt dann geraet_zustand. Ein Kreis ohne gueltige Nummer oder eine doppelte Nummer verwirft das ganze
+        Ereignis (Warnung ohne Kreisnamen); ein unbekannter Status nicht."""
         data = event.data
         if data.get("geraet_id") != self.geraet_id:
             return
@@ -232,20 +257,36 @@ class SmartHeatCoordinator:
             # Entladen/Entfernen storniert -- sonst koennte dieser Task danach noch das Add-on (neu) starten oder
             # parallel zum Zeit-Takt laufen.
             self.entry.async_create_task(self.hass, self.async_check(), f"smartheat_recheck_{self.tenant_id}")
-        if data.get("schema") != STATUS_EVENT_SCHEMA or data.get("status") not in ADDON_STATUS_VALUES:
-            _LOGGER.warning(
-                "Status-Event mit unbekanntem schema/status ignoriert: %r/%r", data.get("schema"), data.get("status"),
-            )
+        schema = data.get("schema")
+        befund = _versionsbefund(schema)
+        if befund is not None:
+            # Das Add-on spricht ein Schema, das diese Integration nicht liest: Befund statt Stillstand. Die zuletzt
+            # gelesenen Werte bleiben stehen, nur der Zustand wechselt; den Text der Mindestversion liefert der Kern.
+            self._set_version_status(befund, data.get("mindest_integration"))
             return
+        if isinstance(schema, bool) or schema not in V5_SCHEMAS:
+            _LOGGER.warning("Status-Event mit nicht aushandelbarem schema ignoriert: %r", schema)
+            return
+        # Ein unbekannter Status oder Hinweis verwirft das Ereignis nicht: er gilt als das, was das Add-on gemeldet hat.
         kreise = _kreise(data.get("kreise"))
         if kreise is None:
             _LOGGER.warning("Status-Event mit ungueltiger Kreisliste ignoriert")
             return
+        self.wunsch_schema = schema
         # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS); fehlende bleiben fehlend.
         self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data and key != "kreise"}
         self.kreise = kreise
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
+        self._set_version_status(None)  # sendet das Signal in jedem Fall
+
+    @callback
+    def _set_version_status(self, befund: str | None, mindest_integration: object = None) -> None:
+        """Versionsbefund setzen oder (None) aufheben, Repair nachziehen und die Entities benachrichtigen."""
+        if befund != self.version_status:
+            _LOGGER.info("Versionsbefund des Add-ons: %s", befund or "keiner")
+        self.version_status = befund
+        repairs.async_set_version(self.hass, befund, mindest_integration)
         async_dispatcher_send(self.hass, self.signal)
 
     async def async_check(self, _now_dt=None) -> None:

@@ -269,12 +269,8 @@ async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, c
 @pytest.mark.parametrize("event", [
     status_event(TENANT, "regelt", geraet_id="shg-b"),
     {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"},
-    {**status_event(TENANT, "regelt"), "schema": 3},
-    {**status_event(TENANT, "regelt"), "schema": 2},
-    {**status_event(TENANT, "regelt"), "schema": 1},
-    status_event(TENANT, "bereit"),
 ])
-async def test_foreign_or_unknown_events_are_ignored(hass, clock, event):
+async def test_foreign_events_are_ignored(hass, clock, event):
     entry = await _setup(hass)
 
     _fire(hass, event)

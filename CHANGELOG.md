@@ -24,6 +24,13 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   Wächter und wenn das Add-on `startet` meldet. Jedes Status-Ereignis des eigenen Geräts zählt jetzt als Lebenszeichen
   des Add-ons, auch wenn die Integration sein Schema nicht kennt: ein neueres Add-on wird nicht mehr nur deshalb neu
   gestartet.
+- Sprechen Add-on und Integration kein gemeinsames Schema des Status-Ereignisses, zeigt der Status-Sensor
+  `integration_veraltet` (das Add-on ist neuer, die Integration muss aktualisiert werden) oder `addon_veraltet` (das
+  Add-on ist älter und muss aktualisiert werden). Dazu erscheint ein Reparatur-Hinweis; bei `integration_veraltet`
+  nennt er die Mindestversion der Integration, wenn das Add-on sie mitschickt. Die übrigen Entities sind dann „nicht
+  verfügbar“, und die Wunschtemperatur lehnt das Setzen mit einem Text ab, statt zu schreiben. Das nächste lesbare
+  Ereignis hebt den Befund auf. Ein unbekannter Status des Add-ons verwirft das Ereignis nicht mehr (der
+  Status-Sensor zeigt dann „unbekannt“); die Wunschtemperatur sendet das Schema, das das Add-on zuletzt gemeldet hat.
 
 ## 1.1.0
 

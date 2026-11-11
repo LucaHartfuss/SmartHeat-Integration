@@ -36,11 +36,17 @@ class SmartHeatEntity(RestoreEntity):
             self._restore(last)
         self.async_on_remove(async_dispatcher_connect(self.hass, self.coordinator.signal, self._handle_update))
 
+    @property
+    def available(self) -> bool:
+        """Nicht verfuegbar, solange Add-on und Integration kein gemeinsames Schema sprechen: die zuletzt gelesenen
+        Werte waeren dann veraltet. Der Status-Sensor bleibt verfuegbar und nennt den Befund."""
+        return self.coordinator.version_status is None
+
     @callback
     def _handle_update(self) -> None:
         if self._has_value():
             self._apply()
-            self.async_write_ha_state()
+        self.async_write_ha_state()
 
     def _has_value(self) -> bool:
         return self.coordinator.data is not None

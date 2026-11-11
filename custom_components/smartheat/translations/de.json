@@ -221,7 +221,8 @@
           "startet": "Startet", "regelt": "Regelt", "konfigurationsfehler": "Konfigurationsfehler",
           "zugang_abgelehnt": "Zugang abgelehnt", "abo_beendet": "Abo beendet", "abo_inaktiv": "Abo inaktiv",
           "notbetrieb": "Notbetrieb", "datenfehler": "Datenfehler", "abgemeldet": "Abgemeldet",
-          "addon_gestoppt": "Add-on gestoppt", "reagiert_nicht": "Add-on reagiert nicht"
+          "addon_gestoppt": "Add-on gestoppt", "reagiert_nicht": "Add-on reagiert nicht",
+          "integration_veraltet": "Integration veraltet", "addon_veraltet": "Add-on veraltet"
         }
       },
       "datenfehler": {
@@ -249,7 +250,9 @@
   "exceptions": {
     "wunsch_ungueltig": {"message": "Die Wunschtemperatur muss eine Zahl sein."},
     "thermostat_aus": {"message": "Das Thermostat ist ausgeschaltet. Solange es aus ist, nimmt SmartHeat keine Wunschtemperatur an."},
-    "addon_nicht_bereit": {"message": "Das Add-on läuft nicht oder meldet sich nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte warten, bis das Add-on wieder läuft."}
+    "addon_nicht_bereit": {"message": "Das Add-on läuft nicht oder meldet sich nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte warten, bis das Add-on wieder läuft."},
+    "integration_veraltet": {"message": "Die SmartHeat-Integration ist älter als das Add-on und liest dessen Meldungen nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte die Integration aktualisieren."},
+    "addon_veraltet": {"message": "Das SmartHeat-Add-on ist älter als die Integration und wird von ihr nicht verstanden, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte das Add-on aktualisieren."}
   },
   "issues": {
     "update_noetig": {"title": "SmartHeat: Add-on aktualisieren", "description": "{text} Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."},
@@ -258,7 +261,10 @@
     "soll_quelle_aus": {"title": "SmartHeat: Thermostat ist aus", "description": "{text}"},
     "konfiguration_abgelehnt": {"title": "SmartHeat: Einstellung abgelehnt", "description": "Das Add-on hat die neue Einstellung abgelehnt: {text} Bitte unter SmartHeat → Neu konfigurieren prüfen."},
     "gesperrt": {"title": "SmartHeat: Gerät gesperrt", "description": "{text}"},
-    "geraet_hinweis": {"title": "SmartHeat-Hinweis", "description": "{text}"}
+    "geraet_hinweis": {"title": "SmartHeat-Hinweis", "description": "{text}"},
+    "integration_veraltet": {"title": "SmartHeat: Integration aktualisieren", "description": "Das Add-on ist neuer als diese Integration und spricht eine Version, die sie nicht liest. Die Werte erscheinen erst wieder, wenn die Integration mindestens auf Version {mindest_integration} aktualisiert ist. Einstellungen → Geräte & Dienste → HACS → SmartHeat → Aktualisieren."},
+    "integration_veraltet_ohne_version": {"title": "SmartHeat: Integration aktualisieren", "description": "Das Add-on ist neuer als diese Integration und spricht eine Version, die sie nicht liest. Die Werte erscheinen erst wieder, wenn die Integration aktualisiert ist. Einstellungen → Geräte & Dienste → HACS → SmartHeat → Aktualisieren."},
+    "addon_veraltet": {"title": "SmartHeat: Add-on aktualisieren", "description": "Das Add-on ist älter als diese Integration und spricht eine Version, die sie nicht mehr liest. Die Werte erscheinen erst wieder, wenn das Add-on aktualisiert ist. Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."}
   },
   "common": {
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",

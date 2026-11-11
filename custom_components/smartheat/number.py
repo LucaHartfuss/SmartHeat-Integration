@@ -26,7 +26,6 @@ from .const import (
     STATUS_ADDON_GESTOPPT,
     STATUS_REAGIERT_NICHT,
     WUNSCH_EVENT,
-    WUNSCH_EVENT_SCHEMA,
 )
 from .entity import SmartHeatEntity
 
@@ -79,6 +78,8 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         gerundete Wert ans Add-on."""
         if not isfinite(value):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="wunsch_ungueltig")
+        if self.coordinator.version_status is not None:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key=self.coordinator.version_status)
         if self.coordinator.watchdog_status in (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="addon_nicht_bereit")
         hinweise = (self.coordinator.data or {}).get("geraet_hinweise") or []
@@ -88,5 +89,5 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet nur bei
         # einer Aenderung, binnen etwa einer Sekunde), also dem, was das Add-on wirklich anwendet.
         self.hass.bus.async_fire(
-            WUNSCH_EVENT, {"schema": WUNSCH_EVENT_SCHEMA, "kreis": ERSTER_KREIS, "raum_soll": raum_soll},
+            WUNSCH_EVENT, {"schema": self.coordinator.wunsch_schema, "kreis": ERSTER_KREIS, "raum_soll": raum_soll},
             context=self._context)

@@ -39,3 +39,4 @@ _._attr_suggested_display_precision  # HA-Entity-Attribut (SensorEntity.suggeste
 _._attr_options  # HA-Entity-Attribut (SensorEntity.options, Enum-Sensor)
 _._attr_extra_state_attributes  # HA-Entity-Attribut (Entity.extra_state_attributes)
 _.async_set_native_value  # HA-Hook: NumberEntity, Dienst number.set_value
+_.available  # HA-Entity-Eigenschaft (Entity.available): "nicht verfuegbar" bei einem Versionsbefund

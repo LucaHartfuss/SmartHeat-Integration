@@ -155,6 +155,10 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "sensor", STATUS_KEY)
 
+    @property
+    def available(self) -> bool:
+        return True
+
     def _has_value(self) -> bool:
         return self.coordinator.status is not None
 
@@ -162,7 +166,9 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
         hints = (self.coordinator.data or {}).get("hinweise")
         if not isinstance(hints, dict):
             hints = {}  # kein Objekt (aelteres/fremdes Event): Hinweise leer statt Absturz
-        self._attr_native_value = self.coordinator.status
+        status = self.coordinator.status
+        # Ein Status, den diese Version nicht kennt, ist "unbekannt" statt eines Fehlers beim Schreiben (ENUM).
+        self._attr_native_value = status if status in STATUS_SENSOR_VALUES else None
         self._attr_extra_state_attributes = {
             "grund": self.coordinator.reason, **{hint: hints.get(hint) for hint in HINT_FIELDS},
         }

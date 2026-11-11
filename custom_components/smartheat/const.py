@@ -54,7 +54,18 @@ ADDON_STATUS_VALUES = (
 )
 STATUS_ADDON_GESTOPPT = "addon_gestoppt"
 STATUS_REAGIERT_NICHT = "reagiert_nicht"
-STATUS_SENSOR_VALUES = ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT)
+# Versionsbefunde der Integration (nie im Status-Ereignis des Add-ons): das Add-on meldet ein Schema, das die Integration
+# nicht liest, weil es hoeher (Integration veraltet) bzw. niedriger (Add-on veraltet) ist als alle gelesenen. Gleichnamig
+# sind das Repair, die Uebersetzung der Ablehnung und der Zustand des Status-Sensors; ohne brauchbare Mindestversion
+# im Kern des Ereignisses nimmt das Repair den Schluessel mit Endung.
+STATUS_INTEGRATION_VERALTET = "integration_veraltet"
+STATUS_ADDON_VERALTET = "addon_veraltet"
+STATUS_VERSION_VALUES = (STATUS_INTEGRATION_VERALTET, STATUS_ADDON_VERALTET)
+ISSUE_OHNE_VERSION = "_ohne_version"
+MINDEST_INTEGRATION_RE = re.compile(r"[0-9A-Za-z.+-]{1,32}")
+STATUS_SENSOR_VALUES = (
+    ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT) + STATUS_VERSION_VALUES
+)
 BOOST_KEINER = "keiner"
 BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
