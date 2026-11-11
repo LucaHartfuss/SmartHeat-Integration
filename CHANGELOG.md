@@ -10,6 +10,12 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   Neustart von Home Assistant bestehen; die Integration räumt es beim Start ab, wenn der Wächter dann nichts findet.
   Bei einer Eskalation ändert sich nur sein Text. Das Attribut `grund` des Status-Sensors trägt jetzt den Statuscode
   (`addon_gestoppt`, `reagiert_nicht`) statt des Meldungstextes.
+- Zwei neue Wächter-Befunde: `addon_fehlt` (die Heizungsbrücke ist nicht installiert, belegt nur bei genau einem
+  Store-Eintrag unseres Repositorys und keinem Add-on mit der Endung `_heizungsbruecke`, erst nach drei Prüfungen in
+  Folge; Fehler-Repair, alle Entities außer dem Status sind nicht verfügbar, die Wunschtemperatur lehnt ab) und
+  `addon_mehrfach` (mehrfach installiert, sofort, als Warnung; die Entities bleiben verfügbar). Beide lösen keinen
+  Neustart des Add-ons aus. Der Befund `addon_fehlt` endet erst, wenn nach seinem Beginn ein Ereignis kam und das Add-on
+  nicht mehr als fehlend gilt.
 - Die Mindestversion im Repair-Text ist enger gefasst: nur ASCII-Ziffern, Endung nur `-x`, `+x` oder `.devN`. Werte wie
   `1.2.3.com` oder mit Unicode-Ziffern erscheinen nicht mehr im Text; das Repair nimmt dann den Text ohne Version.
 - Das Status-Ereignis des Add-ons trägt zwei weitere Anlagenfelder, die die Integration liest: `konfig_version`

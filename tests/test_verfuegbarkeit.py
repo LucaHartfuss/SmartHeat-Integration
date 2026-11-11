@@ -54,7 +54,17 @@ def _infos(caplog):
             and "verfuegbar" in r.getMessage()]
 
 
-@pytest.mark.parametrize("befund", ["addon_gestoppt", "reagiert_nicht"])
+async def test_ein_doppeltes_addon_laesst_alle_entities_verfuegbar(hass, clock):
+    coordinator = await _laufend(hass)
+
+    coordinator._set_watchdog_status("addon_mehrfach")
+    await hass.async_block_till_done()
+
+    assert all(_verfuegbar(_alle(hass)))
+    assert hass.states.get(STATUS).state == "addon_mehrfach"
+
+
+@pytest.mark.parametrize("befund", ["addon_gestoppt", "reagiert_nicht", "addon_fehlt"])
 async def test_ein_waechterbefund_macht_alle_entities_ausser_dem_status_nicht_verfuegbar(hass, clock, befund):
     coordinator = await _laufend(hass)
     assert all(_verfuegbar(_alle(hass)))

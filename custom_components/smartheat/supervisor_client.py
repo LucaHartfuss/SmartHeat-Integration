@@ -29,7 +29,15 @@ from homeassistant.components.hassio import AddonError, AddonManager, get_superv
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.hassio import is_hassio
 
-from .const import ADDON_NAME, ADDON_REPOSITORY_URL, HEIZUNGSBRUECKE_ADDON_SLUG
+from .const import (
+    ADDON_NAME,
+    ADDON_REPOSITORY_URL,
+    BRUECKE_FEHLT,
+    BRUECKE_GEFUNDEN,
+    BRUECKE_MEHRFACH,
+    BRUECKE_UNKLAR,
+    HEIZUNGSBRUECKE_ADDON_SLUG,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,7 +130,7 @@ def matching_addons(installed, repository_slug: str | None, config_slug: str) ->
     """Installierte Add-ons genau aus unserem Repository (`repository` = dessen Slug, Slug = "<Repo-Slug>_<config_slug>").
     Weder die `url` eines Add-ons (aus dessen config.yaml, frei waehlbar) noch ein Slug-Suffix (auch
     local_heizungsbruecke oder ein fremdes Repository) zaehlen. Gemeinsame Zuordnung fuer async_resolve_bridge,
-    async_find_bridge_manager und addon_control.async_bridge_slug."""
+    async_bruecke_stand und addon_control.async_bridge_slug."""
     if not repository_slug:
         return []
     expected = f"{repository_slug}_{config_slug}"
@@ -165,23 +173,42 @@ async def async_resolve_bridge(hass: HomeAssistant, min_version: str) -> Resolve
     return ResolvedAddon(addon.slug, addon.version)
 
 
-async def async_find_bridge_manager(hass: HomeAssistant) -> AddonManager | None:
-    """Fuer den Waechter: der AddonManager der Heizungsbruecke aus EINEM addons.list() (Zuordnung wie in der
-    Modul-Doku: Repository per `source`, genauer Slug), ohne Mindestversion. Nicht oder mehrfach installiert -> None
-    (mit einer Warnung, die die beiden Faelle unterscheidet). Ist Hass.io gar nicht geladen (Core/Container-
-    Installation, aus einem Backup wiederhergestellt) wuerde get_supervisor_client() mit einem rohen
-    KeyError abbrechen -- das wird hier zu einer regulaeren AddonError, damit der Aufrufer sauber degradiert
-    statt mittendrin abzubrechen. Eine SupervisorError beim eigentlichen Abruf wird ebenfalls AddonError."""
+@dataclass(frozen=True)
+class BrueckenStand:
+    """Was der Supervisor ueber die Heizungsbruecke belegt (`BRUECKE_*`); `manager` nur bei `gefunden`."""
+    zustand: str
+    manager: AddonManager | None = None
+
+
+async def async_bruecke_stand(hass: HomeAssistant) -> BrueckenStand:
+    """Fuer den Waechter: Stand der Heizungsbruecke aus EINEM Store-Abruf und EINEM addons.list() (Zuordnung wie in
+    der Modul-Doku: Repository per `source`, genauer Slug), ohne Mindestversion.
+
+    `gefunden`: genau ein Treffer, mit dessen AddonManager. `mehrfach`: mehrere Treffer. `fehlt` nur, wenn unser
+    Repository genau einmal im Store steht und kein installiertes Add-on auf `_heizungsbruecke` endet, auch kein
+    fremdes (local, anderes Repository): sonst laesst sich nicht belegen, dass sie fehlt (`unklar`, ebenso bei keinem
+    oder mehrdeutigem Store-Eintrag). Eine Warnung nennt den Grund, die drei Faelle ausser `gefunden` unterscheidbar.
+
+    Ist Hass.io gar nicht geladen (Core/Container-Installation, aus einem Backup wiederhergestellt) wuerde
+    get_supervisor_client() mit einem rohen KeyError abbrechen -- das wird hier zu einer regulaeren AddonError, damit
+    der Aufrufer sauber degradiert statt mittendrin abzubrechen. Eine SupervisorError beim Abruf wird ebenfalls
+    AddonError."""
     if not is_hassio(hass):
         raise AddonError("Hass.io ist auf dieser Installation nicht geladen")
-    repository_slug = await async_repository_slug(hass)
+    repository_slugs = await async_repository_slugs(hass)
+    repository_slug = repository_slugs[0] if len(repository_slugs) == 1 else None
     try:
         installed = await get_supervisor_client(hass).addons.list()
     except SupervisorError as error:
         raise AddonError(f"Supervisor nicht erreichbar bei der Add-on-Aufloesung: {type(error).__name__}") from None
     matches = matching_addons(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG)
     if len(matches) == 1:
-        return AddonManager(hass, _LOGGER, ADDON_NAME, matches[0].slug)
-    reason = "nicht installiert" if not matches else "mehrfach installiert"
-    _LOGGER.warning("Add-on %s (%s) ist %s, wird uebersprungen", ADDON_NAME, HEIZUNGSBRUECKE_ADDON_SLUG, reason)
-    return None
+        return BrueckenStand(BRUECKE_GEFUNDEN, AddonManager(hass, _LOGGER, ADDON_NAME, matches[0].slug))
+    if matches:
+        zustand, grund = BRUECKE_MEHRFACH, "mehrfach installiert"
+    elif repository_slug and not fremde_bruecken(installed, repository_slug, HEIZUNGSBRUECKE_ADDON_SLUG):
+        zustand, grund = BRUECKE_FEHLT, "nicht installiert"
+    else:
+        zustand, grund = BRUECKE_UNKLAR, "nicht eindeutig zuzuordnen"
+    _LOGGER.warning("Add-on %s (%s) ist %s, wird uebersprungen", ADDON_NAME, HEIZUNGSBRUECKE_ADDON_SLUG, grund)
+    return BrueckenStand(zustand)

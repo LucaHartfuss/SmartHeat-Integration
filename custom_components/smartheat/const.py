@@ -55,6 +55,17 @@ ADDON_STATUS_VALUES = (
 )
 STATUS_ADDON_GESTOPPT = "addon_gestoppt"
 STATUS_REAGIERT_NICHT = "reagiert_nicht"
+STATUS_ADDON_FEHLT = "addon_fehlt"
+STATUS_ADDON_MEHRFACH = "addon_mehrfach"
+# Waechterbefunde, bei denen das Add-on nichts annehmen kann: alle Entities ausser dem Status sind nicht verfuegbar und
+# die Wunschtemperatur lehnt ab. `addon_mehrfach` gehoert nicht dazu (das Add-on kann gesund laufen).
+STATUS_ADDON_NICHT_BEREIT = (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT, STATUS_ADDON_FEHLT)
+# Was der Supervisor ueber die Heizungsbruecke belegt: gefunden (genau eine), fehlt (Store-Eintrag eindeutig, nichts
+# installiert, auch keine fremde mit gleicher Endung), mehrfach (mehrere eigene), unklar (alles andere).
+BRUECKE_GEFUNDEN = "gefunden"
+BRUECKE_FEHLT = "fehlt"
+BRUECKE_MEHRFACH = "mehrfach"
+BRUECKE_UNKLAR = "unklar"
 # Versionsbefunde der Integration (nie im Status-Ereignis des Add-ons): das Add-on meldet ein Schema, das die Integration
 # nicht liest, weil es hoeher (Integration veraltet) bzw. niedriger (Add-on veraltet) ist als alle gelesenen. Gleichnamig
 # sind das Repair, die Uebersetzung der Ablehnung und der Zustand des Status-Sensors; ohne brauchbare Mindestversion
@@ -73,7 +84,8 @@ CODE_RE = re.compile(r"[a-z0-9_]{1,40}")
 MINDEST_INTEGRATION_RE = re.compile(
     r"(?=.{1,32}\Z)\d{1,6}\.\d{1,6}\.\d{1,6}(?:[-+][0-9A-Za-z]{1,16}|\.dev\d{1,6})?", re.ASCII)
 STATUS_SENSOR_VALUES = (
-    ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT) + STATUS_VERSION_VALUES
+    ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT, STATUS_ADDON_FEHLT, STATUS_ADDON_MEHRFACH)
+    + STATUS_VERSION_VALUES
 )
 BOOST_KEINER = "keiner"
 BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
@@ -237,6 +249,7 @@ POLL_SECONDS = 2
 # Waechter (nur die Heizungsbruecke).
 WATCHDOG_INTERVAL_SECONDS = 300
 STOPPED_AFTER_CHECKS = 2
+MISSING_AFTER_CHECKS = 3
 SILENCE_SECONDS = 900
 MAX_RESTARTS_PER_WINDOW = 3
 RESTART_WINDOW_SECONDS = 3600

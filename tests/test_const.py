@@ -125,6 +125,28 @@ def test_die_waechter_repairs_versprechen_keinen_neustart(status, datei, pruefen
     assert "{" not in text
 
 
+@pytest.mark.parametrize("datei, fehlt_text, mehrfach_text", [
+    ("strings.json", "install", "more than once"),
+    ("translations/en.json", "install", "more than once"),
+    ("translations/de.json", "install", "mehrfach"),
+])
+def test_die_repairs_fehlt_und_mehrfach_haben_texte_ohne_neustartversprechen(datei, fehlt_text, mehrfach_text):
+    """`addon_fehlt` und `addon_mehrfach` haben in jeder Sprache Titel, Beschreibung, Statustext; die Ablehnung der
+    Wunschtemperatur bei fehlendem Add-on hat einen Text. Kein Neustartversprechen, kein Platzhalter."""
+    import json
+    from pathlib import Path
+
+    texte = json.loads((Path(const.__file__).parent / datei).read_text(encoding="utf-8"))
+    for befund, stichwort in (("addon_fehlt", fehlt_text), ("addon_mehrfach", mehrfach_text)):
+        issue = texte["issues"][befund]
+        assert issue["title"].strip() and stichwort in issue["description"].lower()
+        assert "Heizungsbrücke" in issue["description"]
+        assert "{" not in issue["description"] and "wenn möglich" not in issue["description"]
+        assert "if possible" not in issue["description"]
+        assert texte["entity"]["sensor"]["status"]["state"][befund].strip()
+    assert texte["exceptions"]["addon_fehlt"]["message"].strip()
+
+
 def test_kein_persistent_notification_im_paket():
     """Meldungen laufen als Repair; eine persistente Benachrichtigung entsteht nirgends mehr (und bliebe nach einem
     Neustart von Home Assistant nicht erhalten)."""

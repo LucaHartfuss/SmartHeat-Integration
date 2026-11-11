@@ -22,14 +22,21 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from . import geraete, repairs
 from .const import (
+    BRUECKE_FEHLT,
+    BRUECKE_GEFUNDEN,
+    BRUECKE_MEHRFACH,
     EINRICHTUNG_MAX_KREISE,
     INTEGRATION_EVENT,
     INTEGRATION_EVENT_FIELDS,
     INTEGRATION_EVENT_SCHEMA,
     MAX_RESTARTS_PER_WINDOW,
+    MISSING_AFTER_CHECKS,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
+    STATUS_ADDON_FEHLT,
     STATUS_ADDON_GESTOPPT,
+    STATUS_ADDON_MEHRFACH,
+    STATUS_ADDON_NICHT_BEREIT,
     STATUS_ADDON_VERALTET,
     STATUS_EVENT,
     STATUS_EVENT_FIELDS,
@@ -43,7 +50,7 @@ from .const import (
     WUNSCH_EVENT_SCHEMA,
     signal_update,
 )
-from .supervisor_client import async_find_bridge_manager
+from .supervisor_client import async_bruecke_stand
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +72,7 @@ class Watchdog:
     started_at: float
     last_event_at: float | None = None
     not_running: int = 0
+    missing: int = 0
     restarts: deque = field(default_factory=deque)
     incident_since: float | None = None
     incident_status: str | None = None
@@ -72,7 +80,7 @@ class Watchdog:
     def event_received(self, now: float) -> None:
         self.last_event_at = now
 
-    def check(self, now: float, running: bool | None) -> tuple[str | None, bool]:
+    def check(self, now: float, running: bool | None, bruecke: str = BRUECKE_GEFUNDEN) -> tuple[str | None, bool]:
         """(Waechter-Status oder None, ob die Heizungsbruecke jetzt (neu) gestartet wird). `running`: laeuft laut
         Supervisor; `None`, wenn sich die Bruecke nicht aufloesen laesst (nicht oder mehrfach installiert, Repository
         unter anderer Adresse): das zaehlt nie als "laeuft nicht" und fuehrt nie zu einem Start, nur die Stille
@@ -81,20 +89,30 @@ class Watchdog:
         eigenen (Neu-)Start -- ein frisch gestartetes Add-on bekommt so eine Schonfrist, bevor es erneut als
         "reagiert nicht" gilt, statt sofort wieder gemeldet zu werden. Ohne Event und ohne eigenen Start zaehlt die
         Stille ab dem Setup (Anlaufschutz nach einem HA-Neustart). Ein einmal begonnener Vorfall bleibt aktiv, bis
-        er nach `_incident_resolved` beendet ist (siehe dort)."""
+        er nach `_incident_resolved` beendet ist (siehe dort).
+
+        `bruecke` ist der Stand laut Supervisor (`BRUECKE_*`). `fehlt` meldet erst ab MISSING_AFTER_CHECKS Pruefungen in
+        Folge `addon_fehlt` (jeder andere Stand setzt den Zaehler zurueck), ohne Startversuch; `mehrfach` meldet sofort
+        `addon_mehrfach`, ohne Vorfall, Wartezeit und Start. Stille und Stopp haben bei laufendem Vorfall Vortritt vor
+        `mehrfach`."""
         self.not_running = self.not_running + 1 if running is False else 0
-        if self._incident_resolved(running):
+        self.missing = self.missing + 1 if bruecke == BRUECKE_FEHLT else 0
+        if self._incident_resolved(running, bruecke):
             self.incident_since = None
             self.incident_status = None
             return None, False
         if self.not_running >= STOPPED_AFTER_CHECKS:
             status, revive = STATUS_ADDON_GESTOPPT, True
+        elif self.missing >= MISSING_AFTER_CHECKS:
+            status, revive = STATUS_ADDON_FEHLT, False
         elif running is not False and now - self._silence_reference() >= SILENCE_SECONDS:
             status, revive = STATUS_REAGIERT_NICHT, running is True
         elif self.incident_since is not None:
             # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der zuletzt ermittelte
             # Status bleibt bestehen, ohne neuen Startversuch.
             status, revive = self.incident_status, False
+        elif bruecke == BRUECKE_MEHRFACH:
+            return STATUS_ADDON_MEHRFACH, False
         else:
             return None, False
         if self.incident_since is None:
@@ -102,14 +120,14 @@ class Watchdog:
         self.incident_status = status
         return status, revive and self._restart_allowed(now)
 
-    def _incident_resolved(self, running: bool | None) -> bool:
-        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam und die Bruecke dabei (bzw. seither) nicht
-        als gestoppt gilt."""
+    def _incident_resolved(self, running: bool | None, bruecke: str) -> bool:
+        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam, die Bruecke dabei (bzw. seither) nicht als
+        gestoppt gilt und nicht als fehlend belegt ist."""
         if self.incident_since is None:
             return False
         if self.last_event_at is None or self.last_event_at <= self.incident_since:
             return False
-        return running is not False
+        return running is not False and bruecke != BRUECKE_FEHLT
 
     def _silence_reference(self) -> float:
         reference = self.started_at if self.last_event_at is None else self.last_event_at
@@ -219,8 +237,10 @@ class SmartHeatCoordinator:
 
     @property
     def verfuegbar(self) -> bool:
-        """Ob die Entities ausser dem Status ihre Werte zeigen: nicht bei einem Waechter- oder Versionsbefund."""
-        return self.watchdog_status is None and self.version_status is None
+        """Ob die Entities ausser dem Status ihre Werte zeigen: nicht bei einem Waechterbefund, der das Add-on als nicht
+        bereit meldet (gestoppt, reagiert nicht, fehlt; `addon_mehrfach` gehoert nicht dazu) und nicht bei einem
+        Versionsbefund."""
+        return self.watchdog_status not in STATUS_ADDON_NICHT_BEREIT and self.version_status is None
 
     @callback
     def _verfuegbarkeit_melden(self) -> None:
@@ -358,11 +378,12 @@ class SmartHeatCoordinator:
         try:
             self._async_send_integration_event()  # auch wenn der Supervisor gleich nicht antwortet
             try:
-                manager = await async_find_bridge_manager(self.hass)
+                stand = await async_bruecke_stand(self.hass)
             except AddonError as error:
                 # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren.
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)
                 return
+            manager = stand.manager
             running: bool | None = None  # None: Bruecke nicht aufloesbar (siehe Watchdog.check)
             if manager is not None:
                 try:
@@ -373,7 +394,7 @@ class SmartHeatCoordinator:
                     )
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running = info.state == AddonState.RUNNING
-            status, revive = self._watchdog.check(_now(), running)
+            status, revive = self._watchdog.check(_now(), running, stand.zustand)
             if self._stopped:  # der Eintrag wurde waehrend der Abfragen entladen/geloescht: nichts mehr starten
                 return
             if revive:

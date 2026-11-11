@@ -24,6 +24,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.smartheat import sensor
 from custom_components.smartheat.const import (
+    ADDON_REPOSITORY_URL,
     DOMAIN,
     INTEGRATION_EVENT,
     INTEGRATION_EVENT_FIELDS,
@@ -119,6 +120,70 @@ def test_watchdog_an_unresolvable_bridge_with_events_stays_silent_and_clears_an_
     watchdog.event_received(5000)
 
     assert watchdog.check(5001, None) == (None, False)
+
+
+def test_watchdog_a_missing_bridge_counts_as_missing_only_after_three_checks_and_is_never_restarted():
+    watchdog = Watchdog(started_at=0)
+    ergebnisse = []
+    for n in range(1, 6):
+        watchdog.event_received(300 * n)  # Ereignisse halten die Stille fern: nur das Fehlen zaehlt
+        ergebnisse.append(watchdog.check(300 * n + 1, None, bruecke="fehlt"))
+
+    assert ergebnisse == [(None, False), (None, False)] + [("addon_fehlt", False)] * 3
+    assert watchdog.not_running == 0 and not watchdog.restarts
+
+
+def test_watchdog_a_found_or_unclear_bridge_resets_the_missing_count():
+    watchdog = Watchdog(started_at=0)
+    for n, stand in enumerate(("fehlt", "fehlt", "unklar", "fehlt", "fehlt", "gefunden", "fehlt", "fehlt"), start=1):
+        watchdog.event_received(300 * n)
+        assert watchdog.check(300 * n + 1, True if stand == "gefunden" else None, bruecke=stand) == (None, False)
+
+
+def test_watchdog_the_missing_incident_ends_only_with_an_event_and_a_bridge_that_is_not_missing():
+    watchdog = Watchdog(started_at=0)
+    for n in (1, 2, 3):
+        watchdog.event_received(n)
+        watchdog.check(300 * n, None, bruecke="fehlt")
+    assert watchdog.incident_status == "addon_fehlt"
+
+    assert watchdog.check(1000, None, bruecke="fehlt") == ("addon_fehlt", False)  # ohne Ereignis: weiter Vorfall
+    watchdog.event_received(1100)  # ein spaetes Ereignis, das Add-on fehlt weiter
+    assert watchdog.check(1101, None, bruecke="fehlt") == ("addon_fehlt", False)
+    assert watchdog.check(1300, False, bruecke="gefunden") == ("addon_fehlt", False)  # neu installiert, gestoppt
+    assert watchdog.check(1301, True, bruecke="gefunden") == (None, False)  # laeuft, Ereignis nach Beginn des Vorfalls
+
+
+def test_watchdog_several_bridges_are_reported_at_once_and_never_restarted():
+    watchdog = Watchdog(started_at=0)
+    watchdog.event_received(0)
+
+    assert watchdog.check(300, None, bruecke="mehrfach") == ("addon_mehrfach", False)
+    watchdog.event_received(400)
+    assert watchdog.check(600, None, bruecke="mehrfach") == ("addon_mehrfach", False)
+    assert watchdog.check(900, True, bruecke="gefunden") == (None, False)  # keine Wartezeit, kein Vorfall
+    assert watchdog.incident_since is None and not watchdog.restarts
+
+
+def test_watchdog_silence_wins_over_several_bridges_and_a_missing_one_wins_over_silence():
+    watchdog = Watchdog(started_at=0)
+    assert watchdog.check(900, None, bruecke="mehrfach") == ("reagiert_nicht", False)
+
+    watchdog = Watchdog(started_at=0)
+    watchdog.check(300, None, bruecke="fehlt")
+    watchdog.check(600, None, bruecke="fehlt")
+    assert watchdog.check(900, None, bruecke="fehlt") == ("addon_fehlt", False)  # genau an der Stillegrenze
+
+
+def test_watchdog_a_silence_incident_escalates_to_missing():
+    watchdog = Watchdog(started_at=0)
+    for n in (1, 2, 3):
+        watchdog.check(300 * n, None, bruecke="unklar")
+    assert watchdog.incident_status == "reagiert_nicht"
+
+    assert watchdog.check(1200, None, bruecke="fehlt") == ("reagiert_nicht", False)
+    assert watchdog.check(1500, None, bruecke="fehlt") == ("reagiert_nicht", False)
+    assert watchdog.check(1800, None, bruecke="fehlt") == ("addon_fehlt", False)
 
 
 # --- Vorfall bleibt aktiv bis Event + alle Add-ons laufen (Review-Fund 1, Fix-Runde 1) ---
@@ -1019,6 +1084,138 @@ async def test_unaufloesbare_bruecke_ohne_ereignisse_meldet_reagiert_nicht_ohne_
     assert hass.states.get(STATUS).state == "reagiert_nicht"
     assert notes == ([(WAECHTER_ISSUE, "reagiert_nicht")], [])
     assert supervisor.actions == []
+
+
+async def _pruefungen(hass, entry, clock, anzahl):
+    for _ in range(anzahl):
+        clock["t"] += 300
+        await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+
+@pytest.mark.parametrize("sprache", ["de", "en"])
+async def test_a_missing_addon_is_reported_after_three_checks_as_an_error_without_a_restart(
+        hass, supervisor, clock, notes, sprache):
+    """Nicht installiert (genau ein Store-Eintrag, keine Bruecke): erst die dritte Pruefung in Folge meldet
+    `addon_fehlt` als Fehler-Repair, ohne Neustartversuch und ohne Push; alle Entities ausser dem Status sind nicht
+    verfuegbar."""
+    pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
+    supervisor.installed = []
+    entry = await _setup_mit_kreis(hass)
+    coordinator = entry.runtime_data
+
+    await _pruefungen(hass, entry, clock, 2)
+    assert coordinator.watchdog_status is None and _waechter_issue(hass) is None
+
+    await _pruefungen(hass, entry, clock, 1)
+    assert hass.states.get(STATUS).state == "addon_fehlt"
+    assert hass.states.get(STATUS).attributes["grund"] == "addon_fehlt"
+    assert coordinator.verfuegbar is False
+    issue = _waechter_issue(hass)
+    assert (issue.severity, issue.is_fixable, issue.is_persistent, issue.translation_key) == (
+        ir.IssueSeverity.ERROR, False, True, "addon_fehlt")
+    assert issue.translation_placeholders is None
+    texte = await async_get_translations(hass, sprache, "issues", [DOMAIN])
+    assert texte[f"component.{DOMAIN}.issues.addon_fehlt.title"]
+    assert texte[f"component.{DOMAIN}.issues.addon_fehlt.description"]
+    await _pruefungen(hass, entry, clock, 3)
+    assert supervisor.actions == [] and pushes == []
+    assert notes[0] == [(WAECHTER_ISSUE, "addon_fehlt")]
+
+
+async def test_a_missing_addon_is_cleared_when_it_is_installed_again_and_reports_in(hass, supervisor, clock, notes):
+    supervisor.installed = []
+    entry = await _setup_mit_kreis(hass)
+    await _pruefungen(hass, entry, clock, 3)
+    assert entry.runtime_data.watchdog_status == "addon_fehlt"
+
+    supervisor.installed = [installed_addon(BRIDGE_SLUG)]
+    clock["t"] += 10
+    _fire(hass, status_event(TENANT, "regelt"))
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.watchdog_status is None
+    assert hass.states.get(STATUS).state == "regelt"
+    assert notes[1] == [WAECHTER_ISSUE]
+
+
+async def test_a_supervisor_outage_between_missing_checks_does_not_reset_the_count(hass, supervisor, clock):
+    supervisor.installed = []
+    entry = await _setup_mit_kreis(hass)
+    await _pruefungen(hass, entry, clock, 2)
+
+    supervisor.errors["addons.list"] = SupervisorError("weg")
+    await _pruefungen(hass, entry, clock, 1)
+    assert entry.runtime_data.watchdog_status is None
+    del supervisor.errors["addons.list"]
+    await _pruefungen(hass, entry, clock, 1)
+
+    assert entry.runtime_data.watchdog_status == "addon_fehlt"
+
+
+async def test_a_foreign_bridge_or_an_unclear_store_never_counts_as_missing(hass, supervisor, clock):
+    """Eine fremde `*_heizungsbruecke` oder ein mehrdeutiger Store-Eintrag ist `unklar`: nie „fehlt“, nur die Stille
+    meldet, wie bei jeder nicht aufloesbaren Bruecke."""
+    supervisor.installed = [installed_addon("local_heizungsbruecke", repository="local")]
+    entry = await _setup_mit_kreis(hass)
+    for _ in range(4):
+        await _pruefungen(hass, entry, clock, 1)
+        _fire(hass, status_event(TENANT, "regelt"))
+        await hass.async_block_till_done()
+    assert entry.runtime_data.watchdog_status is None
+
+    supervisor.installed = []
+    supervisor.repositories = [repository(), repository("0badc0de", source=ADDON_REPOSITORY_URL + "#develop")]
+    for _ in range(4):
+        await _pruefungen(hass, entry, clock, 1)
+        _fire(hass, status_event(TENANT, "regelt"))
+        await hass.async_block_till_done()
+    assert entry.runtime_data.watchdog_status is None and _waechter_issue(hass) is None
+
+
+@pytest.mark.parametrize("sprache", ["de", "en"])
+async def test_a_double_addon_is_reported_at_once_as_a_warning_without_restart_push_or_lock(
+        hass, supervisor, clock, notes, sprache):
+    """Mehrfach installiert: sofort `addon_mehrfach` als Warnung (Orange), kein Neustart, kein Push; die Entities
+    bleiben verfuegbar (das Add-on kann gesund laufen), der Befund endet, sobald nur noch eines da ist."""
+    pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
+    supervisor.installed = [installed_addon(BRIDGE_SLUG), installed_addon(BRIDGE_SLUG)]
+    entry = await _setup_mit_kreis(hass)
+    coordinator = entry.runtime_data
+
+    await _pruefungen(hass, entry, clock, 1)
+
+    assert hass.states.get(STATUS).state == "addon_mehrfach"
+    assert coordinator.verfuegbar is True
+    issue = _waechter_issue(hass)
+    assert (issue.severity, issue.is_fixable, issue.translation_key) == (
+        ir.IssueSeverity.WARNING, False, "addon_mehrfach")
+    assert issue.translation_placeholders is None
+    texte = await async_get_translations(hass, sprache, "issues", [DOMAIN])
+    assert texte[f"component.{DOMAIN}.issues.addon_mehrfach.title"]
+    assert texte[f"component.{DOMAIN}.issues.addon_mehrfach.description"]
+    assert supervisor.actions == [] and pushes == []
+
+    supervisor.installed = [installed_addon(BRIDGE_SLUG)]
+    await _pruefungen(hass, entry, clock, 1)
+    assert coordinator.watchdog_status is None and _waechter_issue(hass) is None
+    assert hass.states.get(STATUS).state == "regelt"
+
+
+async def test_the_missing_finding_replaces_the_silence_finding_under_the_same_issue(hass, supervisor, clock, notes):
+    """Meldet sich ein nicht aufloesbares Add-on nicht und ist danach als fehlend belegt, bleibt es ein Vorfall:
+    dieselbe Issue-ID, nur der Text-Code wechselt."""
+    supervisor.installed = [installed_addon("local_heizungsbruecke", repository="local")]
+    entry = await _setup(hass)
+    await _pruefungen(hass, entry, clock, 3)
+    assert entry.runtime_data.watchdog_status == "reagiert_nicht"
+
+    supervisor.installed = []
+    await _pruefungen(hass, entry, clock, 3)
+
+    assert entry.runtime_data.watchdog_status == "addon_fehlt"
+    assert notes[0] == [(WAECHTER_ISSUE, "reagiert_nicht"), (WAECHTER_ISSUE, "addon_fehlt")]
+    assert notes[1] == []
 
 
 async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, supervisor, clock, notes):

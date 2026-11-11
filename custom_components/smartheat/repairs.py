@@ -19,6 +19,7 @@ from .const import (
     HINWEIS_KEYS,
     ISSUE_OHNE_VERSION,
     MINDEST_INTEGRATION_RE,
+    STATUS_ADDON_MEHRFACH,
     STATUS_INTEGRATION_VERALTET,
     STATUS_VERSION_VALUES,
     WATCHDOG_ISSUE_ID,
@@ -96,15 +97,17 @@ def async_set_version(hass: HomeAssistant, befund: str | None, mindest_integrati
 
 
 def async_set_watchdog(hass: HomeAssistant, befund: str | None) -> None:
-    """Das Repair zum Befund des Waechters (`addon_gestoppt` oder `reagiert_nicht`) setzen; `None` nimmt es zurueck. Es
-    gibt hoechstens eines, unter einer festen ID: eskaliert der Vorfall, aendert sich nur der Text. Fehler, nicht
-    behebbar, persistent (es ueberdauert einen Neustart von Home Assistant; die Integration raeumt es beim Start ab,
-    wenn der Waechter dann nichts findet). Der Text steht nur in den Uebersetzungen, ohne Platzhalter."""
+    """Das Repair zum Befund des Waechters (`addon_gestoppt`, `reagiert_nicht`, `addon_fehlt` oder `addon_mehrfach`)
+    setzen; `None` nimmt es zurueck. Es gibt hoechstens eines, unter einer festen ID: eskaliert der Vorfall, aendert
+    sich nur der Text. Nicht behebbar, persistent (es ueberdauert einen Neustart von Home Assistant; die Integration
+    raeumt es beim Start ab, wenn der Waechter dann nichts findet). Fehler, nur `addon_mehrfach` ist eine Warnung (das
+    Add-on kann dabei gesund laufen). Der Text steht nur in den Uebersetzungen, ohne Platzhalter."""
     if befund is None:
         ir.async_delete_issue(hass, DOMAIN, WATCHDOG_ISSUE_ID)
         return
+    severity = ir.IssueSeverity.WARNING if befund == STATUS_ADDON_MEHRFACH else ir.IssueSeverity.ERROR
     ir.async_create_issue(
-        hass, DOMAIN, WATCHDOG_ISSUE_ID, is_fixable=False, is_persistent=True, severity=ir.IssueSeverity.ERROR,
+        hass, DOMAIN, WATCHDOG_ISSUE_ID, is_fixable=False, is_persistent=True, severity=severity,
         translation_key=befund,
     )
 
