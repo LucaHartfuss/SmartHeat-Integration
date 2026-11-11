@@ -240,18 +240,8 @@ STOPPED_AFTER_CHECKS = 2
 SILENCE_SECONDS = 900
 MAX_RESTARTS_PER_WINDOW = 3
 RESTART_WINDOW_SECONDS = 3600
-WATCHDOG_MESSAGES = {
-    STATUS_ADDON_GESTOPPT: ("SmartHeat: Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. "
-                            "Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat "
-                            "es neu."),
-    STATUS_REAGIERT_NICHT: ("SmartHeat: Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die "
-                            "Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons "
-                            "prüfen; wenn möglich, startet SmartHeat es neu."),
-}
-WATCHDOG_REASONS = {
-    STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: Heizungsbrücke",
-    STATUS_REAGIERT_NICHT: "Heizungsbrücke meldet sich seit 15 Minuten nicht",
-}
+# Das eine Repair des Waechters: bei einer Eskalation aendert sich sein Text-Code, nicht seine ID.
+WATCHDOG_ISSUE_ID = "waechter"
 
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
@@ -273,10 +263,6 @@ def unique_id(tenant_id: str, key: str, kreis: int | None = None) -> str:
     """Stabile Kennung einer Entity aus Anlage, Kreis und Schluessel; die Registry haelt an ihr fest, auch wenn die
     Entity-ID geaendert wird."""
     return f"{tenant_id}_{'' if kreis is None else f'k{kreis}_'}{key}"
-
-
-def watchdog_notification_id(tenant_id: str) -> str:
-    return f"smartheat_{slug(tenant_id)}_addon"
 
 
 def signal_update(entry_id: str) -> str:

@@ -5,6 +5,11 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Befunde des zweiten Wächters (Heizungsbrücke gestoppt oder reagiert nicht) erscheinen als Repair unter
+  Einstellungen > Reparaturen statt als Benachrichtigung. Das Repair ist ein Fehler, nicht behebbar und bleibt über einen
+  Neustart von Home Assistant bestehen; die Integration räumt es beim Start ab, wenn der Wächter dann nichts findet.
+  Bei einer Eskalation ändert sich nur sein Text. Das Attribut `grund` des Status-Sensors trägt jetzt den Statuscode
+  (`addon_gestoppt`, `reagiert_nicht`) statt des Meldungstextes.
 - Die Mindestversion im Repair-Text ist enger gefasst: nur ASCII-Ziffern, Endung nur `-x`, `+x` oder `.devN`. Werte wie
   `1.2.3.com` oder mit Unicode-Ziffern erscheinen nicht mehr im Text; das Repair nimmt dann den Text ohne Version.
 - Das Status-Ereignis des Add-ons trägt zwei weitere Anlagenfelder, die die Integration liest: `konfig_version`

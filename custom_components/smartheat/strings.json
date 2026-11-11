@@ -318,7 +318,9 @@
     "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"},
     "integration_veraltet": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated to at least version {mindest_integration}. Settings → Devices & services → HACS → SmartHeat → Update."},
     "integration_veraltet_ohne_version": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated. Settings → Devices & services → HACS → SmartHeat → Update."},
-    "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."}
+    "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."},
+    "addon_gestoppt": {"title": "SmartHeat: add-on not running", "description": "The Heizungsbrücke add-on is not running, so the heating control is interrupted. Please check the add-on under Settings → Add-ons; if possible, SmartHeat restarts it."},
+    "reagiert_nicht": {"title": "SmartHeat: add-on not responding", "description": "The Heizungsbrücke add-on has not reported for 15 minutes, so the heating control is interrupted. Please check the add-on under Settings → Add-ons; if possible, SmartHeat restarts it."}
   },
   "common": {
     "warning_stale": "No update for more than 6 hours: {entities}",

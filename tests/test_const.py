@@ -91,8 +91,6 @@ def test_entity_ids_of_the_installation_and_of_the_circuits():
     assert const.entity_id("sensor", "zustand", kreis=4) == "sensor.smartheat_k4_zustand"
     assert const.unique_id("client1", "status") == "client1_status"
     assert const.unique_id("client1", "zustand", kreis=2) == "client1_k2_zustand"
-    assert const.watchdog_notification_id("client1") == "smartheat_client1_addon"
-    assert const.watchdog_notification_id("Smoke-Test 01") == "smartheat_smoke_test_01_addon"
 
 
 def test_the_outdated_addon_text_names_the_minimum_version():
@@ -108,9 +106,32 @@ def test_the_outdated_addon_text_names_the_minimum_version():
 
 
 @pytest.mark.parametrize("status", ["reagiert_nicht", "addon_gestoppt"])
-def test_die_waechter_meldungen_versprechen_keinen_neustart(status):
-    """Bei einer nicht aufloesbaren Bruecke oder ausgeschoepftem Kontingent (3 je Stunde) gibt es keinen Neustart; die
-    Meldung muss fuer beide Faelle stimmen und den Nutzer zur Pruefung auffordern."""
-    text = const.WATCHDOG_MESSAGES[status]
-    assert "startet es neu" not in text
-    assert "prüf" in text and "Heizungsbrücke" in text
+@pytest.mark.parametrize("datei, pruefen, moeglich", [
+    ("strings.json", "check", "if possible"),
+    ("translations/en.json", "check", "if possible"),
+    ("translations/de.json", "prüf", "wenn möglich"),
+])
+def test_die_waechter_repairs_versprechen_keinen_neustart(status, datei, pruefen, moeglich):
+    """Bei einer nicht aufloesbaren Bruecke oder ausgeschoepftem Kontingent (3 je Stunde) gibt es keinen Neustart; der
+    Text steht in beiden Sprachen unter dem Statuscode, fordert zur Pruefung auf und verspricht den Neustart nur
+    „wenn moeglich“."""
+    import json
+    from pathlib import Path
+
+    issue = json.loads((Path(const.__file__).parent / datei).read_text(encoding="utf-8"))["issues"][status]
+    assert issue["title"].strip()
+    text = issue["description"]
+    assert pruefen in text and "Heizungsbrücke" in text and moeglich in text
+    assert "{" not in text
+
+
+def test_kein_persistent_notification_im_paket():
+    """Meldungen laufen als Repair; eine persistente Benachrichtigung entsteht nirgends mehr (und bliebe nach einem
+    Neustart von Home Assistant nicht erhalten)."""
+    from pathlib import Path
+
+    paket = Path(const.__file__).parent
+    treffer = [str(datei.name) for datei in paket.rglob("*.py") if "persistent_notification" in datei.read_text()]
+    assert treffer == []
+    assert not hasattr(const, "WATCHDOG_MESSAGES") and not hasattr(const, "WATCHDOG_REASONS")
+    assert not hasattr(const, "watchdog_notification_id")

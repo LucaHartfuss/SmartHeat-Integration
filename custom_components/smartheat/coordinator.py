@@ -2,8 +2,7 @@
 HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte lesbare Status-Ereignis ihres Geraets
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
-meldet, meldet Befunde per persistent_notification (Push an die Handys ist Sache des Add-ons, Nutzer-Entscheidung
-2026-10-11) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
+meldet, meldet Befunde als Repair (ohne Push) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
 eigenen Geraets zaehlt als Lebenszeichen des Add-ons, gleich welches Schema; umgekehrt meldet die Integration dem
 Add-on ihre Version und gelesenen Schemata (INTEGRATION_EVENT). Sie schreibt nie auf die Anlage (keine Notbremse,
 Nutzer-Entscheidung) und ruft keinen Server."""
@@ -15,7 +14,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from homeassistant.components import persistent_notification
 from homeassistant.components.hassio import AddonError, AddonState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
@@ -42,11 +40,8 @@ from .const import (
     STOPPED_AFTER_CHECKS,
     V5_SCHEMAS,
     WATCHDOG_INTERVAL_SECONDS,
-    WATCHDOG_MESSAGES,
-    WATCHDOG_REASONS,
     WUNSCH_EVENT_SCHEMA,
     signal_update,
-    watchdog_notification_id,
 )
 from .supervisor_client import async_find_bridge_manager
 
@@ -189,7 +184,6 @@ class SmartHeatCoordinator:
         # die Integration es liest. `wunsch_schema`: das zuletzt gelesene Schema, in dem die Integration antwortet.
         self.version_status: str | None = None
         self.wunsch_schema: int = WUNSCH_EVENT_SCHEMA
-        self._watchdog_reason: str | None = None
         self._verfuegbar_gemeldet = True
         self._watchdog = Watchdog(started_at=_now())
         self._checking = False
@@ -242,8 +236,9 @@ class SmartHeatCoordinator:
 
     @property
     def reason(self) -> str | None:
+        """Der Grund des Status-Sensors: bei einem Waechter- oder Versionsbefund dessen Code, sonst der Grund des Add-ons."""
         if self.watchdog_status is not None:
-            return self._watchdog_reason
+            return self.watchdog_status
         if self.version_status is not None:
             return self.version_status
         return None if self.data is None else self.data.get("grund")
@@ -254,6 +249,9 @@ class SmartHeatCoordinator:
         self._version = version
         self._watchdog = Watchdog(started_at=_now())
         self._stopped = False
+        # Das Repair des Waechters ueberdauert einen Neustart von Home Assistant; der neue Waechter beginnt ohne Befund
+        # und legt es bei Bedarf neu an.
+        repairs.async_set_watchdog(self.hass, None)
         self.entry.async_on_unload(self._async_stop)
         self.entry.async_on_unload(self.hass.bus.async_listen(STATUS_EVENT, self.async_handle_event))
         self.entry.async_on_unload(async_track_time_interval(
@@ -401,24 +399,13 @@ class SmartHeatCoordinator:
 
     @callback
     def _set_watchdog_status(self, status: str | None) -> None:
-        """persistent_notification beim Beginn (None -> kritisch) eines Vorfalls, entfernt an seinem Ende
-        (kritisch -> None). Eskaliert ein laufender Vorfall (z. B. gestoppt -> reagiert nicht oder umgekehrt), wird
-        nur der Text der bestehenden Meldung aktualisiert (gleiche notification_id, kein neuer Eintrag): es ist
-        derselbe Vorfall, keine zweite Stoerung."""
-        reason = None if status is None else WATCHDOG_REASONS[status]  # None = Entwarnung
-        previous = self.watchdog_status
-        changed = (status, reason) != (previous, self._watchdog_reason)
-        self.watchdog_status, self._watchdog_reason = status, reason
+        """Das Repair des Waechters beim Beginn (None -> Befund) eines Vorfalls anlegen, an seinem Ende (Befund -> None)
+        entfernen. Eskaliert ein laufender Vorfall (z. B. gestoppt -> reagiert nicht oder umgekehrt), bekommt das
+        bestehende Repair nur den neuen Text-Code (gleiche ID, kein neuer Eintrag): es ist derselbe Vorfall, keine
+        zweite Stoerung."""
+        changed = status != self.watchdog_status
+        self.watchdog_status = status
         self._verfuegbarkeit_melden()
-        if previous is None and status is not None:
-            persistent_notification.async_create(
-                self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
-            )
-        elif previous is not None and status is None:
-            persistent_notification.async_dismiss(self.hass, watchdog_notification_id(self.tenant_id))
-        elif previous is not None and status is not None and status != previous:
-            persistent_notification.async_create(
-                self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
-            )
         if changed:
+            repairs.async_set_watchdog(self.hass, status)
             async_dispatcher_send(self.hass, self.signal)

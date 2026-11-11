@@ -318,7 +318,9 @@
     "geraet_hinweis": {"title": "SmartHeat-Hinweis", "description": "{text}"},
     "integration_veraltet": {"title": "SmartHeat: Integration aktualisieren", "description": "Das Add-on ist neuer als diese Integration und spricht eine Version, die sie nicht liest. Die Werte erscheinen erst wieder, wenn die Integration mindestens auf Version {mindest_integration} aktualisiert ist. Einstellungen → Geräte & Dienste → HACS → SmartHeat → Aktualisieren."},
     "integration_veraltet_ohne_version": {"title": "SmartHeat: Integration aktualisieren", "description": "Das Add-on ist neuer als diese Integration und spricht eine Version, die sie nicht liest. Die Werte erscheinen erst wieder, wenn die Integration aktualisiert ist. Einstellungen → Geräte & Dienste → HACS → SmartHeat → Aktualisieren."},
-    "addon_veraltet": {"title": "SmartHeat: Add-on aktualisieren", "description": "Das Add-on ist älter als diese Integration und spricht eine Version, die sie nicht mehr liest. Die Werte erscheinen erst wieder, wenn das Add-on aktualisiert ist. Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."}
+    "addon_veraltet": {"title": "SmartHeat: Add-on aktualisieren", "description": "Das Add-on ist älter als diese Integration und spricht eine Version, die sie nicht mehr liest. Die Werte erscheinen erst wieder, wenn das Add-on aktualisiert ist. Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."},
+    "addon_gestoppt": {"title": "SmartHeat: Add-on läuft nicht", "description": "Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat es neu."},
+    "reagiert_nicht": {"title": "SmartHeat: Add-on meldet sich nicht", "description": "Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat es neu."}
   },
   "common": {
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",

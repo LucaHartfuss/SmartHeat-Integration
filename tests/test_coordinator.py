@@ -1,5 +1,5 @@
 """Coordinator, Entities und zweiter Waechter (Schema 4, Zuordnung ueber die
-Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur per persistent_notification)."""
+Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur als Repair)."""
 import asyncio
 import json
 import logging
@@ -11,7 +11,9 @@ from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonState
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     async_capture_events,
@@ -29,7 +31,6 @@ from custom_components.smartheat.const import (
     STATUS_EVENT_FIELDS,
     STATUS_EVENT_SCHEMA,
     STATUS_KREIS_FIELDS,
-    WATCHDOG_MESSAGES,
     unique_id,
 )
 from custom_components.smartheat.coordinator import Watchdog
@@ -40,6 +41,7 @@ from .supervisor_fakes import BRIDGE_SLUG, installed_addon, repository
 CO = "custom_components.smartheat.coordinator"
 TENANT = "wohnung1"
 STATUS = "sensor.smartheat_status"
+WAECHTER_ISSUE = "waechter"
 RUNNING = True  # laeuft laut Supervisor; False: laeuft nicht; None: Bruecke nicht aufloesbar
 
 
@@ -188,17 +190,25 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def notes(monkeypatch):
+def notes(hass):
+    """Die Aenderungen am Repair des Waechters: (angelegt oder geaendert als (Issue-ID, Text-Code), entfernt als ID)."""
     created, dismissed = [], []
-    monkeypatch.setattr(
-        "homeassistant.components.persistent_notification.async_create",
-        lambda hass, message, title=None, notification_id=None: created.append((notification_id, message)),
-    )
-    monkeypatch.setattr(
-        "homeassistant.components.persistent_notification.async_dismiss",
-        lambda hass, notification_id: dismissed.append(notification_id),
-    )
+
+    def merken(event):
+        if event.data["domain"] != DOMAIN or event.data["issue_id"] != WAECHTER_ISSUE:
+            return
+        if event.data["action"] == "remove":
+            dismissed.append(WAECHTER_ISSUE)
+        else:
+            issue = ir.async_get(hass).async_get_issue(DOMAIN, WAECHTER_ISSUE)
+            created.append((WAECHTER_ISSUE, issue.translation_key))
+
+    hass.bus.async_listen(ir.EVENT_REPAIRS_ISSUE_REGISTRY_UPDATED, merken)
     return created, dismissed
+
+
+def _waechter_issue(hass):
+    return ir.async_get(hass).async_get_issue(DOMAIN, WAECHTER_ISSUE)
 
 
 def _hebel_aktivieren(hass, entry, kreis=1):
@@ -478,8 +488,7 @@ async def test_entities_restore_the_last_state_after_a_restart(hass, clock):
 
 
 async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(hass, supervisor, clock, notes):
-    """Meldung nur per persistent_notification, kein Push
-    an die Handys (das ist Sache des Add-ons)."""
+    """Meldung nur als Repair (Fehler, nicht behebbar, ueber den Neustart von HA hinaus), kein Push an die Handys."""
     created, dismissed = notes
     pushes = async_mock_service(hass, "notify", "mobile_app_pixel")
     _bridge(supervisor).state = AddonState.STOPPED
@@ -494,9 +503,9 @@ async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(
     await hass.async_block_till_done()
 
     assert hass.states.get(STATUS).state == "addon_gestoppt"
-    assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
+    assert hass.states.get(STATUS).attributes["grund"] == "addon_gestoppt"
     assert supervisor.actions == [("start", BRIDGE_SLUG)]
-    assert created == [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])]
+    assert created == [(WAECHTER_ISSUE, "addon_gestoppt")]
 
     _bridge(supervisor).state = AddonState.STOPPED  # der Start hilft nicht: das Add-on bleibt gestoppt
     clock["t"] += 300
@@ -510,8 +519,53 @@ async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(
     await hass.async_block_till_done()
 
     assert hass.states.get(STATUS).state == "regelt"
-    assert dismissed == ["smartheat_wohnung1_addon"]
+    assert dismissed == [WAECHTER_ISSUE]
     assert pushes == []
+
+
+@pytest.mark.parametrize("sprache", ["de", "en"])
+async def test_the_watchdog_repair_is_a_persistent_error_that_cannot_be_fixed_and_has_texts(hass, supervisor, clock, sprache):
+    """Der Befund ist ein Fehler ohne Behebung, bleibt ueber einen Neustart von HA stehen und hat seine Texte in beiden
+    Sprachen unter dem Statuscode; der Grund im Status-Sensor ist derselbe Code."""
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    await entry.runtime_data.async_check()
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+
+    issue = _waechter_issue(hass)
+    assert (issue.severity, issue.is_fixable, issue.is_persistent, issue.translation_key) == (
+        ir.IssueSeverity.ERROR, False, True, "addon_gestoppt")
+    assert issue.translation_placeholders is None
+    texte = await async_get_translations(hass, sprache, "issues", [DOMAIN])
+    assert texte[f"component.{DOMAIN}.issues.addon_gestoppt.title"]
+    assert texte[f"component.{DOMAIN}.issues.addon_gestoppt.description"]
+    assert hass.states.get(STATUS).attributes["grund"] == "addon_gestoppt"
+
+
+async def test_a_persistent_watchdog_repair_without_a_finding_is_cleared_at_the_start(hass, supervisor, clock):
+    """Das Repair des Waechters bleibt ueber den Neustart von HA bestehen; findet der Waechter danach nichts, raeumt die
+    Integration es beim Start ab."""
+    ir.async_create_issue(
+        hass, DOMAIN, WAECHTER_ISSUE, is_fixable=False, is_persistent=True, severity=ir.IssueSeverity.ERROR,
+        translation_key="addon_gestoppt")
+
+    await _setup(hass)
+
+    assert _waechter_issue(hass) is None
+
+
+async def test_unloading_the_entry_removes_the_watchdog_repair(hass, supervisor, clock):
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    await entry.runtime_data.async_check()
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+    assert _waechter_issue(hass) is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert _waechter_issue(hass) is None
 
 
 async def test_watchdog_looks_only_for_the_bridge(hass, supervisor, clock, notes):
@@ -538,7 +592,7 @@ async def test_silent_bridge_is_restarted_and_reported(hass, supervisor, clock, 
 
     assert hass.states.get(STATUS).state == "reagiert_nicht"
     assert supervisor.actions == [("restart", BRIDGE_SLUG)]
-    assert notes[0] == [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["reagiert_nicht"])]
+    assert notes[0] == [(WAECHTER_ISSUE, "reagiert_nicht")]
     assert pushes == []
 
 
@@ -627,13 +681,9 @@ async def test_escalation_within_an_incident_keeps_one_notification(hass, superv
 
     assert hass.states.get(STATUS).state == "addon_gestoppt"
     assert dismissed == []
-    # Die persistent_notification wird bei der Eskalation neu geschrieben (aktualisierter Text),
-    # aber mit derselben notification_id -- in HA selbst ueberschreibt das den bestehenden Eintrag
-    # statt einen zweiten anzulegen.
-    assert [message for _notification_id, message in created] == [
-        WATCHDOG_MESSAGES["reagiert_nicht"], WATCHDOG_MESSAGES["addon_gestoppt"],
-    ]
-    assert {notification_id for notification_id, _message in created} == {"smartheat_wohnung1_addon"}
+    # Das Repair wird bei der Eskalation mit neuem Text-Code ueberschrieben, unter derselben ID: es bleibt eines.
+    assert created == [(WAECHTER_ISSUE, "reagiert_nicht"), (WAECHTER_ISSUE, "addon_gestoppt")]
+    assert [i for (d, i) in ir.async_get(hass).issues if d == DOMAIN] == [WAECHTER_ISSUE]
 
 
 async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clock):
@@ -872,7 +922,7 @@ async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, sup
     await coordinator.async_check()  # 1/2 gestoppt gezaehlt
     clock["t"] += 300
     await coordinator.async_check()  # 2/2 -> addon_gestoppt
-    assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
+    assert hass.states.get(STATUS).attributes["grund"] == "addon_gestoppt"
 
     signals = []
     async_dispatcher_connect(hass, coordinator.signal, lambda: signals.append(None))
@@ -882,7 +932,7 @@ async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, sup
     await coordinator.async_check()
 
     assert hass.states.get(STATUS).state == "addon_gestoppt"
-    assert "Heizungsbrücke" in hass.states.get(STATUS).attributes["grund"]
+    assert hass.states.get(STATUS).attributes["grund"] == "addon_gestoppt"
     assert signals == []  # unveraenderter Status/Grund: kein Update
 
 
@@ -917,7 +967,7 @@ async def test_time_tick_and_event_recheck_never_check_at_the_same_time(hass, su
 
     assert repositories.await_count == 3
     assert coordinator.watchdog_status is None  # die eine Pruefung hat den Vorfall beendet
-    assert notes[1] == ["smartheat_wohnung1_addon"]
+    assert notes[1] == [WAECHTER_ISSUE]
 
 
 _NICHT_AUFLOESBAR = pytest.mark.parametrize("source", [
@@ -967,7 +1017,7 @@ async def test_unaufloesbare_bruecke_ohne_ereignisse_meldet_reagiert_nicht_ohne_
         await hass.async_block_till_done()
 
     assert hass.states.get(STATUS).state == "reagiert_nicht"
-    assert notes == ([("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["reagiert_nicht"])], [])
+    assert notes == ([(WAECHTER_ISSUE, "reagiert_nicht")], [])
     assert supervisor.actions == []
 
 
@@ -979,14 +1029,14 @@ async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, 
     await entry.runtime_data.async_check()
     clock["t"] += 300
     await entry.runtime_data.async_check()
-    if created != [("smartheat_wohnung1_addon", WATCHDOG_MESSAGES["addon_gestoppt"])]:
+    if created != [(WAECHTER_ISSUE, "addon_gestoppt")]:
         # Failed statt AssertionError: eine kaputte Vorbedingung soll als solche auffallen.
         pytest.fail(f"Vorbedingung: der Waechter meldet addon_gestoppt genau einmal, gemeldet: {created}")
 
     await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert dismissed == ["smartheat_wohnung1_addon"]
+    assert dismissed == [WAECHTER_ISSUE]
 
 
 async def test_a_check_running_while_the_entry_is_removed_does_not_recreate_the_notification(
@@ -1016,7 +1066,7 @@ async def test_a_check_running_while_the_entry_is_removed_does_not_recreate_the_
     await asyncio.wait_for(pruefung, 5)
     await hass.async_block_till_done()
 
-    assert dismissed == ["smartheat_wohnung1_addon"]
+    assert dismissed == [] and _waechter_issue(hass) is None  # nie angelegt, also nichts zu entfernen
     assert created == []
 
 
@@ -1048,7 +1098,7 @@ async def test_a_check_waiting_for_the_supervisor_does_not_start_the_addon_after
     await hass.async_block_till_done()
 
     assert supervisor.actions == []
-    assert created == [] and dismissed == ["smartheat_wohnung1_addon"]
+    assert created == [] and dismissed == [] and _waechter_issue(hass) is None  # nie angelegt, also nichts zu entfernen
 
 
 # --- Lebenszeichen der Integration (smartheat_integration) und Lebenszeichen des Add-ons ---
