@@ -5,6 +5,9 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- README: Abschnitt „Entfernen“ mit der Reihenfolge (Eintrag löschen, im Portal „Abgemeldet“ abwarten, Add-on
+  deinstallieren, Integration in HACS entfernen), der Warnung vor der falschen Reihenfolge und der Erklärung des
+  Hinweises `addon_fehlt`.
 - Diagnose-Download: nennt die offenen Meldungen der Integration als Code und Kreisnummer (höchstens 20 in der Liste,
   dazu die Gesamtzahl), nie mit Kennung, Schlüssel, Text, Fühler- oder Kreisnamen.
 - Einrichtungsassistent: Texte des Servers und des Geräts (Gründe von Abbrüchen und Fehlern, Anlagenname, Name und

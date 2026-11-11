@@ -50,6 +50,27 @@ Hinweise des Geraets (z. B. Update noetig, Geraet gesperrt, Einstellung abgelehn
   Eintrag neu einrichten und dann "Neu konfigurieren" > "Zuordnung aendern" durchlaufen, das hebt die Abmeldung auf.
 - Es gibt keinen Optionsdialog.
 
+## Entfernen
+
+SmartHeat vollstaendig entfernen: genau in dieser Reihenfolge.
+
+1. Den Eintrag "SmartHeat" unter Einstellungen → Geraete & Dienste loeschen (oder das Geraet im Portal entfernen).
+2. Im Portal abwarten, bis die Anlage "Abgemeldet" zeigt. Dann sind die Ursprungswerte der Heizung wieder gesetzt.
+3. Das Add-on `heizungsbruecke` unter Einstellungen → Add-ons deinstallieren.
+4. Die Integration "SmartHeat" in HACS entfernen.
+
+**Warnung:** Wer zuerst das Add-on deinstalliert oder die Integration entfernt, laesst die Heizung auf den zuletzt
+geschriebenen Werten; Home Assistant meldet uns das nicht. Weder der Supervisor noch HACS rufen beim Deinstallieren
+Code von SmartHeat auf, der die Heizung zuruecksetzen koennte. Ohne Add-on bleibt die Anlage auf den letzten Werten
+(bei Vaillant: Zone "Manuell", gelernte Heizgrenze), mit dem Add-on, aber ohne Integration, regelt SmartHeat weiter,
+und Home Assistant zeigt davon nichts mehr. Die Hilfssensoren des Add-ons entfallen beim naechsten Start nach der
+Abmeldung; nach hartem Entfernen loeschen Sie sie unter Einstellungen → Geraete & Dienste → Helfer von Hand.
+
+**Reparatur "Add-on nicht installiert"** (`addon_fehlt`): Die Integration ueberwacht das Add-on und meldet diesen
+Hinweis, wenn die Heizungsbruecke nicht mehr installiert ist (nach drei Pruefungen in Folge, ohne Neustart des
+Add-ons). Er heisst: Die Heizung bleibt auf den letzten Werten, die Wunschtemperatur wird nicht mehr weitergegeben, und
+erneutes Installieren des Add-ons ist ein neues Geraet. Der Hinweis endet, sobald das Add-on wieder vorhanden ist.
+
 ## Ueberwachung
 
 Die Integration schaltet Watchdog und "Start beim Booten" fuer die Heizungsbruecke ein, prueft alle 5 Minuten, ob sie
