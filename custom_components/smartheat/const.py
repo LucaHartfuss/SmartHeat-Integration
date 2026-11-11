@@ -256,6 +256,31 @@ RESTART_WINDOW_SECONDS = 3600
 # Das eine Repair des Waechters: bei einer Eskalation aendert sich sein Text-Code, nicht seine ID.
 WATCHDOG_ISSUE_ID = "waechter"
 
+# Push auf die Handys des Kunden. Der Store haelt Tageszaehler, aufgeschobene und offene Meldungen, nie Ziele.
+PUSH_STORE_KEY = "smartheat.push"
+PUSH_STORE_VERSION = 1
+# Ein Ziel ist genau ein Notify-Dienst der Companion-App; alles andere (andere Dienste, Gruppen, Skripte) wird verworfen.
+HA_DIENST_RE = re.compile(r"notify\.mobile_app_[a-z0-9_]+")
+PUSH_STUFE_ROT, PUSH_STUFE_ORANGE = "rot", "orange"  # Gelb wird nie gepusht
+# Welche Waechter-Befunde einen Push ausloesen (alle Rot); Versionsbefunde und `addon_mehrfach` nicht.
+PUSH_CODES = {
+    STATUS_ADDON_GESTOPPT: PUSH_STUFE_ROT,
+    STATUS_REAGIERT_NICHT: PUSH_STUFE_ROT,
+    STATUS_ADDON_FEHLT: PUSH_STUFE_ROT,
+}
+# Vorgaben und Grenzen der Regeln aus dem Status-Ereignis (Ruhezeit in Ortsstunden, Limit je Tag fuer Orange).
+PUSH_RUHE_VON, PUSH_RUHE_BIS, PUSH_TAGESLIMIT = 22, 7, 5
+PUSH_TAGESLIMIT_MIN, PUSH_TAGESLIMIT_MAX = 1, 50
+PUSH_WIEDERHOLUNG_SECONDS = 24 * 3600  # Erinnerung an offenes Rot und Frist fuer Wiederholungen nach einem Fehlschlag
+PUSH_VERSUCH_ABSTAND_SECONDS = 300
+PUSH_TAKT_SECONDS = 60
+PUSH_SENDE_TIMEOUT_SECONDS = 30
+PUSH_EINTRAEGE_MAX = 100
+PUSH_HINWEISE_AUS_MAX = 20
+# Nach dieser Zeit seit dem Start gilt ein Waechter ohne Befund als Entwarnung gegen einen alten Eintrag im Store
+# (Stille 900 s plus ein Pruefschritt).
+PUSH_ABGLEICH_SECONDS = SILENCE_SECONDS + WATCHDOG_INTERVAL_SECONDS
+
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
 ADDON_NAME = "Heizungsbruecke"  # Anzeigename fuer HAs AddonManager und die Logzeilen

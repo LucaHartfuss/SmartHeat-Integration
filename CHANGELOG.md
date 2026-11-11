@@ -5,6 +5,14 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Push-Kern: Rote Befunde des Wächters (`addon_gestoppt`, `reagiert_nicht`, `addon_fehlt`) gehen sofort als Push an die
+  Handys, die das Status-Ereignis des Add-ons nennt (nur Dienste `notify.mobile_app_*`, höchstens zehn), auch in der
+  Ruhezeit; ein fehlgeschlagener Versand wird bis zu 24 h wiederholt, ein offener Befund erinnert alle 24 h. Orangefarbene
+  Hinweise gehen einmal hinaus, in der Ruhezeit erst an deren Ende und nur, wenn sie dann noch offen sind; ab dem
+  Tageslimit kommt eine Sammelnachricht mit allgemeinem Titel. Gelb wird nie gepusht, `hinweise_aus` schweigt nur
+  Nicht-Rot. Ungültige oder fehlende Regeln (Ruhezeit, Tageslimit) fallen auf 22 bis 7 Uhr und 5 zurück. Die Texte
+  folgen der Sprache von Home Assistant (de, en); Logs und Pushtexte nennen weder Dienst noch Kreis. Der Zustand liegt im
+  Store `smartheat.push` und verschwindet mit dem Eintrag. Versions- und Mehrfach-Befunde lösen keinen Push aus.
 - Befunde des zweiten Wächters (Heizungsbrücke gestoppt oder reagiert nicht) erscheinen als Repair unter
   Einstellungen > Reparaturen statt als Benachrichtigung. Das Repair ist ein Fehler, nicht behebbar und bleibt über einen
   Neustart von Home Assistant bestehen; die Integration räumt es beim Start ab, wenn der Wächter dann nichts findet.

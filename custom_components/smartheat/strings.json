@@ -330,6 +330,9 @@
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
     "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
-    "geraet_nicht_erreichbar": "The device cannot be reached."
+    "geraet_nicht_erreichbar": "The device cannot be reached.",
+    "push_text": "Please check Settings → Repairs in Home Assistant.",
+    "push_sammel_titel": "SmartHeat: several notices",
+    "push_sammel_text": "There are several notices. Please check Settings → Repairs in Home Assistant."
   }
 }

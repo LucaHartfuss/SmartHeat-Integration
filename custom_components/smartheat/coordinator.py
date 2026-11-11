@@ -2,7 +2,7 @@
 HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte lesbare Status-Ereignis ihres Geraets
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
-meldet, meldet Befunde als Repair (ohne Push) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
+meldet, meldet Befunde als Repair (Rot-Befunde des Waechters zusaetzlich als Push, siehe push.py) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
 eigenen Geraets zaehlt als Lebenszeichen des Add-ons, gleich welches Schema; umgekehrt meldet die Integration dem
 Add-on ihre Version und gelesenen Schemata (INTEGRATION_EVENT). Sie schreibt nie auf die Anlage (keine Notbremse,
 Nutzer-Entscheidung) und ruft keinen Server."""
@@ -31,6 +31,9 @@ from .const import (
     INTEGRATION_EVENT_SCHEMA,
     MAX_RESTARTS_PER_WINDOW,
     MISSING_AFTER_CHECKS,
+    PUSH_ABGLEICH_SECONDS,
+    PUSH_CODES,
+    PUSH_STUFE_ROT,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
     STATUS_ADDON_FEHLT,
@@ -47,9 +50,11 @@ from .const import (
     STOPPED_AFTER_CHECKS,
     V5_SCHEMAS,
     WATCHDOG_INTERVAL_SECONDS,
+    WATCHDOG_ISSUE_ID,
     WUNSCH_EVENT_SCHEMA,
     signal_update,
 )
+from .push import Push
 from .supervisor_client import async_bruecke_stand
 
 _LOGGER = logging.getLogger(__name__)
@@ -204,6 +209,10 @@ class SmartHeatCoordinator:
         self.wunsch_schema: int = WUNSCH_EVENT_SCHEMA
         self._verfuegbar_gemeldet = True
         self._watchdog = Watchdog(started_at=_now())
+        self.push = Push(hass)
+        # Ob der Store des Pushs gegen den Waechter abgeglichen ist: ein Rot-Eintrag aus der Zeit vor dem Neustart, den der
+        # neue Waechter nicht wieder findet, ist erledigt und wird nicht weiter erinnert.
+        self._push_abgeglichen = False
         self._checking = False
         self._stopped = False
         self._version = ""
@@ -268,7 +277,9 @@ class SmartHeatCoordinator:
         """Startet Zuhoeren und Waechter-Takt und meldet dem Add-on die Version der Integration."""
         self._version = version
         self._watchdog = Watchdog(started_at=_now())
+        self._push_abgeglichen = False
         self._stopped = False
+        self.push.async_start(self.entry)
         # Das Repair des Waechters ueberdauert einen Neustart von Home Assistant; der neue Waechter beginnt ohne Befund
         # und legt es bei Bedarf neu an.
         repairs.async_set_watchdog(self.hass, None)
@@ -333,6 +344,10 @@ class SmartHeatCoordinator:
         # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS); fehlende bleiben fehlend.
         self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data and key != "kreise"}
         self.kreise = kreise
+        # Push-Ziele und -Regeln stehen (noch) nicht in STATUS_EVENT_FIELDS: sie kommen unveraendert aus dem Ereignis und
+        # werden in push.py auf Form und Muster geprueft.
+        if self.push.ziele_setzen(data.get("benachrichtigung"), data.get("hinweise_aus"), data.get("push_regeln")):
+            self.entry.async_create_task(self.hass, self.push.async_verarbeiten(), f"smartheat_push_{self.tenant_id}")
         self._async_geraete_nachziehen(data.get("konfig_version"))
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
@@ -425,8 +440,32 @@ class SmartHeatCoordinator:
         bestehende Repair nur den neuen Text-Code (gleiche ID, kein neuer Eintrag): es ist derselbe Vorfall, keine
         zweite Stoerung."""
         changed = status != self.watchdog_status
+        alt = self.watchdog_status
         self.watchdog_status = status
         self._verfuegbarkeit_melden()
+        self._push_nachziehen(status, alt, changed)
         if changed:
             repairs.async_set_watchdog(self.hass, status)
             async_dispatcher_send(self.hass, self.signal)
+
+    @callback
+    def _push_nachziehen(self, status: str | None, alt: str | None, changed: bool) -> None:
+        """Rot-Befunde des Waechters (PUSH_CODES) dem Push melden, ihr Ende ebenfalls. Nach dem Start schliesst ein Waechter
+        ohne Befund einen Eintrag aus der Zeit davor, sobald er lange genug laeuft, um denselben Befund wieder gefunden zu
+        haben (PUSH_ABGLEICH_SECONDS); findet er ihn wieder, gibt es keinen zweiten Push."""
+        if changed:
+            self._push_abgeglichen = True
+            if status in PUSH_CODES:
+                self._push_melden(status, True)
+            elif alt in PUSH_CODES:
+                self._push_melden(alt, False)
+        elif status is None and not self._push_abgeglichen and _now() - self._watchdog.started_at >= PUSH_ABGLEICH_SECONDS:
+            self._push_abgeglichen = True
+            self._push_melden(WATCHDOG_ISSUE_ID, False)
+
+    @callback
+    def _push_melden(self, code: str, offen: bool) -> None:
+        self.entry.async_create_task(
+            self.hass, self.push.melden(code, WATCHDOG_ISSUE_ID, None, PUSH_CODES.get(code, PUSH_STUFE_ROT), offen),
+            f"smartheat_push_{self.tenant_id}",
+        )

@@ -10,7 +10,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import translation
 from homeassistant.loader import async_get_integration
 
-from . import addon_control, geraete, registry_umzug, repairs
+from . import addon_control, geraete, push, registry_umzug, repairs
 from .const import DOMAIN
 from .coordinator import SmartHeatCoordinator
 
@@ -30,6 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # mit Verlauf als verwaist entfernen.
     await registry_umzug.async_pflegen(hass, entry)
     geraete.async_anlage(hass, entry, None)
+    await coordinator.push.async_laden()
     coordinator.async_start(str(integration.version))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -56,7 +57,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Das Loeschen des Eintrags meldet das Geraet ueber das stdin der
     Heizungsbruecke lokal ab (Ursprungswerte, Portal "Abgemeldet"); kein Server-Aufruf, das Add-on laeuft weiter, aus
     dem Konto entfernt der Kunde das Geraet im Portal (offene Grenze: offene-punkte.md L4-06-Konto). Fehler sind
-    nur eine WARNING. Dazu verschwinden die eigenen Reparatur-Hinweise samt dem Repair des Waechters."""
+    nur eine WARNING. Dazu verschwinden die eigenen Reparatur-Hinweise samt dem Repair des Waechters und der Store des Pushs."""
     await addon_control.async_entfernen_melden(hass, entry.data.get("geraet_id"))
     repairs.async_clear(hass)
     await registry_umzug.async_sicherung_loeschen(hass, entry)
+    await push.async_store_loeschen(hass)

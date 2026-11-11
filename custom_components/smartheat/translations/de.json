@@ -330,6 +330,9 @@
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
     "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
     "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities.",
-    "geraet_nicht_erreichbar": "Das Gerät ist nicht erreichbar."
+    "geraet_nicht_erreichbar": "Das Gerät ist nicht erreichbar.",
+    "push_text": "Bitte in Home Assistant unter Einstellungen → Reparaturen nachsehen.",
+    "push_sammel_titel": "SmartHeat: mehrere Meldungen",
+    "push_sammel_text": "Es liegen mehrere Meldungen vor. Bitte in Home Assistant unter Einstellungen → Reparaturen nachsehen."
   }
 }
