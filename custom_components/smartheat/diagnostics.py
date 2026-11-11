@@ -5,7 +5,8 @@ ein Haus oder einen Zeitplan kennzeichnet. Darum gilt eine Positivliste statt ei
 kommen heraus, und jedes nur in der Form, die sein Zweck braucht. Felder, die einen Code tragen, geben nie freien Text
 weiter (ein veraendertes Add-on oder ein Fremdereignis koennte ihn einschleusen), sondern nichts. Geraete-ID nur als
 `shg-` plus sechs Zeichen, Kreisnamen als "Kreis n"; Abwesenheit, Plan und Leerstand nur als ja/nein. Nie: Anlagen-ID,
-Anlagenname, Entity-IDs der Zuordnung, Notify-Dienste, Uebernahme-Code, Rueckkehrzeit."""
+Anlagenname, Entity-IDs der Zuordnung, Notify-Dienste, Uebernahme-Code, Rueckkehrzeit. Offene Meldungen erscheinen als
+Code und Kreisnummer, nie mit der Issue-ID (sie traegt den Hash eines Schluessels, der einen Fuehlernamen enthalten kann)."""
 from __future__ import annotations
 
 import re
@@ -14,10 +15,12 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     CODE_RE,
     DATENFEHLER_ARTEN,
+    DOMAIN,
     HINWEIS_FELD_KEY,
     HINWEIS_FELD_STUFE,
     INTEGRATION_EVENT_SCHEMA,
@@ -35,6 +38,9 @@ _KREIS_ZAHLEN_JE_CODE = ("hebel", "gelernt")
 # Was ein Kreis kuenftig ueber Abwesenheit, Plan und Leerstand melden kann: nur ob es gesetzt ist.
 _KREIS_JA_NEIN = ("abwesend", "wochenplan", "leerstand")
 _MAX_HINWEISE = 20
+_MAX_MELDUNGEN = 20
+# Issue-ID eines Hinweises mit Kreis: `hinweis_k<n>_h<Kurzhash>` (Bildung: `const.hinweis_issue_id`).
+_HINWEIS_KREIS_ID_RE = re.compile(r"hinweis_k(\d{1,3})_h[0-9a-f]+")
 
 
 def _code(wert: object) -> str | None:
@@ -98,6 +104,21 @@ def _geraet_hinweise(wert: object) -> list[dict[str, str | None]]:
             for hinweis in wert[:_MAX_HINWEISE] if isinstance(hinweis, dict)]
 
 
+def _meldungen(hass: HomeAssistant) -> dict[str, Any]:
+    """Die offenen Issues der Integration als Code (Uebersetzungsschluessel) und Kreisnummer, ohne Issue-ID: die ID eines
+    Hinweises ist ein Kurzhash seines Schluessels und der Schluessel kann einen Fuehlernamen tragen. Die Kreisnummer
+    steht in der ID nur, wenn der Hinweis zu einem Kreis gehoert. Die Anzahl zaehlt alle, die Liste ist begrenzt."""
+    offen: list[dict[str, str | int | None]] = []
+    for (domain, issue_id), issue in ir.async_get(hass).issues.items():
+        code = _code(issue.translation_key)
+        if domain != DOMAIN or code is None:
+            continue
+        kreis = _HINWEIS_KREIS_ID_RE.fullmatch(issue_id)
+        offen.append({"code": code, "kreis": int(kreis.group(1)) if kreis else None})
+    offen.sort(key=lambda eintrag: (eintrag["code"], eintrag["kreis"] or 0))
+    return {"anzahl": len(offen), "offen": offen[:_MAX_MELDUNGEN]}
+
+
 def _kreis(nummer: int, kreis: dict) -> dict[str, Any]:
     ergebnis: dict[str, Any] = {"kreis": nummer, "name": f"Kreis {nummer}"}
     ergebnis.update({feld: _zahl(kreis.get(feld)) for feld in _KREIS_ZAHLEN})
@@ -146,5 +167,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
             "versionsbefund": coordinator.version_status,
             **coordinator.waechter_stand(),
         },
+        "meldungen": _meldungen(hass),
         "status": _status(coordinator),
     }

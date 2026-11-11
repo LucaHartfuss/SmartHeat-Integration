@@ -5,6 +5,8 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Diagnose-Download: nennt die offenen Meldungen der Integration als Code und Kreisnummer (höchstens 20 in der Liste,
+  dazu die Gesamtzahl), nie mit Kennung, Schlüssel, Text, Fühler- oder Kreisnamen.
 - Einrichtungsassistent: Texte des Servers und des Geräts (Gründe von Abbrüchen und Fehlern, Anlagenname, Name und
   Hinweis der Integration, Warnungen) erscheinen in den Beschreibungen als Klartext: Links, Formatierung und
   Listen oder Überschriften aus fremdem Text werden nicht mehr dargestellt, Zeilenumbrüche werden zu Leerzeichen, der
