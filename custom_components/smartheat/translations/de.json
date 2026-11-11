@@ -213,6 +213,9 @@
       }
     }
   },
+  "device": {
+    "kreis": {"name": "Heizkreis {kreis}"}
+  },
   "entity": {
     "sensor": {
       "status": {

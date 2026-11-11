@@ -31,6 +31,14 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   verfügbar“, und die Wunschtemperatur lehnt das Setzen mit einem Text ab, statt zu schreiben. Das nächste lesbare
   Ereignis hebt den Befund auf. Ein unbekannter Status des Add-ons verwirft das Ereignis nicht mehr (der
   Status-Sensor zeigt dann „unbekannt“); die Wunschtemperatur sendet das Schema, das das Add-on zuletzt gemeldet hat.
+- Die Anlage ist ein Gerät in Home Assistant (Name der Anlage aus dem Status-Ereignis, sonst „SmartHeat“; Hersteller
+  SmartHeat, Modell Home Assistant, Version des Add-ons), und jeder Heizkreis, den die Anlage meldet, bekommt ein
+  eigenes Gerät darunter. Das Gerät trägt den Namen des Heizkreis-Abos, sonst „Heizkreis n“. Ein neuer Kreis erscheint
+  mit dem nächsten Status-Ereignis; fehlt er in zwei Ereignissen mit derselben Konfigurationsversion, verschwinden sein
+  Gerät und dessen Entities. Ein Kreis, den die Anlage nicht mehr meldet, lässt sich auch von Hand löschen. Meldet die
+  Anlage mehr als vier Kreise oder eine Kreisnummer über vier, verwirft die Integration das Ereignis (Warnung ohne
+  Namen im Log). Die bestehenden Entities bleiben vorerst am Gerät der Anlage; ihr Gerät heißt nun nach der Anlage
+  statt „SmartHeat <Anlage>“.
 
 ## 1.1.0
 

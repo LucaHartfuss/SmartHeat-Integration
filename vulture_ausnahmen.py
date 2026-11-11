@@ -6,6 +6,7 @@ nicht: ein Treffer dort ist ein Befund (der Contract-Check liest sie, die Integr
 async_setup_entry  # HA-Hook: Integration und jede Plattform (binary_sensor, number, sensor)
 async_unload_entry  # HA-Hook: Eintrag entladen
 async_remove_entry  # HA-Hook: Eintrag entfernt
+async_remove_config_entry_device  # HA-Hook: Geraet von Hand loeschen (Kreis-Geraete)
 
 # Config-Flow (config_flow.py): HA registriert den Flow ueber domain= und ruft Schritte als async_step_<step_id>.
 SmartHeatConfigFlow  # HA-Hook: ConfigFlow-Unterklasse, registriert ueber domain=

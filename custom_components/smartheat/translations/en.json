@@ -213,6 +213,9 @@
       }
     }
   },
+  "device": {
+    "kreis": {"name": "Heating circuit {kreis}"}
+  },
   "entity": {
     "sensor": {
       "status": {

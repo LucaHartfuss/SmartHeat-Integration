@@ -1,5 +1,5 @@
 """Basis der SmartHeat-Entities: ein Geraet je Tenant, Wert aus dem Coordinator, bis dahin der
-zuletzt gespeicherte Stand (RestoreEntity)."""
+zuletzt gespeicherte Stand (RestoreEntity). Die Entities haengen am Geraet der Anlage."""
 from __future__ import annotations
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -8,8 +8,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, entity_id
+from .const import entity_id
 from .coordinator import SmartHeatCoordinator
+from .geraete import anlage_kennung
 
 
 class SmartHeatEntity(RestoreEntity):
@@ -22,9 +23,8 @@ class SmartHeatEntity(RestoreEntity):
         self.entity_id = entity_id(platform, tenant_id, key)
         self._attr_unique_id = f"{tenant_id}_{key}"
         self._attr_translation_key = key
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, tenant_id)}, name=f"SmartHeat {tenant_id}", manufacturer="SmartHeat",
-        )
+        # Name, Modell und Version des Geraets setzt der Coordinator aus dem Status-Ereignis (geraete.py).
+        self._attr_device_info = DeviceInfo(identifiers={anlage_kennung(tenant_id)})
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

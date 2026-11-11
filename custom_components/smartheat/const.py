@@ -110,6 +110,9 @@ EINRICHTUNG_MAX_BATTERIEN = 16
 EINRICHTUNG_MAX_HANDYS = 10
 # Kopie von device_protocol.KREISE_MAX (Heizkreise je Geraet; Contract-Check 76).
 EINRICHTUNG_MAX_KREISE = 4
+# Anzeigename von Geraet und Hersteller; laengster uebernommener Name (Anlage, Heizkreis-Abo) in Zeichen.
+PRODUKT_NAME = "SmartHeat"
+GERAET_NAME_MAX = 100
 
 # Einrichtungs-API (Server einrichtung/api.py ROUTEN).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"

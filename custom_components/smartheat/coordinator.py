@@ -22,8 +22,9 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import repairs
+from . import geraete, repairs
 from .const import (
+    EINRICHTUNG_MAX_KREISE,
     ERSTER_KREIS,
     INTEGRATION_EVENT,
     INTEGRATION_EVENT_FIELDS,
@@ -133,13 +134,15 @@ class Watchdog:
 
 def _kreise(liste) -> dict[int, dict] | None:
     """Die Kreise des Ereignisses nach Nummer; None, wenn die Liste fehlt, ein Eintrag kein Objekt mit gueltiger
-    Nummer (ganze Zahl ab 1, kein bool) ist oder eine Nummer doppelt vorkommt."""
-    if not isinstance(liste, list):
+    Nummer (ganze Zahl von 1 bis EINRICHTUNG_MAX_KREISE, kein bool) ist, eine Nummer doppelt vorkommt oder mehr Kreise
+    gemeldet werden als erlaubt."""
+    if not isinstance(liste, list) or len(liste) > EINRICHTUNG_MAX_KREISE:
         return None
     kreise: dict[int, dict] = {}
     for eintrag in liste:
         nummer = eintrag.get("kreis") if isinstance(eintrag, dict) else None
-        if not isinstance(nummer, int) or isinstance(nummer, bool) or nummer < 1 or nummer in kreise:
+        if (not isinstance(nummer, int) or isinstance(nummer, bool) or not 1 <= nummer <= EINRICHTUNG_MAX_KREISE
+                or nummer in kreise):
             return None
         kreise[nummer] = {key: eintrag[key] for key in STATUS_KREIS_FIELDS if key in eintrag}
     return kreise
@@ -169,6 +172,10 @@ class SmartHeatCoordinator:
         self.geraet_id: str = entry.data["geraet_id"]
         self.data: dict | None = None  # Felder der Anlage (ohne `kreise`)
         self.kreise: dict[int, dict] = {}
+        # Kreise, die im letzten gueltigen Ereignis fehlten, und dessen Konfigurationsversion: fehlt ein Kreis im
+        # naechsten Ereignis mit derselben Version erneut, faellt sein Geraet weg (kein Abraeumen auf einen Ausreisser).
+        self._fehlende_kreise: set[int] = set()
+        self._konfig_version: object = None
         self.watchdog_status: str | None = None
         # Versionsbefund (integration_veraltet/addon_veraltet) aus dem Schema des letzten eigenen Ereignisses; None, wenn
         # die Integration es liest. `wunsch_schema`: das zuletzt gelesene Schema, in dem die Integration antwortet.
@@ -242,8 +249,9 @@ class SmartHeatCoordinator:
         """Nur Ereignisse des eigenen Geraets (geraet_id). Ein Schema ausserhalb der gelesenen (V5_SCHEMAS) setzt den
         Versionsbefund, ein gelesenes hebt ihn auf; ein Schema dazwischen oder ohne Ganzzahl aendert nichts (Warnung).
         Vor der Einrichtung ist der Laufzeit-Teil leer (status startet, tenant_id None, keine Kreise); den Zustand des
-        Geraets traegt dann geraet_zustand. Ein Kreis ohne gueltige Nummer oder eine doppelte Nummer verwirft das ganze
-        Ereignis (Warnung ohne Kreisnamen); ein unbekannter Status nicht."""
+        Geraets traegt dann geraet_zustand. Ein Kreis ohne gueltige Nummer, eine doppelte Nummer oder mehr Kreise als
+        erlaubt verwirft das ganze Ereignis (Warnung ohne Kreisnamen); ein unbekannter Status nicht. Ein gueltiges
+        Ereignis zieht auch den Geraetebaum nach (Anlage, Kreise)."""
         data = event.data
         if data.get("geraet_id") != self.geraet_id:
             return
@@ -270,15 +278,32 @@ class SmartHeatCoordinator:
         # Ein unbekannter Status oder Hinweis verwirft das Ereignis nicht: er gilt als das, was das Add-on gemeldet hat.
         kreise = _kreise(data.get("kreise"))
         if kreise is None:
-            _LOGGER.warning("Status-Event mit ungueltiger Kreisliste ignoriert")
+            _LOGGER.warning("Status-Event mit ungueltiger Kreisliste (Form, Nummern oder Anzahl) ignoriert")
             return
         self.wunsch_schema = schema
         # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS); fehlende bleiben fehlend.
         self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data and key != "kreise"}
         self.kreise = kreise
+        self._async_geraete_nachziehen(data.get("konfig_version"))
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
         self._set_version_status(None)  # sendet das Signal in jedem Fall
+
+    @callback
+    def _async_geraete_nachziehen(self, konfig_version: object) -> None:
+        """Geraete der Anlage und der gemeldeten Kreise anlegen oder aktualisieren; Kreis-Geraete, deren Kreis in zwei
+        aufeinanderfolgenden Ereignissen mit derselben Konfigurationsversion fehlt, entfernen. Die Version kommt roh
+        aus dem Ereignis: fehlt sie, gelten zwei Ereignisse als gleiche Version."""
+        anlage = geraete.async_anlage(self.hass, self.entry, self.data)
+        for nummer, kreis in self.kreise.items():
+            geraete.async_kreis(self.hass, self.entry, anlage, nummer, kreis.get("name"))
+        registriert = geraete.registrierte_kreise(self.hass, self.entry)
+        fehlend = set(registriert) - set(self.kreise)
+        weg = fehlend & self._fehlende_kreise if konfig_version == self._konfig_version else set()
+        for nummer in weg:
+            geraete.async_kreis_entfernen(self.hass, self.entry, registriert[nummer])
+        self._fehlende_kreise = fehlend - weg
+        self._konfig_version = konfig_version
 
     @callback
     def _set_version_status(self, befund: str | None, mindest_integration: object = None) -> None:
