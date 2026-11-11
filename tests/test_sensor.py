@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from homeassistant.const import EntityCategory
 
 from custom_components.smartheat import sensor
 from custom_components.smartheat.const import KAELTESCHUTZ_VALUES, KREIS_ZUSTAND_VALUES, STATUS_EVENT_SCHEMA
@@ -11,6 +12,10 @@ from custom_components.smartheat.const import KAELTESCHUTZ_VALUES, KREIS_ZUSTAND
 VAILLANT = {"lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
             "shift_lever": "room_setpoint"}
 VIESSMANN = {"lever_set": "viessmann_vicare", "hebel": ["curve", "level", "room_setpoint"], "shift_lever": "level"}
+
+
+def _keys(entry_data) -> tuple[str, ...]:
+    return tuple(event_field.key for event_field in sensor.kreis_fields(entry_data))
 
 
 @pytest.mark.parametrize("lever, shift_lever, key", [
@@ -22,30 +27,42 @@ def test_lever_entity_keys_are_stable(lever, shift_lever, key):
     assert sensor.lever_entity_key(lever, shift_lever) == key
 
 
-def test_vaillant_entry_keeps_the_client1_entity_keys_in_their_order():
-    """Gleiche Schluessel und Reihenfolge wie 0.16.1 fuer client1 (Hebel in LEVER_OPTIONS-Reihenfolge)."""
-    assert sensor.entity_keys(VAILLANT) == (
-        "status", "datenfehler", "boost", "letzte_serverantwort", "abo", "zustand", "kaelteschutz", "addon_version",
+def test_vaillant_entry_has_the_circuit_keys_in_their_order():
+    """Die Schluessel des Kreises: erst die festen, dann Hebel in LEVER_OPTIONS-Reihenfolge, dann die Lernwerte."""
+    assert _keys(VAILLANT) == (
+        "boost", "abo", "zustand", "kaelteschutz", "raumtemperatur", "befunde",
         "heizkurve", "parallelverschiebung", "heizgrenze", "mindestvorlauf", "gelernte_steigung", "gelernte_heizgrenze",
     )
+    assert [f.key for f in sensor.ANLAGE_FIELDS] == ["datenfehler", "letzte_serverantwort", "addon_version"]
+
+
+def test_lever_and_learned_fields_are_diagnostics_that_start_disabled():
+    fields = {f.key: f for f in sensor.kreis_fields(VAILLANT)}
+    versteckt = {"heizkurve", "parallelverschiebung", "heizgrenze", "mindestvorlauf", "gelernte_steigung",
+                 "gelernte_heizgrenze"}
+    for key, event_field in fields.items():
+        assert (event_field.enabled_default, event_field.category) == (
+            (False, EntityCategory.DIAGNOSTIC) if key in versteckt else (True, event_field.category)), key
+    assert {k for k, f in fields.items() if f.category is EntityCategory.DIAGNOSTIC} == versteckt | {"boost"}
+    assert all(f.category is EntityCategory.DIAGNOSTIC and f.enabled_default for f in sensor.ANLAGE_FIELDS)
 
 
 def test_lever_order_does_not_depend_on_the_order_in_the_entry():
     shuffled = {**VAILLANT, "hebel": ["min_flow", "heat_limit", "room_setpoint", "curve"]}
-    assert sensor.entity_keys(shuffled) == sensor.entity_keys(VAILLANT)
+    assert _keys(shuffled) == _keys(VAILLANT)
 
 
 def test_viessmann_entry_has_level_and_room_setpoint():
-    keys = sensor.entity_keys(VIESSMANN)
+    keys = _keys(VIESSMANN)
     assert {"heizkurve", "niveau", "raum_soll"} <= set(keys)
     assert "heizgrenze" not in keys and "mindestvorlauf" not in keys
 
 
 @pytest.mark.parametrize("data", [{}, {"hebel": []}, {"hebel": None}, {"hebel": "curve"}, {"hebel": ["unbekannt"]}])
 def test_entry_without_known_levers_has_no_lever_or_learned_sensors(data):
-    assert sensor.entity_fields(data) == sensor.FIELDS
-    keys = sensor.entity_keys(data)
-    assert "status" in keys and "abo" in keys
+    assert sensor.kreis_fields(data) == sensor.KREIS_FIELDS
+    keys = _keys(data)
+    assert "abo" in keys
 
 
 EVENT = {
@@ -60,7 +77,7 @@ EVENT = {
     ("gelernte_steigung", 1.05), ("gelernte_heizgrenze", 16.2),
 ])
 def test_values_come_from_hebel_and_gelernt(key, value):
-    fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
+    fields = {f.key: f for f in sensor.kreis_fields(VAILLANT)}
     assert fields[key].value(EVENT) == value
 
 
@@ -71,18 +88,18 @@ class _Coordinator:
 @pytest.mark.parametrize("key", ["gelernte_steigung", "gelernte_heizgrenze"])
 def test_learned_values_are_shown_with_two_decimals(key):
     """Server-Lernwerte kommen ungerundet; HA zeigt sie mit zwei Nachkommastellen (Dashboard „Zuhause“)."""
-    fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
-    entity = sensor.EventSensor(_Coordinator(), fields[key])
+    fields = {f.key: f for f in sensor.kreis_fields(VAILLANT)}
+    entity = sensor.EventSensor(_Coordinator(), fields[key], kreis=1)
     assert entity.suggested_display_precision == 2
 
 
 def test_lever_values_keep_their_display_precision():
-    fields = {f.key: f for f in sensor.entity_fields(VAILLANT)}
-    assert sensor.EventSensor(_Coordinator(), fields["heizkurve"]).suggested_display_precision is None
+    fields = {f.key: f for f in sensor.kreis_fields(VAILLANT)}
+    assert sensor.EventSensor(_Coordinator(), fields["heizkurve"], kreis=1).suggested_display_precision is None
 
 
 def test_zustand_und_kaelteschutz_sind_enum_sensoren_mit_der_wertemenge_des_vertrags():
-    fields = {f.key: f for f in sensor.entity_fields({})}
+    fields = {f.key: f for f in sensor.kreis_fields({})}
     assert fields["zustand"].options == list(KREIS_ZUSTAND_VALUES)
     assert fields["kaelteschutz"].options == list(KAELTESCHUTZ_VALUES)
     assert fields["zustand"].attribute_keys == ("testphase_bis",)

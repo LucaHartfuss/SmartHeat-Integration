@@ -31,7 +31,7 @@ INTEGRATION_EVENT = "smartheat_integration"
 INTEGRATION_EVENT_SCHEMA = 1
 INTEGRATION_EVENT_FIELDS = ("schema", "version", "v5_schemas")
 V5_SCHEMAS = (STATUS_EVENT_SCHEMA,)
-# Bis die Entities je Kreis kommen, zeigen die heutigen den ersten Kreis.
+# Nummer des ersten Kreises: Vorgabe fuer Werkzeuge, die genau einen Kreis ansprechen.
 ERSTER_KREIS = 1
 # Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen.
 HINWEIS_FIELDS = ("key", "stufe", "text")
@@ -71,7 +71,11 @@ BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
 # Zustand und Kaelteschutz eines Kreises (Codes des Add-ons; die Texte stehen nur in den Uebersetzungen). Die Menge des
 # Zustands waechst mit dem Add-on; ein Wert ausserhalb der Menge zeigt die Entity als unbekannt.
-KREIS_ZUSTAND_VALUES = ("regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb")
+KREIS_ZUSTAND_VALUES = (
+    "regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb",
+    "heizt", "pause", "abwesend", "boost", "notbetrieb", "einlernphase", "nicht_geregelt", "kuehl", "heizt_auf",
+    "uebersteuert", "leerstand",
+)
 KAELTESCHUTZ_VALUES = ("aus", "soll", "frost")
 DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
@@ -250,9 +254,16 @@ def slug(tenant_id: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", tenant_id.lower())
 
 
-def entity_id(platform: str, tenant_id: str, key: str) -> str:
-    """Feste Entity-IDs: sensor.smartheat_<slug>_status, unveraendert fuer die Dashboards von client1."""
-    return f"{platform}.smartheat_{slug(tenant_id)}_{key}"
+def entity_id(platform: str, key: str, kreis: int | None = None) -> str:
+    """Feste Entity-IDs ohne Anlagennamen: <plattform>.smartheat_<schluessel> fuer die Anlage,
+    <plattform>.smartheat_k<n>_<schluessel> fuer einen Kreis."""
+    return f"{platform}.smartheat_{'' if kreis is None else f'k{kreis}_'}{key}"
+
+
+def unique_id(tenant_id: str, key: str, kreis: int | None = None) -> str:
+    """Stabile Kennung einer Entity aus Anlage, Kreis und Schluessel; die Registry haelt an ihr fest, auch wenn die
+    Entity-ID geaendert wird."""
+    return f"{tenant_id}_{'' if kreis is None else f'k{kreis}_'}{key}"
 
 
 def watchdog_notification_id(tenant_id: str) -> str:

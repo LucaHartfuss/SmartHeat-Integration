@@ -37,8 +37,16 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   mit dem nächsten Status-Ereignis; fehlt er in zwei Ereignissen mit derselben Konfigurationsversion, verschwinden sein
   Gerät und dessen Entities. Ein Kreis, den die Anlage nicht mehr meldet, lässt sich auch von Hand löschen. Meldet die
   Anlage mehr als vier Kreise oder eine Kreisnummer über vier, verwirft die Integration das Ereignis (Warnung ohne
-  Namen im Log). Die bestehenden Entities bleiben vorerst am Gerät der Anlage; ihr Gerät heißt nun nach der Anlage
-  statt „SmartHeat <Anlage>“.
+  Namen im Log). Das Gerät der Anlage heißt nun nach der Anlage statt „SmartHeat <Anlage>“.
+- Die Entities hängen an ihrem Gerät: Status, Datenfehler, letzte Serverantwort, Add-on-Version, Notbetrieb und
+  „Server verbunden“ (neu) an der Anlage; Zustand, Kälteschutz, Boost, Abo, Raumtemperatur (neu), Befunde (neu,
+  Anzahl) und die Wunschtemperatur an dem Kreis, den sie betreffen. Die Entity-IDs der Kreise lauten
+  `<Plattform>.smartheat_k<n>_<Schlüssel>` (zum Beispiel `sensor.smartheat_k1_zustand`), die ihrer Anlage
+  `<Plattform>.smartheat_<Schlüssel>`; die `unique_id` trägt Anlage, Kreis und Schlüssel. Hebel und gelernte Werte
+  sind Diagnose-Entities und standardmäßig ausgeschaltet. Der Zustand kennt alle Werte des Katalogs, auch die des
+  Alltags (`heizt_auf` und weitere). Die Entities eines Kreises entstehen mit dem ersten Status-Ereignis, das den
+  Kreis meldet. Bestehende Entities behalten ihre ID, solange der Registry-Eintrag sie trägt; die alten Entities von
+  Zustand, Kälteschutz, Boost, Abo, Wunschtemperatur und der Hebel entfernt die Integration beim Laden.
 
 ## 1.1.0
 

@@ -12,16 +12,30 @@ from custom_components.smartheat.const import DOMAIN, STATUS_EVENT, WUNSCH_EVENT
 DATA = {"geraet_id": "shg-a", "tenant_id": "zuhause2", "profile_id": "vaillant_gastherme_heizkoerper",
         "lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
         "shift_lever": "room_setpoint"}
-WUNSCH = "number.smartheat_zuhause2_wunschtemperatur"
+WUNSCH = "number.smartheat_k1_wunschtemperatur"
 
 
-async def _setup(hass):
+async def _setup(hass, kreis_melden=True):
+    """Einrichten; die Entity eines Kreises gibt es erst, wenn das Ereignis den Kreis meldet: das erste (ohne Soll)
+    folgt hier, sofern der Test es nicht selbst schickt."""
     entry = MockConfigEntry(domain=DOMAIN, data=DATA, unique_id="shg-a", version=3)
     entry.add_to_hass(hass)
     with patch("custom_components.smartheat.coordinator.async_track_time_interval", autospec=True):
         assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    if kreis_melden:
+        hass.bus.async_fire(STATUS_EVENT, _event(raum_soll=None))
+        await hass.async_block_till_done()
     return entry
+
+
+async def _neustart(hass, entry, gespeichert):
+    """Entladen und mit gespeichertem Stand neu laden: der Kreis ist registriert, die Entity stellt ihn wieder her."""
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    mock_restore_cache(hass, gespeichert)
+    with patch("custom_components.smartheat.coordinator.async_track_time_interval", autospec=True):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
 
 def _listen(hass) -> list:
@@ -204,8 +218,8 @@ async def test_a_huge_integer_target_is_unknown_without_an_error(hass, caplog, r
 
 
 async def test_restores_the_last_value_after_a_restart(hass):
-    mock_restore_cache(hass, [State(WUNSCH, "20.5")])
-    await _setup(hass)
+    entry = await _setup(hass)
+    await _neustart(hass, entry, [State(WUNSCH, "20.5")])
     assert float(hass.states.get(WUNSCH).state) == 20.5
 
 
@@ -213,8 +227,8 @@ async def test_restores_the_last_value_after_a_restart(hass):
 async def test_a_stored_non_finite_value_is_not_restored(hass, stored):
     """Ein gespeicherter Zustand `inf`/`-inf`/`nan` wird nach dem Neustart nicht uebernommen: die Entity ist
     `unknown` wie im Live-Pfad (gegenueber `20.5`, das uebernommen wird)."""
-    mock_restore_cache(hass, [State(WUNSCH, stored)])
-    await _setup(hass)
+    entry = await _setup(hass)
+    await _neustart(hass, entry, [State(WUNSCH, stored)])
     assert hass.states.get(WUNSCH).state == "unknown"
 
 

@@ -25,7 +25,6 @@ from homeassistant.helpers.event import async_track_time_interval
 from . import geraete, repairs
 from .const import (
     EINRICHTUNG_MAX_KREISE,
-    ERSTER_KREIS,
     INTEGRATION_EVENT,
     INTEGRATION_EVENT_FIELDS,
     INTEGRATION_EVENT_SCHEMA,
@@ -194,13 +193,6 @@ class SmartHeatCoordinator:
     def kreis(self, nummer: int) -> dict | None:
         """Die Felder eines Kreises aus dem letzten Ereignis; None, wenn die Anlage ihn nicht meldet."""
         return self.kreise.get(nummer)
-
-    @property
-    def sicht(self) -> dict | None:
-        """Anlage und erster Kreis in einem Dict: das lesen die Entities, bis sie je Kreis angelegt werden."""
-        if self.data is None:
-            return None
-        return {**self.data, **(self.kreis(ERSTER_KREIS) or {})}
 
     @property
     def status(self) -> str | None:

@@ -25,10 +25,10 @@ from .addon_fakes import make_device_entry, status_event
 
 CO = "custom_components.smartheat.coordinator"
 TENANT = "wohnung1"
-STATUS = "sensor.smartheat_wohnung1_status"
-BOOST = "sensor.smartheat_wohnung1_boost"
-NOTBETRIEB = "binary_sensor.smartheat_wohnung1_notbetrieb"
-WUNSCH = "number.smartheat_wohnung1_wunschtemperatur"
+STATUS = "sensor.smartheat_status"
+BOOST = "sensor.smartheat_k1_boost"
+NOTBETRIEB = "binary_sensor.smartheat_notbetrieb"
+WUNSCH = "number.smartheat_k1_wunschtemperatur"
 KERN = "1.4.0"
 _COMPONENT = Path(__file__).parent.parent / "custom_components" / "smartheat"
 
@@ -91,8 +91,9 @@ async def test_der_befund_gilt_auch_ohne_vorher_gelesenes_ereignis(hass, clock):
     await _fire(hass, _ereignis(schema=5))
 
     assert hass.states.get(STATUS).state == "integration_veraltet"
-    assert hass.states.get(WUNSCH).state == STATE_UNAVAILABLE
-    assert hass.states.get(BOOST).state == STATE_UNAVAILABLE
+    assert hass.states.get(NOTBETRIEB).state == STATE_UNAVAILABLE
+    # Ein nicht gelesenes Ereignis nennt keinen Kreis: Kreis-Entities entstehen daraus nicht.
+    assert hass.states.get(BOOST) is None and hass.states.get(WUNSCH) is None
 
 
 @pytest.mark.parametrize("kern", [None, "", "x" * 200, 7, ["1.4.0"], "1.4 <b>"])

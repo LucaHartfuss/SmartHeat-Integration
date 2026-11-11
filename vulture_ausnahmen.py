@@ -41,3 +41,8 @@ _._attr_options  # HA-Entity-Attribut (SensorEntity.options, Enum-Sensor)
 _._attr_extra_state_attributes  # HA-Entity-Attribut (Entity.extra_state_attributes)
 _.async_set_native_value  # HA-Hook: NumberEntity, Dienst number.set_value
 _.available  # HA-Entity-Eigenschaft (Entity.available): "nicht verfuegbar" bei einem Versionsbefund
+_._attr_state_class  # HA-Entity-Attribut (SensorEntity.state_class)
+_._attr_entity_registry_enabled_default  # HA-Entity-Attribut (Entity.entity_registry_enabled_default): Hebel aus
+
+# Von Werkzeugen ausserhalb der Integration gelesen (tools/contract_check.py, tools/e2e/drive_ha2.py).
+ERSTER_KREIS  # Nummer des ersten Kreises als Vorgabe fuer Werkzeuge, die genau einen Kreis ansprechen

@@ -243,11 +243,13 @@
       "gelernte_steigung": {"name": "Gelernte Steigung"},
       "gelernte_heizgrenze": {"name": "Gelernte Heizgrenze (Fußpunkt)"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
-      "zustand": {"name": "Zustand", "state": {"regelt": "Regelt", "abo_inaktiv": "Abo inaktiv", "abo_beendet": "Abo beendet", "testphase": "Testphase ohne SmartHeat", "ausser_betrieb": "Außer Betrieb"}},
+      "zustand": {"name": "Zustand", "state": {"regelt": "Regelt", "abo_inaktiv": "Abo inaktiv", "abo_beendet": "Abo beendet", "testphase": "Testphase ohne SmartHeat", "ausser_betrieb": "Außer Betrieb", "heizt": "Heizt", "pause": "Pause", "abwesend": "Abwesend", "boost": "Boost", "notbetrieb": "Notbetrieb", "einlernphase": "Einlernphase", "nicht_geregelt": "Nicht geregelt", "kuehl": "Kühl", "heizt_auf": "Heizt auf", "uebersteuert": "Übersteuert", "leerstand": "Leerstand"}},
       "kaelteschutz": {"name": "Kälteschutz", "state": {"aus": "Aus", "soll": "Raum zu kalt gegenüber Wunsch", "frost": "Frostnähe"}},
-      "addon_version": {"name": "Add-on-Version"}
+      "addon_version": {"name": "Add-on-Version"},
+      "raumtemperatur": {"name": "Raumtemperatur"},
+      "befunde": {"name": "Befunde"}
     },
-    "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}},
+    "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}, "server_verbunden": {"name": "Server verbunden"}},
     "number": {"wunschtemperatur": {"name": "Wunschtemperatur"}}
   },
   "exceptions": {

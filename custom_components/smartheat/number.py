@@ -1,4 +1,4 @@
-"""Wunschtemperatur als Entity: fuer HA-Automationen und das Dashboard. Setzen feuert nur das lokale
+"""Wunschtemperatur je Kreis als Entity: fuer HA-Automationen und das Dashboard. Setzen feuert nur das lokale
 Ereignis smartheat_wunsch (mit dem Kontext des Dienstaufrufs: Nutzer oder Automation); das Add-on wendet den Wert
 sofort lokal an (Boost bei Erhoehung, auch ohne Internet) und meldet ihn als Bedienwunsch an den Server. Kein
 Server-Aufruf aus der Integration. Angezeigt wird allein der wirksame Soll aus dem Status-Ereignis (nach dem Setzen
@@ -17,7 +17,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
-    ERSTER_KREIS,
     HINWEIS_FELD_KEY,
     HINWEIS_SOLL_QUELLE_AUS,
     RAUM_SOLL_MAX,
@@ -27,25 +26,14 @@ from .const import (
     STATUS_REAGIERT_NICHT,
     WUNSCH_EVENT,
 )
-from .entity import SmartHeatEntity
+from .entity import SmartHeatEntity, async_kreis_entities, endliche_zahl
 
 KEY = "wunschtemperatur"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    async_add_entities([WunschtemperaturEntity(entry.runtime_data)])
-
-
-def _temperature(value) -> float | None:
-    """Endliche Zahl (kein bool) als float, sonst None (unbekannt statt einer kaputten Anzeige). Ein JSON-int
-    ausserhalb des float-Bereichs (10**400) ist nicht umwandelbar (OverflowError) und gilt wie NaN als unbekannt."""
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    try:
-        number = float(value)
-    except OverflowError:
-        return None
-    return number if isfinite(number) else None
+    async_kreis_entities(
+        hass, entry, async_add_entities, lambda coordinator, kreis: [WunschtemperaturEntity(coordinator, kreis)])
 
 
 def _auf_schritt(value: float) -> float:
@@ -61,15 +49,15 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
 
-    def __init__(self, coordinator) -> None:
-        super().__init__(coordinator, "number", KEY)
+    def __init__(self, coordinator, kreis: int) -> None:
+        super().__init__(coordinator, "number", KEY, kreis)
 
     def _apply(self) -> None:
-        self._attr_native_value = _temperature((self.coordinator.sicht or {}).get("raum_soll"))
+        self._attr_native_value = endliche_zahl((self.daten or {}).get("raum_soll"))
 
     def _restore(self, last: State) -> None:
         try:
-            self._attr_native_value = _temperature(float(last.state))
+            self._attr_native_value = endliche_zahl(float(last.state))
         except ValueError:
             self._attr_native_value = None
 
@@ -89,5 +77,5 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         # Keine eigene Anzeige des gesetzten Werts: sie folgt dem naechsten Status-Ereignis (das Add-on sendet nur bei
         # einer Aenderung, binnen etwa einer Sekunde), also dem, was das Add-on wirklich anwendet.
         self.hass.bus.async_fire(
-            WUNSCH_EVENT, {"schema": self.coordinator.wunsch_schema, "kreis": ERSTER_KREIS, "raum_soll": raum_soll},
+            WUNSCH_EVENT, {"schema": self.coordinator.wunsch_schema, "kreis": self.kreis, "raum_soll": raum_soll},
             context=self._context)

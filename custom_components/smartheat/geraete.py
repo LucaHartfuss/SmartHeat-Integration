@@ -57,7 +57,7 @@ def async_anlage(hass: HomeAssistant, entry: ConfigEntry, daten: Mapping | None)
         manufacturer=PRODUKT_NAME,
         model=HOST_NAME,
         model_id=entry.data.get("lever_set"),
-        **({} if daten is None else {"sw_version": version if isinstance(version, str) and version else None}),
+        sw_version=UNDEFINED if daten is None else (version if isinstance(version, str) and version else None),
     )
 
 
@@ -70,7 +70,9 @@ def async_kreis(hass: HomeAssistant, entry: ConfigEntry, anlage: DeviceEntry, nu
         identifiers={kreis_kennung(entry.data["tenant_id"], nummer)},
         manufacturer=PRODUKT_NAME,
         via_device_id=anlage.id,
-        **({"name": gueltig} if gueltig else {"translation_key": "kreis", "translation_placeholders": {"kreis": str(nummer)}}),
+        name=gueltig or UNDEFINED,
+        translation_key=None if gueltig else "kreis",
+        translation_placeholders=None if gueltig else {"kreis": str(nummer)},
     )
 
 

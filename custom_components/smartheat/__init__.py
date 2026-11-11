@@ -13,7 +13,7 @@ from homeassistant.helpers import translation
 from homeassistant.loader import async_get_integration
 
 from . import addon_control, binary_sensor, geraete, number, repairs, sensor
-from .const import DOMAIN, watchdog_notification_id
+from .const import DOMAIN, EINRICHTUNG_MAX_KREISE, unique_id, watchdog_notification_id
 from .coordinator import SmartHeatCoordinator
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
@@ -34,8 +34,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def _remove_orphaned_entities(hass: HomeAssistant, entry: ConfigEntry, tenant_id: str) -> None:
     """Registry-Eintraege dieses Eintrags ohne aktuelle Entity (z. B. ein nicht mehr angebotener Sensor, Hebel eines
-    anderen Hebelsatzes)."""
-    wanted = {f"{tenant_id}_{key}" for key in (*sensor.entity_keys(entry.data), *binary_sensor.ENTITY_KEYS, number.KEY)}
+    anderen Hebelsatzes, eine Entity ohne Kreis-Teil in der unique_id, ein Kreis ausserhalb des Bereichs)."""
+    anlage = {sensor.STATUS_KEY, *(feld.key for feld in sensor.ANLAGE_FIELDS), *binary_sensor.ENTITY_KEYS}
+    kreis = {*(feld.key for feld in sensor.kreis_fields(entry.data)), number.KEY}
+    wanted = {unique_id(tenant_id, key) for key in anlage} | {
+        unique_id(tenant_id, key, nummer) for nummer in range(1, EINRICHTUNG_MAX_KREISE + 1) for key in kreis}
     registry = er.async_get(hass)
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if registry_entry.platform == DOMAIN and registry_entry.unique_id not in wanted:
