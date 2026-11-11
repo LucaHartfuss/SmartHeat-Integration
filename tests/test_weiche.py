@@ -96,7 +96,9 @@ async def test_der_befund_gilt_auch_ohne_vorher_gelesenes_ereignis(hass, clock):
     assert hass.states.get(BOOST) is None and hass.states.get(WUNSCH) is None
 
 
-@pytest.mark.parametrize("kern", [None, "", "x" * 200, 7, ["1.4.0"], "1.4 <b>"])
+@pytest.mark.parametrize("kern", [None, "", "x" * 200, 7, ["1.4.0"], "1.4 <b>", "www.setwell-update.de",
+                                  "1.4", "1..4.0", "1.4.0.", "a.b.c", "1.4.0/evil", "1.4.0" + "x" * 30,
+                                  "1.4.0-www.evil.de", "1.4.0+a@b", "1.4.0-a:b", "1.4.0-a/b"])
 async def test_ohne_brauchbare_mindestversion_zeigt_das_repair_den_text_ohne_version(hass, clock, kern):
     await _setup(hass)
     ereignis = {**_ereignis(schema=5), "mindest_integration": kern}
@@ -107,6 +109,29 @@ async def test_ohne_brauchbare_mindestversion_zeigt_das_repair_den_text_ohne_ver
     assert issue.translation_key == "integration_veraltet_ohne_version"
     assert not issue.translation_placeholders
     assert "x" * 200 not in json.dumps(issue.translation_placeholders or {})
+
+
+@pytest.mark.parametrize("kern", ["1.4.0", "2.10.3", "1.4.0-rc1", "1.4.0+build5", "1.4.0.dev2"])
+async def test_eine_strenge_mindestversion_wird_im_repair_genannt(hass, clock, kern):
+    await _setup(hass)
+
+    await _fire(hass, {**_ereignis(schema=5), "mindest_integration": kern})
+
+    issue = _issues(hass)["integration_veraltet"]
+    assert issue.translation_key == "integration_veraltet"
+    assert issue.translation_placeholders == {"mindest_integration": kern}
+
+
+@pytest.mark.parametrize("schema", ["9" * 5000, 10**30, 4.5, ["x"], {"a": 1}])
+async def test_das_rohe_schema_eines_fremden_ereignisses_landet_nicht_im_log(hass, clock, caplog, schema):
+    await _setup(hass)
+    caplog.clear()
+
+    await _fire(hass, {**_ereignis(), "schema": schema})
+
+    assert "9" * 50 not in caplog.text and "1000000000000000000000000000000" not in caplog.text
+    assert "'a': 1" not in caplog.text and "['x']" not in caplog.text
+    assert max((len(zeile) for zeile in caplog.text.splitlines()), default=0) < 400
 
 
 async def test_ein_lesbares_ereignis_hebt_den_befund_und_das_repair_wieder_auf(hass, clock):
@@ -157,15 +182,16 @@ async def test_der_wunsch_lehnt_beim_befund_mit_der_uebersetzung_ab(hass, clock,
     assert wuensche == []
 
 
-async def test_der_dienst_set_value_erreicht_beim_befund_kein_wunsch_ereignis(hass, clock):
+async def test_der_dienst_set_value_ueberspringt_die_nicht_verfuegbare_entity_still_und_feuert_nichts(hass, clock):
+    """Home Assistant ruft den Dienst fuer eine nicht verfuegbare Entity gar nicht auf: keine Ablehnung mit
+    Uebersetzung, aber auch kein Wunsch-Ereignis (die Ablehnung gilt nur fuer den direkten Aufruf der Entity)."""
     await _setup(hass)
+    await _fire(hass, _ereignis())
     await _fire(hass, _ereignis(schema=5))
+    assert hass.states.get(WUNSCH).state == STATE_UNAVAILABLE
     wuensche = async_capture_events(hass, WUNSCH_EVENT)
 
-    try:
-        await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 22.0}, blocking=True)
-    except ServiceValidationError as fehler:
-        assert fehler.translation_key == "integration_veraltet"
+    await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 22.0}, blocking=True)
     await hass.async_block_till_done()
 
     assert wuensche == []

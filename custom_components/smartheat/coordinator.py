@@ -301,7 +301,10 @@ class SmartHeatCoordinator:
             self._set_version_status(befund, data.get("mindest_integration"))
             return
         if isinstance(schema, bool) or schema not in V5_SCHEMAS:
-            _LOGGER.warning("Status-Event mit nicht aushandelbarem schema ignoriert: %r", schema)
+            # Nur der Typ und eine ganze Zahl: ein Fremdereignis soll keinen frei waehlbaren Text ins Log bringen.
+            _LOGGER.warning("Status-Event mit nicht aushandelbarem schema ignoriert: %s",
+                            schema if isinstance(schema, int) and not isinstance(schema, bool) and abs(schema) < 10**6
+                            else type(schema).__name__)
             return
         # Ein unbekannter Status oder Hinweis verwirft das Ereignis nicht: er gilt als das, was das Add-on gemeldet hat.
         kreise = _kreise(data.get("kreise"))
@@ -320,11 +323,16 @@ class SmartHeatCoordinator:
     @callback
     def _async_geraete_nachziehen(self, konfig_version: object) -> None:
         """Geraete der Anlage und der gemeldeten Kreise anlegen oder aktualisieren; Kreis-Geraete, deren Kreis in zwei
-        aufeinanderfolgenden Ereignissen mit derselben Konfigurationsversion fehlt, entfernen. Die Version kommt roh
-        aus dem Ereignis: fehlt sie, gelten zwei Ereignisse als gleiche Version."""
+        aufeinanderfolgenden Ereignissen mit derselben Konfigurationsversion fehlt, entfernen. Ein Ereignis ohne
+        Konfigurationsversion oder mit leerer Kreisliste belegt keinen Wegfall: die Zaehlung beginnt neu, das Geraet
+        bleibt, und entfernen kann es dann nur der Kunde von Hand."""
         anlage = geraete.async_anlage(self.hass, self.entry, self.data)
         for nummer, kreis in self.kreise.items():
             geraete.async_kreis(self.hass, self.entry, anlage, nummer, kreis.get("name"))
+        if konfig_version is None or not self.kreise:
+            self._fehlende_kreise = set()
+            self._konfig_version = None
+            return
         registriert = geraete.registrierte_kreise(self.hass, self.entry)
         fehlend = set(registriert) - set(self.kreise)
         weg = fehlend & self._fehlende_kreise if konfig_version == self._konfig_version else set()

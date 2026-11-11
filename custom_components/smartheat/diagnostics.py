@@ -16,6 +16,8 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CODE_RE,
+    DATENFEHLER_ARTEN,
     HINWEIS_FELD_KEY,
     HINWEIS_FELD_STUFE,
     INTEGRATION_EVENT_SCHEMA,
@@ -23,7 +25,6 @@ from .const import (
     V5_SCHEMAS,
 )
 
-_CODE = re.compile(r"[a-z0-9_]{1,40}")
 _ZEITPUNKT = re.compile(r"[0-9T:.+\-Z]{1,40}")
 _GERAET = re.compile(r"shg-([a-z0-9]{6})[a-z0-9]*")
 # Felder je Kreis, die als Code, als Zahl, als Zeitpunkt, als Zahl der Eintraege oder als Zahlen je Code erscheinen.
@@ -37,7 +38,13 @@ _MAX_HINWEISE = 20
 
 
 def _code(wert: object) -> str | None:
-    return wert if isinstance(wert, str) and _CODE.fullmatch(wert) else None
+    return wert if isinstance(wert, str) and CODE_RE.fullmatch(wert) else None
+
+
+def _datenfehler(wert: object) -> str | None:
+    """Der Datenfehler kommt als Objekt mit Art und Rollen; heraus kommt nur die Art, und nur eine bekannte."""
+    art = wert.get("art") if isinstance(wert, dict) else None
+    return art if isinstance(art, str) and art in DATENFEHLER_ARTEN else None
 
 
 def _version(wert: object) -> str | None:
@@ -113,7 +120,7 @@ def _status(coordinator) -> dict[str, Any] | None:
         "geraet_zustand": _code(daten.get("geraet_zustand")),
         "server_verbunden": _wahrheit(daten.get("server_verbunden")),
         "notbetrieb": _wahrheit(daten.get("notbetrieb")),
-        "datenfehler": _code(daten.get("datenfehler")),
+        "datenfehler": _datenfehler(daten.get("datenfehler")),
         "letzte_serverantwort": _zeitpunkt(daten.get("letzte_serverantwort")),
         "hinweise": _hinweise(daten.get("hinweise")),
         "geraet_hinweise": _geraet_hinweise(daten.get("geraet_hinweise")),

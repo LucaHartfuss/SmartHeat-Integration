@@ -24,9 +24,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     integration = await async_get_integration(hass, DOMAIN)
     # Der Rueckfallname eines Kreis-Geraets kommt aus den Uebersetzungen; das Geraete-Verzeichnis liest nur den Cache.
     await translation.async_get_translations(hass, hass.config.language, "device", [DOMAIN])
-    anlage = geraete.async_anlage(hass, entry, None)
-    # Erst sichern und umziehen, dann starten: ein gescheiterter Umzug laesst die Registry unberuehrt.
-    await registry_umzug.async_pflegen(hass, entry, anlage)
+    # Erst sichern und umziehen, dann das Anlagengeraet, dann starten. Scheitert die Sicherung, bleibt die Registry
+    # unberuehrt; scheitert der Umzug mittendrin, steht der Vorzustand in der Sicherung und der naechste Lauf plant den
+    # Rest. Der Waechter laeuft erst nach dem Umzug: Home Assistant raeumt bei einem verschobenen Laden auch die schon
+    # gestarteten Aufraeumfunktionen ab, und ein Start trotz gescheitertem Umzug liesse den naechsten Lauf Eintraege
+    # mit Verlauf als verwaist entfernen.
+    await registry_umzug.async_pflegen(hass, entry)
+    geraete.async_anlage(hass, entry, None)
     coordinator.async_start(str(integration.version))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -56,5 +60,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     nur eine WARNING. Dazu verschwinden die eigenen Reparatur-Hinweise und eine offene Meldung des Waechters."""
     await addon_control.async_entfernen_melden(hass, entry.data.get("geraet_id"))
     repairs.async_clear(hass)
+    await registry_umzug.async_sicherung_loeschen(hass, entry)
     if isinstance(tenant_id := entry.data.get("tenant_id"), str):  # ein kaputter Eintrag laesst sich trotzdem loeschen
         persistent_notification.async_dismiss(hass, watchdog_notification_id(tenant_id))

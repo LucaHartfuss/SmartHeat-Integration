@@ -7,6 +7,7 @@ import json
 
 import pytest
 from homeassistant.const import __version__ as HA_VERSION
+from pytest_homeassistant_custom_component.components.diagnostics import _get_diagnostics_for_config_entry
 
 from custom_components.smartheat.const import STATUS_EVENT, V5_SCHEMAS
 from custom_components.smartheat.diagnostics import async_get_config_entry_diagnostics
@@ -81,6 +82,11 @@ def _ereignis(**overrides):
         "mindest_integration": "1.4.0",
         **overrides,
     }
+
+
+async def _download(hass, hass_client, entry) -> dict:
+    """Die ganze Antwort der Download-Route von Home Assistant: `data` samt `issues`."""
+    return await _get_diagnostics_for_config_entry(hass, hass_client, entry)
 
 
 def _text(diagnose) -> str:
@@ -161,6 +167,50 @@ async def test_freier_text_in_einem_codefeld_wird_nicht_uebernommen(hass, clock,
 
     assert GEHEIM["hinweistext"] not in _text(diagnose)
     assert diagnose["status"][feld] is None
+
+
+async def test_der_datenfehler_erscheint_als_art_ohne_rollen(hass, clock):
+    """Das Add-on meldet den Datenfehler als Objekt: nur die Art kommt als Code heraus."""
+    entry = await _laufend(hass, _ereignis(datenfehler={"art": "lokal", "rollen": [GEHEIM["entity_fuehler"]]}))
+
+    diagnose = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnose["status"]["datenfehler"] == "lokal"
+    assert GEHEIM["entity_fuehler"] not in _text(diagnose)
+
+
+@pytest.mark.parametrize("fehler", [{"art": GEHEIM["hinweistext"]}, {"art": "unbekannt"}, {"art": None}, {"rollen": []},
+                                    {"art": ["lokal"]}, [], 5])
+async def test_ein_datenfehler_ohne_bekannte_art_ergibt_nichts(hass, clock, fehler):
+    entry = await _laufend(hass, _ereignis(datenfehler=fehler))
+
+    diagnose = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnose["status"]["datenfehler"] is None
+    assert GEHEIM["hinweistext"] not in _text(diagnose)
+
+
+async def test_der_echte_download_enthaelt_nur_die_positivliste_auch_bei_den_issues(hass, hass_client, clock):
+    """Ueber die HTTP-Route von Home Assistant: `data` aus der Positivliste, `issues` ohne freien Text des Geraets
+    (Issue-ID und Platzhalter)."""
+    entry = await _laufend(hass, _ereignis(
+        datenfehler={"art": "server", "rollen": [GEHEIM["entity_fuehler"]]},
+        geraet_hinweise=[
+            {"key": "wunsch_begrenzt", "stufe": "warnung", "text": GEHEIM["hinweistext"]},
+            {"key": GEHEIM["hinweistext"], "stufe": "kritisch", "text": GEHEIM["hinweistext"]},
+        ]))
+
+    antwort = await _download(hass, hass_client, entry)
+
+    assert antwort["data"]["status"]["datenfehler"] == "server"
+    text = _text(antwort)
+    for name, wert in GEHEIM.items():
+        assert wert not in text, name
+    assert GERAET not in text
+    ids = {issue["issue_id"] for issue in antwort["issues"]}
+    assert ids == {"hinweis_wunsch_begrenzt"}
+    for issue in antwort["issues"]:
+        assert "translation_placeholders" not in issue or GEHEIM["hinweistext"] not in json.dumps(issue)
 
 
 async def test_freier_text_in_kreisfeldern_wird_nicht_uebernommen(hass, clock):

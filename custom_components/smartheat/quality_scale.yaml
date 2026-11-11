@@ -39,7 +39,13 @@ rules:
   unique-config-entry: done
 
   # Silver
-  action-exceptions: done
+  action-exceptions:
+    status: done
+    comment: >-
+      Die Entity der Wunschtemperatur lehnt einen Wunsch, der nicht ankommen kann, mit einer ServiceValidationError ab
+      (Kreis nicht gemeldet, Befund, Add-on nicht bereit, Thermostat aus, ungültiger Wert). Das gilt beim direkten Aufruf
+      der Entity; ruft jemand den Dienst number.set_value auf, überspringt Home Assistant nicht verfügbare Entities
+      stumm, dann gibt es keine Meldung (der Status-Sensor nennt den Befund).
   config-entry-unloading: done
   docs-configuration-parameters:
     status: exempt
@@ -95,7 +101,11 @@ rules:
   entity-device-class: done
   entity-disabled-by-default: done
   entity-translations: done
-  exception-translations: done
+  exception-translations:
+    status: done
+    comment: >-
+      Jede Ablehnung der Entity trägt Übersetzungsdomäne und -schlüssel (Abschnitt exceptions in strings.json und beiden
+      Übersetzungen); gilt wie bei den Aktionen nur für den direkten Aufruf der Entity.
   icon-translations: done
   reconfiguration-flow: done
   repair-issues: done
@@ -106,8 +116,8 @@ rules:
     status: exempt
     comment: Keine Bibliothek, die Anbindung läuft über Ereignisse und den Supervisor-Client von Home Assistant.
   inject-websession:
-    status: todo
-    comment: Nicht Ziel; der Assistent nutzt die gemeinsame Sitzung von Home Assistant (async_get_clientsession).
+    status: done
+    comment: Der Client der Einrichtungs-API bekommt die gemeinsame Sitzung von Home Assistant (async_get_clientsession).
   strict-typing:
     status: todo
     comment: Nicht Ziel; die Typprüfung läuft im Basismodus (pyright).

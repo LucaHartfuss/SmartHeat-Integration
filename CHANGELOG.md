@@ -26,9 +26,19 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   Entity-ID bleibt unverändert. Dashboards und Automationen, die die alten IDs nennen, müssen auf die neuen IDs
   umgestellt werden. Entities ohne Gegenstück in der neuen Version werden entfernt. Vor der ersten Änderung legt die
   Integration ihre eigenen Registry-Einträge und den Konfigurationseintrag in `.storage/smartheat.registry_sicherung`
-  ab (die letzten drei Stände); lässt sich die Sicherung nicht schreiben, lädt der Eintrag nicht und die Registry
-  bleibt unberührt. Die Sicherung ersetzt keine Sicherung von Home Assistant: vor dem Update eine vollständige
-  Sicherung anlegen; ein Zurückgehen auf die alte Version geht nur mit dieser Sicherung bei gestopptem Home Assistant.
+  ab: der erste Stand vor dem Umzug bleibt dauerhaft, dazu die letzten drei späteren Stände; das Entfernen des Eintrags
+  löscht seine Sicherung. Lässt sich die Sicherung nicht schreiben oder lesen, oder scheitert der Umzug, lädt der Eintrag
+  nicht (Home Assistant versucht es später erneut) und der Wächter startet erst nach dem Umzug. Die Sicherung ist ein
+  Nachweis und eine Hilfe für die Handarbeit, kein Rückweg: vor dem Update eine vollständige Sicherung von Home
+  Assistant samt Datenbank anlegen; nur sie bringt die Verlaufsdaten zurück.
+- Ein Kreis, den die Anlage nicht mehr meldet, verliert sein Gerät nur, wenn das Ereignis eine Konfigurationsversion
+  und mindestens einen Kreis nennt; ein Ereignis ohne Kreise gilt nicht als Beleg für den Wegfall. Die
+  Wunschtemperatur eines nicht gemeldeten Kreises lehnt die Entity mit einer eigenen Meldung ab (ruft jemand den Dienst
+  auf, überspringt Home Assistant nicht verfügbare Entities stumm).
+- Die Mindestversion im Reparatur-Hinweis „Integration veraltet“ erscheint nur in der Form `1.4.0` (mit höchstens einer
+  Endung wie `-rc1`); sonst zeigt der Hinweis den Text ohne Version. Reparatur-Hinweise des Geräts mit einem Schlüssel,
+  der kein Code ist, entstehen nicht mehr. Der Diagnose-Download nennt vom Datenfehler nur die bekannte Art, zeigt
+  in den Reparatur-Hinweisen keine Kennung mit freiem Text, und das Log nennt ein unbekanntes Schema nur als Typ.
 - Der Standardserver ist jetzt `https://accounts.setwell.de` (vorher `https://accounts.hartfussha.org`). Die Adresse
   gilt nur für eine neue Einrichtung und nur, wenn die Option `bootstrap_url` des Add-ons Heizungsbrücke nicht gesetzt
   ist; bestehende Einträge sprechen nicht mit dem Server und bleiben unberührt. Das Add-on selbst wechselt beim

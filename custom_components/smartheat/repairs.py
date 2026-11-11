@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
+    CODE_RE,
     DOMAIN,
     ERROR_TEXT_MAX,
     HINWEIS_FELD_KEY,
@@ -48,14 +49,15 @@ def _klartext(text: object) -> str:
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
-    """Issues `hinweis_<key>` auf den Stand von `hinweise` bringen; Eintraege ohne Schluessel ignorieren."""
+    """Issues `hinweis_<key>` auf den Stand von `hinweise` bringen; Eintraege ohne Schluessel oder mit einem Schluessel,
+    der kein Code ist, ignorieren (die Issue-ID steht im Diagnose-Download und darf keinen freien Text tragen)."""
     registry = ir.async_get(hass)
     aktuell = set()
     for hinweis in hinweise:
         if not isinstance(hinweis, dict):
             continue
         key = hinweis.get(HINWEIS_FELD_KEY)
-        if not isinstance(key, str) or not key:
+        if not isinstance(key, str) or CODE_RE.fullmatch(key) is None:
             continue
         issue_id = hinweis_issue_id(key)
         aktuell.add(issue_id)

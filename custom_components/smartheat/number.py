@@ -70,6 +70,8 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
         gerundete Wert ans Add-on."""
         if not isfinite(value):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="wunsch_ungueltig")
+        if self.kreis not in self.coordinator.kreise:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="kreis_nicht_gemeldet")
         if self.coordinator.version_status is not None:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key=self.coordinator.version_status)
         if self.coordinator.watchdog_status in (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT):

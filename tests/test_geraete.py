@@ -219,15 +219,44 @@ async def test_kehrt_der_kreis_zwischen_zwei_ereignissen_zurueck_beginnt_die_zae
     assert _geraet(hass, _kennung(2)) is not None
 
 
-async def test_ohne_konfigurationsversion_im_ereignis_gelten_zwei_ereignisse_als_gleiche_version(hass):
+async def test_ohne_konfigurationsversion_im_ereignis_faellt_kein_kreisgeraet_weg(hass):
+    """Ohne Version fehlt der Beleg, dass die Kreisliste gewollt kleiner ist: das Geraet bleibt, auch nach vielen
+    Ereignissen; entfernen kann es dann nur der Kunde von Hand."""
     await _setup(hass)
     await _fire(hass, _ereignis(nummern=(1, 2), konfig_version=None))
 
-    await _fire(hass, _ereignis(nummern=(1,), konfig_version=None))
-    assert _geraet(hass, _kennung(2)) is not None
-    await _fire(hass, _ereignis(nummern=(1,), konfig_version=None))
+    for _ in range(4):
+        await _fire(hass, _ereignis(nummern=(1,), konfig_version=None))
 
+    assert _geraet(hass, _kennung(2)) is not None
+
+
+async def test_ein_ereignis_ohne_version_zwischen_zwei_mit_version_unterbricht_die_zaehlung(hass):
+    await _setup(hass)
+    await _fire(hass, _ereignis(nummern=(1, 2), konfig_version=7))
+    await _fire(hass, _ereignis(nummern=(1,), konfig_version=7))
+
+    await _fire(hass, _ereignis(nummern=(1,), konfig_version=None))
+    await _fire(hass, _ereignis(nummern=(1,), konfig_version=7))
+
+    assert _geraet(hass, _kennung(2)) is not None
+    await _fire(hass, _ereignis(nummern=(1,), konfig_version=7))
     assert _geraet(hass, _kennung(2)) is None
+
+
+async def test_eine_leere_kreisliste_zaehlt_nie_als_beleg_fuer_den_wegfall(hass):
+    await _setup(hass)
+    await _fire(hass, _ereignis(nummern=(1, 2), konfig_version=7))
+
+    for _ in range(3):
+        await _fire(hass, _ereignis(kreise=[], konfig_version=7))
+    assert _geraet(hass, _kennung(1)) is not None and _geraet(hass, _kennung(2)) is not None
+
+    # Die leere Liste unterbricht auch eine begonnene Zaehlung.
+    await _fire(hass, _ereignis(nummern=(1,), konfig_version=7))
+    await _fire(hass, _ereignis(kreise=[], konfig_version=7))
+    await _fire(hass, _ereignis(nummern=(1,), konfig_version=7))
+    assert _geraet(hass, _kennung(2)) is not None
 
 
 async def test_ein_ungueltiges_ereignis_zaehlt_nicht_als_zweites(hass):
@@ -274,14 +303,14 @@ async def test_mit_dem_kreisgeraet_verschwinden_seine_entities(hass):
     assert f"{TENANT}_k2_zustand" not in unique_ids and eigene.unique_id in unique_ids
 
 
-async def test_die_anlage_und_ihre_entities_bleiben_wenn_kreise_wegfallen(hass):
+async def test_die_anlage_und_ihre_entities_bleiben_wenn_die_kreisliste_leer_ist(hass):
     entry = await _setup(hass)
     await _fire(hass, _ereignis(nummern=(1, 2)))
 
     await _fire(hass, _ereignis(kreise=[]))
     await _fire(hass, _ereignis(kreise=[]))
 
-    assert _geraet(hass, ANLAGE) is not None and not _kreis_geraete(hass, entry)
+    assert _geraet(hass, ANLAGE) is not None and len(_kreis_geraete(hass, entry)) == 2
     assert hass.states.get("sensor.smartheat_status") is not None
 
 

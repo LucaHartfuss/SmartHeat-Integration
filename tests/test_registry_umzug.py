@@ -3,6 +3,7 @@ seine Registry-Kennung, Einstellungen des Nutzers und damit den Verlauf; vor jed
 eigenen Eintraege in der Ablage der Integration, ohne sie wird nichts veraendert."""
 import pytest
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
@@ -38,6 +39,11 @@ def _alte_entities(hass, entry, tenant_id="client1"):
 async def _laden(hass, entry):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+
+
+def _stand(hass_storage, entry) -> dict:
+    """Die Sicherungen dieses Eintrags in der Ablage: `vor_umzug` (der erste Stand) und `spaeter` (die letzten)."""
+    return hass_storage[SICHERUNG]["data"]["sicherungen"][entry.entry_id]
 
 
 def _eigene(hass, entry):
@@ -126,7 +132,7 @@ async def test_vor_der_aenderung_liegt_die_sicherung_der_eigenen_eintraege_in_de
 
     assert gesehen and all(gesehen)
     assert entfernen == []
-    sicherung = hass_storage[SICHERUNG]["data"]["sicherungen"][-1]
+    sicherung = _stand(hass_storage, entry)["vor_umzug"]
     assert {e["unique_id"]: e["id"] for e in sicherung["entities"]} == kennungen
     assert {e["entity_id"] for e in sicherung["entities"]} >= {"sensor.smartheat_client1_zustand"}
     assert fremd.unique_id not in {e["unique_id"] for e in sicherung["entities"]}
@@ -181,19 +187,96 @@ async def test_ein_zweites_laden_aendert_nichts_und_sichert_nicht_erneut(hass, h
     assert {u: (e.id, e.entity_id) for u, e in _eigene(hass, entry).items()} == nachher
 
 
-async def test_die_sicherung_haelt_hoechstens_drei_staende(hass, hass_storage):
+async def test_der_erste_stand_bleibt_dauerhaft_und_nur_spaetere_rotieren_auf_drei(hass, hass_storage):
     entry = make_device_entry(hass, tenant_id="client1")
     registry = er.async_get(hass)
-    for lauf in range(5):
+    for lauf in range(6):
         registry.async_get_or_create("sensor", DOMAIN, f"client1_alt{lauf}", config_entry=entry,
                                      suggested_object_id=f"smartheat_client1_alt{lauf}")
         await _laden(hass, entry)
         assert await hass.config_entries.async_unload(entry.entry_id)
 
+    stand = _stand(hass_storage, entry)
+    assert set(stand) == {"vor_umzug", "spaeter"}
+    def alte(sicherung):
+        return {e["unique_id"] for e in sicherung["entities"] if e["unique_id"].startswith("client1_alt")}
+
+    assert alte(stand["vor_umzug"]) == {"client1_alt0"}
+    assert [alte(s) for s in stand["spaeter"]] == [{"client1_alt3"}, {"client1_alt4"}, {"client1_alt5"}]
+
+
+async def test_die_sicherung_zeigt_den_zustand_vor_dem_anlegen_des_anlagengeraets(hass, hass_storage):
+    entry = make_device_entry(hass, tenant_id="client1")
+    er.async_get(hass).async_get_or_create("sensor", DOMAIN, "client1_alt", config_entry=entry,
+                                           suggested_object_id="smartheat_client1_alt")
+    assert not dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+
+    await _laden(hass, entry)
+
+    assert _stand(hass_storage, entry)["vor_umzug"]["geraete"] == []
+    assert dr.async_get(hass).async_get_device_by_identifier((DOMAIN, "client1"), entry.entry_id) is not None
+
+
+async def test_die_sicherung_gehoert_dem_eintrag_und_fremde_staende_bleiben(hass, hass_storage):
+    fremd = {"vor_umzug": {"gesichert_am": "x", "entities": [], "geraete": [], "config_entry": {}}, "spaeter": []}
+    hass_storage[SICHERUNG] = {"version": 1, "minor_version": 1, "key": SICHERUNG,
+                               "data": {"sicherungen": {"anderer_eintrag": fremd}}}
+    entry = make_device_entry(hass, tenant_id="client1")
+    _alte_entities(hass, entry)
+
+    await _laden(hass, entry)
+
     sicherungen = hass_storage[SICHERUNG]["data"]["sicherungen"]
-    assert len(sicherungen) == 3
-    letzte = {e["unique_id"] for e in sicherungen[-1]["entities"]}
-    assert "client1_alt4" in letzte and "client1_alt3" not in letzte
+    assert set(sicherungen) == {"anderer_eintrag", entry.entry_id}
+    assert sicherungen["anderer_eintrag"] == fremd
+
+
+async def test_das_entfernen_des_eintrags_loescht_seine_sicherung_und_nur_diese(hass, hass_storage):
+    fremd = {"vor_umzug": {"gesichert_am": "x", "entities": [], "geraete": [], "config_entry": {}}, "spaeter": []}
+    hass_storage[SICHERUNG] = {"version": 1, "minor_version": 1, "key": SICHERUNG,
+                               "data": {"sicherungen": {"anderer_eintrag": fremd}}}
+    entry = make_device_entry(hass, tenant_id="client1")
+    _alte_entities(hass, entry)
+    await _laden(hass, entry)
+    assert entry.entry_id in hass_storage[SICHERUNG]["data"]["sicherungen"]
+
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass_storage[SICHERUNG]["data"]["sicherungen"] == {"anderer_eintrag": fremd}
+
+
+@pytest.mark.parametrize("inhalt", [[1, 2], "text", {"sicherungen": [1]}, {"sicherungen": "x"}])
+async def test_eine_kaputte_sicherungsdatei_wird_nicht_ueberschrieben_und_der_eintrag_laedt_nicht(
+        hass, hass_storage, inhalt):
+    hass_storage[SICHERUNG] = {"version": 1, "minor_version": 1, "key": SICHERUNG, "data": inhalt}
+    entry = make_device_entry(hass, tenant_id="client1")
+    _alte_entities(hass, entry)
+    vorher = {e.unique_id: e.entity_id for e in _eigene(hass, entry).values()}
+
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert hass_storage[SICHERUNG]["data"] == inhalt
+    assert {e.unique_id: e.entity_id for e in _eigene(hass, entry).values()} == vorher
+
+
+@pytest.mark.parametrize("fehler", [ValueError("ID vergeben"), HomeAssistantError("kaputt")])
+async def test_scheitert_der_umzug_selbst_laedt_der_eintrag_spaeter_neu_statt_abzustuerzen(
+        hass, hass_storage, monkeypatch, fehler):
+    entry = make_device_entry(hass, tenant_id="client1")
+    _alte_entities(hass, entry)
+
+    def kaputt(*args, **kwargs):
+        raise fehler
+
+    monkeypatch.setattr(er.async_get(hass), "async_update_entity", kaputt)
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert "vor_umzug" in _stand(hass_storage, entry)  # der Vorzustand ist gesichert, bevor etwas geaendert wurde
 
 
 async def test_eine_belegte_neue_kennung_laesst_den_alten_eintrag_entfallen(hass):
@@ -237,7 +320,7 @@ async def test_nicht_umziehbare_eintraege_werden_nach_der_sicherung_entfernt(has
     await _laden(hass, entry)
 
     assert {"client1_offset", "client1_niveau", "client1_k9_boost"}.isdisjoint(_eigene(hass, entry))
-    gesichert = {e["unique_id"] for e in hass_storage[SICHERUNG]["data"]["sicherungen"][-1]["entities"]}
+    gesichert = {e["unique_id"] for e in _stand(hass_storage, entry)["vor_umzug"]["entities"]}
     assert {"client1_offset", "client1_niveau", "client1_k9_boost"} <= gesichert
 
 
@@ -255,7 +338,7 @@ async def test_das_rueckspielen_der_sicherung_stellt_den_alten_stand_her(hass, h
     assert {u: v[0] for u, v in vorher.items()} != {u: e.id for u, e in _eigene(hass, entry).items()}
     assert await hass.config_entries.async_unload(entry.entry_id)
 
-    sicherung = hass_storage[SICHERUNG]["data"]["sicherungen"][0]
+    sicherung = _stand(hass_storage, entry)["vor_umzug"]
     for eintrag in _eigene(hass, entry).values():
         registry.async_remove(eintrag.entity_id)
     for zeile in sicherung["entities"]:

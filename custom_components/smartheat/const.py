@@ -62,7 +62,12 @@ STATUS_INTEGRATION_VERALTET = "integration_veraltet"
 STATUS_ADDON_VERALTET = "addon_veraltet"
 STATUS_VERSION_VALUES = (STATUS_INTEGRATION_VERALTET, STATUS_ADDON_VERALTET)
 ISSUE_OHNE_VERSION = "_ohne_version"
-MINDEST_INTEGRATION_RE = re.compile(r"[0-9A-Za-z.+-]{1,32}")
+# Ein Code des Add-ons (Schluessel, Stufe, Art, Zustand): kleine Buchstaben, Ziffern, Unterstrich. Was ihm nicht entspricht,
+# gilt als freier Text und geht weder in eine Issue-ID noch in die Diagnose.
+CODE_RE = re.compile(r"[a-z0-9_]{1,40}")
+# Eine Versionsnummer: drei Zahlen, hoechstens eine Endung; kein Domain- oder Pfadmuster, das ein Repair-Text als Link
+# darstellen koennte.
+MINDEST_INTEGRATION_RE =re.compile(r"(?=.{1,32}\Z)\d{1,6}\.\d{1,6}\.\d{1,6}(?:[.+-][0-9A-Za-z]{1,16})?")
 STATUS_SENSOR_VALUES = (
     ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT) + STATUS_VERSION_VALUES
 )

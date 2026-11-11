@@ -261,3 +261,21 @@ async def test_a_wish_is_accepted_again_once_the_thermostat_is_on(hass):
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
     await hass.async_block_till_done()
     assert [e.data["raum_soll"] for e in events] == [23.0]
+
+
+async def test_a_wish_for_a_circuit_the_system_no_longer_reports_is_refused(hass):
+    """Meldet die Anlage den Kreis nicht mehr, gibt es niemanden, der den Wunsch anwendet: die Entity selbst (ein Aufruf
+    ueber den Dienst ueberspringt nicht verfuegbare Entities still) lehnt mit eigenem Schluessel ab, ohne Ereignis."""
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    entity = hass.data[DATA_COMPONENT].get_entity(WUNSCH)
+    hass.bus.async_fire(STATUS_EVENT, _event(kreise=[{"kreis": 2, "raum_soll": 20.0}]))
+    await hass.async_block_till_done()
+    assert 1 not in entity.coordinator.kreise
+    events = _listen(hass)
+    with pytest.raises(ServiceValidationError) as error:
+        await entity.async_set_native_value(23.0)
+    assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, "kreis_nicht_gemeldet")
+    await hass.async_block_till_done()
+    assert events == []
