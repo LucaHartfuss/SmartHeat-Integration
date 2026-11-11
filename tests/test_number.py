@@ -12,16 +12,30 @@ from custom_components.smartheat.const import DOMAIN, STATUS_EVENT, WUNSCH_EVENT
 DATA = {"geraet_id": "shg-a", "tenant_id": "zuhause2", "profile_id": "vaillant_gastherme_heizkoerper",
         "lever_set": "vaillant_vrc720", "hebel": ["curve", "room_setpoint", "heat_limit", "min_flow"],
         "shift_lever": "room_setpoint"}
-WUNSCH = "number.smartheat_zuhause2_wunschtemperatur"
+WUNSCH = "number.smartheat_k1_wunschtemperatur"
 
 
-async def _setup(hass):
+async def _setup(hass, kreis_melden=True):
+    """Einrichten; die Entity eines Kreises gibt es erst, wenn das Ereignis den Kreis meldet: das erste (ohne Soll)
+    folgt hier, sofern der Test es nicht selbst schickt."""
     entry = MockConfigEntry(domain=DOMAIN, data=DATA, unique_id="shg-a", version=3)
     entry.add_to_hass(hass)
     with patch("custom_components.smartheat.coordinator.async_track_time_interval", autospec=True):
         assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    if kreis_melden:
+        hass.bus.async_fire(STATUS_EVENT, _event(raum_soll=None))
+        await hass.async_block_till_done()
     return entry
+
+
+async def _neustart(hass, entry, gespeichert):
+    """Entladen und mit gespeichertem Stand neu laden: der Kreis ist registriert, die Entity stellt ihn wieder her."""
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    mock_restore_cache(hass, gespeichert)
+    with patch("custom_components.smartheat.coordinator.async_track_time_interval", autospec=True):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
 
 def _listen(hass) -> list:
@@ -85,20 +99,25 @@ async def test_wert_erscheint_erst_mit_dem_status_ereignis(hass):
 @pytest.mark.parametrize("watchdog_status", ["addon_gestoppt", "reagiert_nicht"])
 async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status):
     """Meldet der Waechter das Add-on als gestoppt oder nicht reagierend, nimmt die Entity keinen Wunsch an
-    (er ginge ins Leere): `addon_nicht_bereit`, kein Ereignis, die Anzeige bleibt. Mit der Entwarnung geht es wieder."""
+    (er ginge ins Leere): `addon_nicht_bereit`, kein Ereignis. Die Entity ist dann nicht verfuegbar, ein Dienstaufruf
+    erreicht sie nicht. Mit der Entwarnung geht es wieder."""
     entry = await _setup(hass)
     hass.bus.async_fire(STATUS_EVENT, _event())
     await hass.async_block_till_done()
     events = _listen(hass)
-    entry.runtime_data.watchdog_status = watchdog_status
+    entry.runtime_data._set_watchdog_status(watchdog_status)
+    await hass.async_block_till_done()
 
     with pytest.raises(ServiceValidationError) as error:
-        await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
+        await hass.data[DATA_COMPONENT].get_entity(WUNSCH).async_set_native_value(23.0)
     assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, "addon_nicht_bereit")
+    await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
     await hass.async_block_till_done()
-    assert events == [] and float(hass.states.get(WUNSCH).state) == 21.5
+    assert events == [] and hass.states.get(WUNSCH).state == "unavailable"
 
-    entry.runtime_data.watchdog_status = None
+    entry.runtime_data._set_watchdog_status(None)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(WUNSCH).state) == 21.5
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
     await hass.async_block_till_done()
     assert [e.data["raum_soll"] for e in events] == [23.0]
@@ -204,8 +223,8 @@ async def test_a_huge_integer_target_is_unknown_without_an_error(hass, caplog, r
 
 
 async def test_restores_the_last_value_after_a_restart(hass):
-    mock_restore_cache(hass, [State(WUNSCH, "20.5")])
-    await _setup(hass)
+    entry = await _setup(hass)
+    await _neustart(hass, entry, [State(WUNSCH, "20.5")])
     assert float(hass.states.get(WUNSCH).state) == 20.5
 
 
@@ -213,8 +232,8 @@ async def test_restores_the_last_value_after_a_restart(hass):
 async def test_a_stored_non_finite_value_is_not_restored(hass, stored):
     """Ein gespeicherter Zustand `inf`/`-inf`/`nan` wird nach dem Neustart nicht uebernommen: die Entity ist
     `unknown` wie im Live-Pfad (gegenueber `20.5`, das uebernommen wird)."""
-    mock_restore_cache(hass, [State(WUNSCH, stored)])
-    await _setup(hass)
+    entry = await _setup(hass)
+    await _neustart(hass, entry, [State(WUNSCH, stored)])
     assert hass.states.get(WUNSCH).state == "unknown"
 
 
@@ -242,3 +261,21 @@ async def test_a_wish_is_accepted_again_once_the_thermostat_is_on(hass):
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
     await hass.async_block_till_done()
     assert [e.data["raum_soll"] for e in events] == [23.0]
+
+
+async def test_a_wish_for_a_circuit_the_system_no_longer_reports_is_refused(hass):
+    """Meldet die Anlage den Kreis nicht mehr, gibt es niemanden, der den Wunsch anwendet: die Entity selbst (ein Aufruf
+    ueber den Dienst ueberspringt nicht verfuegbare Entities still) lehnt mit eigenem Schluessel ab, ohne Ereignis."""
+    await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    entity = hass.data[DATA_COMPONENT].get_entity(WUNSCH)
+    hass.bus.async_fire(STATUS_EVENT, _event(kreise=[{"kreis": 2, "raum_soll": 20.0}]))
+    await hass.async_block_till_done()
+    assert 1 not in entity.coordinator.kreise
+    events = _listen(hass)
+    with pytest.raises(ServiceValidationError) as error:
+        await entity.async_set_native_value(23.0)
+    assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, "kreis_nicht_gemeldet")
+    await hass.async_block_till_done()
+    assert events == []

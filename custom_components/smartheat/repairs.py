@@ -10,12 +10,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
+    CODE_RE,
     DOMAIN,
     ERROR_TEXT_MAX,
     HINWEIS_FELD_KEY,
     HINWEIS_FELD_STUFE,
     HINWEIS_FELD_TEXT,
     HINWEIS_KEYS,
+    ISSUE_OHNE_VERSION,
+    MINDEST_INTEGRATION_RE,
+    STATUS_INTEGRATION_VERALTET,
+    STATUS_VERSION_VALUES,
     hinweis_issue_id,
 )
 
@@ -44,14 +49,15 @@ def _klartext(text: object) -> str:
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
-    """Issues `hinweis_<key>` auf den Stand von `hinweise` bringen; Eintraege ohne Schluessel ignorieren."""
+    """Issues `hinweis_<key>` auf den Stand von `hinweise` bringen; Eintraege ohne Schluessel oder mit einem Schluessel,
+    der kein Code ist, ignorieren (die Issue-ID steht im Diagnose-Download und darf keinen freien Text tragen)."""
     registry = ir.async_get(hass)
     aktuell = set()
     for hinweis in hinweise:
         if not isinstance(hinweis, dict):
             continue
         key = hinweis.get(HINWEIS_FELD_KEY)
-        if not isinstance(key, str) or not key:
+        if not isinstance(key, str) or CODE_RE.fullmatch(key) is None:
             continue
         issue_id = hinweis_issue_id(key)
         aktuell.add(issue_id)
@@ -67,5 +73,27 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
+def async_set_version(hass: HomeAssistant, befund: str | None, mindest_integration: object = None) -> None:
+    """Das Repair zum Versionsbefund (`integration_veraltet` oder `addon_veraltet`) setzen; `None` nimmt es zurueck. Es
+    gibt hoechstens eines. Nur der Text zu `integration_veraltet` nennt die Mindestversion aus dem Anlagenfeld `mindest_integration` des Ereignisses;
+    sie erscheint nur, wenn sie wie eine Version aussieht, sonst nimmt das Repair den Text ohne Version. Nicht
+    behebbar, Warnung (Orange), kein Push."""
+    for alt in STATUS_VERSION_VALUES:
+        if alt != befund:
+            ir.async_delete_issue(hass, DOMAIN, alt)
+    if befund is None:
+        return
+    version = (mindest_integration if isinstance(mindest_integration, str)
+               and MINDEST_INTEGRATION_RE.fullmatch(mindest_integration) is not None else None)
+    nennt_version = befund == STATUS_INTEGRATION_VERALTET and version is not None
+    ohne_version = befund == STATUS_INTEGRATION_VERALTET and version is None
+    ir.async_create_issue(
+        hass, DOMAIN, befund, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+        translation_key=befund + ISSUE_OHNE_VERSION if ohne_version else befund,
+        translation_placeholders={"mindest_integration": version} if nennt_version and version else None,
+    )
+
+
 def async_clear(hass: HomeAssistant) -> None:
     async_update(hass, [])
+    async_set_version(hass, None)

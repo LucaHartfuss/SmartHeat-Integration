@@ -1,22 +1,37 @@
 """Coordinator, Entities und zweiter Waechter (Schema 4, Zuordnung ueber die
 Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur per persistent_notification)."""
 import asyncio
+import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonState
 from homeassistant.core import State
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
+    async_capture_events,
     async_fire_time_changed,
     async_mock_service,
     mock_restore_cache,
 )
 
-from custom_components.smartheat.const import STATUS_EVENT, STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS, WATCHDOG_MESSAGES
+from custom_components.smartheat import sensor
+from custom_components.smartheat.const import (
+    DOMAIN,
+    INTEGRATION_EVENT,
+    INTEGRATION_EVENT_FIELDS,
+    STATUS_EVENT,
+    STATUS_EVENT_FIELDS,
+    STATUS_EVENT_SCHEMA,
+    STATUS_KREIS_FIELDS,
+    WATCHDOG_MESSAGES,
+    unique_id,
+)
 from custom_components.smartheat.coordinator import Watchdog
 
 from .addon_fakes import make_device_entry, status_event
@@ -24,7 +39,7 @@ from .supervisor_fakes import BRIDGE_SLUG, installed_addon, repository
 
 CO = "custom_components.smartheat.coordinator"
 TENANT = "wohnung1"
-STATUS = "sensor.smartheat_wohnung1_status"
+STATUS = "sensor.smartheat_status"
 RUNNING = True  # laeuft laut Supervisor; False: laeuft nicht; None: Bruecke nicht aufloesbar
 
 
@@ -186,11 +201,39 @@ def notes(monkeypatch):
     return created, dismissed
 
 
-async def _setup(hass, **entry_kwargs):
+def _hebel_aktivieren(hass, entry, kreis=1):
+    """Hebel- und Lernwerte sind standardmaessig aus; die Registry vorbelegen, als haette der Nutzer sie eingeschaltet."""
+    registry = er.async_get(hass)
+    for feld in sensor.kreis_fields(entry.data)[len(sensor.KREIS_FIELDS):]:
+        registry.async_get_or_create(
+            "sensor", DOMAIN, unique_id(entry.data["tenant_id"], feld.key, kreis), config_entry=entry,
+            suggested_object_id=f"smartheat_k{kreis}_{feld.key}", disabled_by=None)
+
+
+async def _setup(hass, hebel_an=False, **entry_kwargs):
     """Eintrag einrichten. Die Waechter-Tests nehmen dazu die Fixture `supervisor` (Supervisor-Client an der Grenze,
     die Heizungsbruecke `abc_heizungsbruecke` laeuft); der Waechter findet sie ueber die echte Aufloesung."""
     entry = make_device_entry(hass, **entry_kwargs)
+    if hebel_an:
+        _hebel_aktivieren(hass, entry)
     assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def _neustart(hass, entry, gespeichert):
+    """Eintrag entladen und mit gespeichertem Stand neu laden: der Kreis ist registriert, seine Entities entstehen
+    schon ohne Ereignis und stellen den Stand wieder her."""
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    mock_restore_cache(hass, gespeichert)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def _setup_mit_kreis(hass, **kwargs):
+    """Eintrag einrichten und einen Kreis melden lassen, damit sein Geraet und seine Entities bestehen."""
+    entry = await _setup(hass, **kwargs)
+    _fire(hass, status_event(TENANT, "regelt"))
     await hass.async_block_till_done()
     return entry
 
@@ -205,7 +248,7 @@ def _bridge(supervisor):
 
 
 async def test_an_event_updates_every_entity(hass, clock):
-    await _setup(hass)
+    await _setup(hass, hebel_an=True)
 
     _fire(hass, status_event(
         TENANT, "notbetrieb", notbetrieb=True, boost="notfall", datenfehler={"art": "lokal", "rollen": ["dat"]},
@@ -225,19 +268,19 @@ async def test_an_event_updates_every_entity(hass, clock):
     assert "waerme_fehlt" not in status.attributes
     # Schema 2: manueller_eingriff ist ein Objekt (hebel/erkannt); die Integration reicht es unveraendert durch.
     assert status.attributes["manueller_eingriff"] == {"hebel": {"curve": 1.4}, "erkannt": "2026-10-01T04:00:00+02:00"}
-    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"
-    fault = hass.states.get("sensor.smartheat_wohnung1_datenfehler")
+    assert hass.states.get("binary_sensor.smartheat_notbetrieb").state == "on"
+    fault = hass.states.get("sensor.smartheat_datenfehler")
     assert (fault.state, fault.attributes["rollen"]) == ("lokal", ["dat"])
-    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "notfall"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.1"
-    assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung").state == "24.0"
-    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze").state == "16.0"
-    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_steigung").state == "1.08"
-    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_heizgrenze").state == "16.4"
-    assert hass.states.get("sensor.smartheat_wohnung1_abo").attributes["frist_ende"] == "2026-10-31"
-    assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "2026-10-01T10:00:05+00:00"
-    assert hass.states.get("sensor.smartheat_wohnung1_addon_version").state == "0.20.0"
+    assert hass.states.get("sensor.smartheat_k1_boost").state == "notfall"
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "1.1"
+    assert hass.states.get("sensor.smartheat_k1_parallelverschiebung").state == "24.0"
+    assert hass.states.get("sensor.smartheat_k1_mindestvorlauf").state == "20.5"
+    assert hass.states.get("sensor.smartheat_k1_heizgrenze").state == "16.0"
+    assert hass.states.get("sensor.smartheat_k1_gelernte_steigung").state == "1.08"
+    assert hass.states.get("sensor.smartheat_k1_gelernte_heizgrenze").state == "16.4"
+    assert hass.states.get("sensor.smartheat_k1_abo").attributes["frist_ende"] == "2026-10-31"
+    assert hass.states.get("sensor.smartheat_letzte_serverantwort").state == "2026-10-01T10:00:05+00:00"
+    assert hass.states.get("sensor.smartheat_addon_version").state == "0.20.0"
 
 
 async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, clock):
@@ -255,15 +298,28 @@ async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, c
     assert coordinator.kreis(3) is None
 
 
+async def test_the_coordinator_keeps_the_config_version_and_the_minimum_integration_of_the_event(hass, clock):
+    """Konfigurationsversion und Mindestversion der Integration sind Anlagenfelder des Ereignisses: sie stehen in den
+    Daten des Coordinators, ein Ereignis ohne sie laesst sie fehlen (kein Ersatzwert)."""
+    entry = await _setup(hass)
+    _fire(hass, status_event(TENANT, "regelt", konfig_version=12, mindest_integration="1.2.0"))
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator.data["konfig_version"] == 12
+    assert coordinator.data["mindest_integration"] == "1.2.0"
+
+    ohne = {key: value for key, value in status_event(TENANT, "regelt").items()
+            if key not in ("konfig_version", "mindest_integration")}
+    _fire(hass, ohne)
+    await hass.async_block_till_done()
+    assert "konfig_version" not in coordinator.data and "mindest_integration" not in coordinator.data
+
+
 @pytest.mark.parametrize("event", [
     status_event(TENANT, "regelt", geraet_id="shg-b"),
     {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"},
-    {**status_event(TENANT, "regelt"), "schema": 3},
-    {**status_event(TENANT, "regelt"), "schema": 2},
-    {**status_event(TENANT, "regelt"), "schema": 1},
-    status_event(TENANT, "bereit"),
 ])
-async def test_foreign_or_unknown_events_are_ignored(hass, clock, event):
+async def test_foreign_events_are_ignored(hass, clock, event):
     entry = await _setup(hass)
 
     _fire(hass, event)
@@ -309,8 +365,8 @@ async def test_an_event_with_a_bad_circuit_list_is_discarded_whole_without_the_n
     assert "Geheim" not in caplog.text
 
 
-async def test_two_circuits_are_read_apart_and_circuit_2_never_changes_the_entities_of_circuit_1(hass, clock):
-    """Bis die Entities je Kreis kommen, zeigen sie Kreis 1; was Kreis 2 meldet, aendert keine Entity."""
+async def test_two_circuits_are_read_apart_and_each_circuit_shows_only_its_own_values(hass, clock):
+    """Jeder Kreis hat seine Entities; was Kreis 2 meldet, aendert keine Entity von Kreis 1 und umgekehrt."""
     entry = await _setup(hass)
     eins = {"kreis": 1, "name": "Wohnung", "raum_soll": 21.0, "boost": "komfort", "abo": "aktiv"}
     zwei = {"kreis": 2, "name": "Dachboden", "raum_soll": 17.0, "boost": "keiner", "abo": "aktiv"}
@@ -322,38 +378,47 @@ async def test_two_circuits_are_read_apart_and_circuit_2_never_changes_the_entit
     coordinator = entry.runtime_data
     assert (coordinator.kreis(1)["raum_soll"], coordinator.kreis(2)["raum_soll"]) == (21.0, 17.0)
     assert (coordinator.kreis(1)["boost"], coordinator.kreis(2)["boost"]) == ("komfort", "keiner")
-    vorher = {state.entity_id: (state.state, dict(state.attributes)) for state in hass.states.async_all()
-              if state.entity_id.startswith(("sensor.smartheat", "binary_sensor.smartheat", "number.smartheat"))}
-    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "komfort"
-    assert float(hass.states.get("number.smartheat_wohnung1_wunschtemperatur").state) == 21.0
+
+    def kreis_staende(nummer):
+        return {state.entity_id: (state.state, dict(state.attributes)) for state in hass.states.async_all()
+                if state.entity_id.startswith((f"sensor.smartheat_k{nummer}_", f"number.smartheat_k{nummer}_"))}
+
+    vorher_eins = kreis_staende(1)
+    assert hass.states.get("sensor.smartheat_k1_boost").state == "komfort"
+    assert hass.states.get("sensor.smartheat_k2_boost").state == "keiner"
+    assert float(hass.states.get("number.smartheat_k1_wunschtemperatur").state) == 21.0
+    assert float(hass.states.get("number.smartheat_k2_wunschtemperatur").state) == 17.0
 
     veraendert = {**kreis_zwei, "raum_soll": 24.0, "boost": "notfall", "abo": "beendet", "name": "Anderer"}
     _fire(hass, {**basis, "kreise": [kreis_eins, veraendert]})
     await hass.async_block_till_done()
 
     assert coordinator.kreis(2)["raum_soll"] == 24.0
-    nachher = {state.entity_id: (state.state, dict(state.attributes)) for state in hass.states.async_all()
-               if state.entity_id.startswith(("sensor.smartheat", "binary_sensor.smartheat", "number.smartheat"))}
-    assert nachher == vorher
+    assert kreis_staende(1) == vorher_eins
+    assert hass.states.get("sensor.smartheat_k2_boost").state == "notfall"
+    assert hass.states.get("sensor.smartheat_k2_abo").state == "beendet"
+    assert float(hass.states.get("number.smartheat_k2_wunschtemperatur").state) == 24.0
 
 
-async def test_one_circuit_ended_and_the_other_active_are_shown_for_circuit_1_only(hass, clock):
+async def test_each_circuit_shows_its_own_subscription_whatever_the_order_in_the_event(hass, clock):
     await _setup(hass)
     basis = status_event(TENANT, "regelt")
     beendet, aktiv = {**basis["kreise"][0], "abo": "beendet"}, {**basis["kreise"][1], "abo": "aktiv"}
 
     _fire(hass, {**basis, "kreise": [beendet, aktiv]})
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.smartheat_wohnung1_abo").state == "beendet"
+    assert hass.states.get("sensor.smartheat_k1_abo").state == "beendet"
+    assert hass.states.get("sensor.smartheat_k2_abo").state == "aktiv"
 
     _fire(hass, {**basis, "kreise": [aktiv | {"kreis": 1}, beendet | {"kreis": 2}]})
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.smartheat_wohnung1_abo").state == "aktiv"
+    assert hass.states.get("sensor.smartheat_k1_abo").state == "aktiv"
+    assert hass.states.get("sensor.smartheat_k2_abo").state == "beendet"
 
 
-async def test_an_event_without_circuits_yet_leaves_the_circuit_entities_unknown(hass, clock):
-    """Vor der Einrichtung hat die Anlage keinen Kreis: das Ereignis gilt (leere Liste), die Kreis-Entities bleiben
-    ohne Wert."""
+async def test_an_event_without_circuits_yet_creates_no_circuit_entities(hass, clock):
+    """Vor der Einrichtung hat die Anlage keinen Kreis: das Ereignis gilt (leere Liste), Kreis-Entities gibt es erst,
+    wenn ein Kreis gemeldet wird."""
     entry = await _setup(hass)
 
     _fire(hass, status_event(None, "startet", geraet_zustand="wartet_auf_einrichtung", kreise=[]))
@@ -361,7 +426,7 @@ async def test_an_event_without_circuits_yet_leaves_the_circuit_entities_unknown
 
     assert entry.runtime_data.kreis(1) is None
     assert hass.states.get(STATUS).state == "startet"
-    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_boost") is None
 
 
 async def test_event_of_another_device_is_ignored(hass, clock):
@@ -394,22 +459,22 @@ async def test_event_of_an_unconfigured_device_is_taken_by_its_id(hass, clock):
 
 async def test_entities_restore_the_last_state_after_a_restart(hass, clock):
     """Review Focus 3."""
-    mock_restore_cache(hass, [
-        State(STATUS, "notbetrieb", {"grund": None, "raumfuehler_ausgefallen": ["sensor.a"]}),
-        State("binary_sensor.smartheat_wohnung1_notbetrieb", "on"),
-        State("sensor.smartheat_wohnung1_heizkurve", "1.1"),
-        State("sensor.smartheat_wohnung1_letzte_serverantwort", "2026-10-01T10:00:05+00:00"),
-        State("sensor.smartheat_wohnung1_datenfehler", "lokal", {"rollen": ["dat"]}),
-    ])
+    entry = await _setup_mit_kreis(hass, hebel_an=True)
 
-    await _setup(hass)
+    await _neustart(hass, entry, [
+        State(STATUS, "notbetrieb", {"grund": None, "raumfuehler_ausgefallen": ["sensor.a"]}),
+        State("binary_sensor.smartheat_notbetrieb", "on"),
+        State("sensor.smartheat_k1_heizkurve", "1.1"),
+        State("sensor.smartheat_letzte_serverantwort", "2026-10-01T10:00:05+00:00"),
+        State("sensor.smartheat_datenfehler", "lokal", {"rollen": ["dat"]}),
+    ])
 
     assert hass.states.get(STATUS).state == "notbetrieb"
     assert hass.states.get(STATUS).attributes["raumfuehler_ausgefallen"] == ["sensor.a"]
-    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.1"
-    assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "2026-10-01T10:00:05+00:00"
-    assert hass.states.get("sensor.smartheat_wohnung1_datenfehler").attributes["rollen"] == ["dat"]
+    assert hass.states.get("binary_sensor.smartheat_notbetrieb").state == "on"
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "1.1"
+    assert hass.states.get("sensor.smartheat_letzte_serverantwort").state == "2026-10-01T10:00:05+00:00"
+    assert hass.states.get("sensor.smartheat_datenfehler").attributes["rollen"] == ["dat"]
 
 
 async def test_stopped_addon_is_reported_once_restarted_and_cleared_by_an_event(hass, supervisor, clock, notes):
@@ -576,7 +641,7 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clo
     Event wuerden HA sonst beim Schreiben des States mit einer ValueError abbrechen lassen
     (SensorEntity.state validiert `options`/ENUM und TIMESTAMP-Zeitzone). Muss auf None
     abgebildet werden statt die Entity haengen zu lassen."""
-    await _setup(hass)
+    await _setup(hass, hebel_an=True)
 
     event = status_event(
         TENANT, "regelt", boost="unbekannt", datenfehler={"art": "unbekannt", "rollen": []},
@@ -588,11 +653,11 @@ async def test_event_with_invalid_field_values_does_not_crash_entities(hass, clo
     _fire(hass, event)
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_datenfehler").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_letzte_serverantwort").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_steigung").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_boost").state == "unknown"
+    assert hass.states.get("sensor.smartheat_datenfehler").state == "unknown"
+    assert hass.states.get("sensor.smartheat_letzte_serverantwort").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_gelernte_steigung").state == "unknown"
     # Der Rest der Entities bleibt unberuehrt.
     assert hass.states.get(STATUS).state == "regelt"
 
@@ -603,17 +668,17 @@ async def test_zustand_und_kaelteschutz_des_ersten_kreises_erscheinen_als_sensor
     _fire(hass, status_event(TENANT, "regelt", zustand="testphase", kaelteschutz="soll", testphase_bis="2026-12-01"))
     await hass.async_block_till_done()
 
-    zustand = hass.states.get("sensor.smartheat_wohnung1_zustand")
+    zustand = hass.states.get("sensor.smartheat_k1_zustand")
     assert (zustand.state, zustand.attributes["testphase_bis"]) == ("testphase", "2026-12-01")
-    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "soll"
+    assert hass.states.get("sensor.smartheat_k1_kaelteschutz").state == "soll"
 
     _fire(hass, status_event(TENANT, "regelt", zustand="ausser_betrieb", kaelteschutz="frost"))
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "ausser_betrieb"
-    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "frost"
+    assert hass.states.get("sensor.smartheat_k1_zustand").state == "ausser_betrieb"
+    assert hass.states.get("sensor.smartheat_k1_kaelteschutz").state == "frost"
 
 
-@pytest.mark.parametrize("zustand, kaelteschutz", [("heizt", "viel"), (7, None), ("", [])])
+@pytest.mark.parametrize("zustand, kaelteschutz", [("kaputt", "viel"), (7, None), ("", [])])
 async def test_zustand_und_kaelteschutz_ausserhalb_der_wertemenge_sind_unbekannt(hass, clock, zustand, kaelteschutz):
     await _setup(hass)
     _fire(hass, status_event(TENANT, "regelt", zustand="regelt", kaelteschutz="aus"))
@@ -622,8 +687,8 @@ async def test_zustand_und_kaelteschutz_ausserhalb_der_wertemenge_sind_unbekannt
     _fire(hass, status_event(TENANT, "regelt", zustand=zustand, kaelteschutz=kaelteschutz))
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_zustand").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_kaelteschutz").state == "unknown"
     assert hass.states.get(STATUS).state == "regelt"
 
 
@@ -637,31 +702,31 @@ async def test_ein_aelteres_addon_ohne_zustand_und_kaelteschutz_zeigt_unbekannt_
     _fire(hass, event)
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "komfort"
+    assert hass.states.get("sensor.smartheat_k1_zustand").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_kaelteschutz").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_boost").state == "komfort"
     assert hass.states.get(STATUS).state == "regelt"
 
 
 async def test_zustand_und_kaelteschutz_werden_aus_dem_gespeicherten_stand_wiederhergestellt(hass, clock):
-    mock_restore_cache(hass, [
-        State("sensor.smartheat_wohnung1_zustand", "ausser_betrieb", {"testphase_bis": "2026-12-01"}),
-        State("sensor.smartheat_wohnung1_kaelteschutz", "frost"),
+    entry = await _setup_mit_kreis(hass)
+
+    await _neustart(hass, entry, [
+        State("sensor.smartheat_k1_zustand", "ausser_betrieb", {"testphase_bis": "2026-12-01"}),
+        State("sensor.smartheat_k1_kaelteschutz", "frost"),
     ])
 
-    await _setup(hass)
-
-    zustand = hass.states.get("sensor.smartheat_wohnung1_zustand")
+    zustand = hass.states.get("sensor.smartheat_k1_zustand")
     assert (zustand.state, zustand.attributes["testphase_bis"]) == ("ausser_betrieb", "2026-12-01")
-    assert hass.states.get("sensor.smartheat_wohnung1_kaelteschutz").state == "frost"
+    assert hass.states.get("sensor.smartheat_k1_kaelteschutz").state == "frost"
 
 
 async def test_restore_eines_unbekannten_zustands_wird_ignoriert(hass, clock):
-    mock_restore_cache(hass, [State("sensor.smartheat_wohnung1_zustand", "heizt")])
+    entry = await _setup_mit_kreis(hass)
 
-    await _setup(hass)
+    await _neustart(hass, entry, [State("sensor.smartheat_k1_zustand", "gibt_es_nicht")])
 
-    assert hass.states.get("sensor.smartheat_wohnung1_zustand").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_zustand").state == "unknown"
 
 
 async def test_event_without_notbetrieb_and_with_broken_hints_does_not_crash_entities(hass, clock):
@@ -671,14 +736,14 @@ async def test_event_without_notbetrieb_and_with_broken_hints_does_not_crash_ent
     await _setup(hass)
     _fire(hass, status_event(TENANT, "regelt", notbetrieb=True))
     await hass.async_block_till_done()
-    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "on"
+    assert hass.states.get("binary_sensor.smartheat_notbetrieb").state == "on"
 
     event = status_event(TENANT, "regelt", hinweise=["kaputt"])
     del event["notbetrieb"]
     _fire(hass, event)
     await hass.async_block_till_done()
 
-    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "unknown"
+    assert hass.states.get("binary_sensor.smartheat_notbetrieb").state == "unknown"
     status = hass.states.get(STATUS)
     assert status.state == "regelt"
     assert status.attributes["manueller_eingriff"] is None
@@ -690,18 +755,18 @@ async def test_a_non_boolean_notbetrieb_is_unknown(hass, clock):
     _fire(hass, status_event(TENANT, "regelt", notbetrieb="false"))
     await hass.async_block_till_done()
 
-    assert hass.states.get("binary_sensor.smartheat_wohnung1_notbetrieb").state == "unknown"
+    assert hass.states.get("binary_sensor.smartheat_notbetrieb").state == "unknown"
 
 
 async def test_restore_ignores_an_out_of_options_value(hass, clock):
     """M4: ein gespeicherter Wert, der nicht (mehr) in den Enum-Optionen ist (z. B. ein Wert aus
     einer aelteren Version), darf nicht uebernommen werden -- sonst dieselbe ValueError wie bei
     einem ungueltigen Live-Event."""
-    mock_restore_cache(hass, [State("sensor.smartheat_wohnung1_boost", "veraltet")])
+    entry = await _setup_mit_kreis(hass)
 
-    await _setup(hass)
+    await _neustart(hass, entry, [State("sensor.smartheat_k1_boost", "veraltet")])
 
-    assert hass.states.get("sensor.smartheat_wohnung1_boost").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_boost").state == "unknown"
 
 
 @pytest.mark.parametrize("hebel, gelernt", [
@@ -715,14 +780,14 @@ async def test_event_with_broken_lever_values_does_not_crash_entities(hass, cloc
     """Je Hebel und Lernwert: fehlende, nicht-numerische oder nicht endliche Werte
     in hebel/gelernt (Device-Class TEMPERATURE, HA validiert das) duerfen nicht zu einer haengenden bzw. kaputten
     Entity fuehren, sondern zeigen unknown."""
-    await _setup(hass)
+    await _setup(hass, hebel_an=True)
 
     _fire(hass, status_event(TENANT, "regelt", hebel=hebel, gelernt=gelernt))
     await hass.async_block_till_done()
 
     for key in ("heizkurve", "parallelverschiebung", "mindestvorlauf", "heizgrenze",
                 "gelernte_steigung", "gelernte_heizgrenze"):
-        assert hass.states.get(f"sensor.smartheat_wohnung1_{key}").state == "unknown", key
+        assert hass.states.get(f"sensor.smartheat_k1_{key}").state == "unknown", key
     assert hass.states.get(STATUS).state == "regelt"
 
 
@@ -730,32 +795,32 @@ async def test_event_with_broken_lever_values_does_not_crash_entities(hass, cloc
 async def test_restore_ignores_a_non_finite_stored_value(hass, clock, stored):
     """Ein gespeicherter Zustand "inf"/"nan" (z. B. nach einer Einheiten-Umrechnung) darf nicht uebernommen werden:
     wie im Live-Pfad ist der Sensor dann unknown."""
-    mock_restore_cache(hass, [State("sensor.smartheat_wohnung1_heizkurve", stored),
-                              State("sensor.smartheat_wohnung1_heizgrenze", stored),
-                              State("sensor.smartheat_wohnung1_mindestvorlauf", "20.5")])
+    entry = await _setup_mit_kreis(hass, hebel_an=True)
 
-    await _setup(hass)
+    await _neustart(hass, entry, [State("sensor.smartheat_k1_heizkurve", stored),
+                                  State("sensor.smartheat_k1_heizgrenze", stored),
+                                  State("sensor.smartheat_k1_mindestvorlauf", "20.5")])
 
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze").state == "unknown"
-    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_heizgrenze").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_mindestvorlauf").state == "20.5"
 
 
 @pytest.mark.parametrize("huge", [10**400, -10**400], ids=["plus", "minus"])
 async def test_huge_integers_in_lever_values_are_unknown_without_an_error(hass, clock, caplog, huge):
     """Ein JSON-int ausserhalb des float-Bereichs (float() wirft OverflowError) ist unknown wie NaN; die uebrigen
     Entities bleiben unberuehrt."""
-    await _setup(hass)
+    await _setup(hass, hebel_an=True)
 
     _fire(hass, status_event(TENANT, "regelt", hebel={"curve": 1.2, "room_setpoint": huge, "heat_limit": huge,
                                                        "min_flow": 20.5}, gelernt={"curve": huge, "heat_limit": 16.2}))
     await hass.async_block_till_done()
 
     for key in ("parallelverschiebung", "heizgrenze", "gelernte_steigung"):
-        assert hass.states.get(f"sensor.smartheat_wohnung1_{key}").state == "unknown", key
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.2"
-    assert hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf").state == "20.5"
-    assert hass.states.get("sensor.smartheat_wohnung1_gelernte_heizgrenze").state == "16.2"
+        assert hass.states.get(f"sensor.smartheat_k1_{key}").state == "unknown", key
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "1.2"
+    assert hass.states.get("sensor.smartheat_k1_mindestvorlauf").state == "20.5"
+    assert hass.states.get("sensor.smartheat_k1_gelernte_heizgrenze").state == "16.2"
     assert hass.states.get(STATUS).state == "regelt"
     assert "OverflowError" not in caplog.text
 
@@ -763,22 +828,22 @@ async def test_huge_integers_in_lever_values_are_unknown_without_an_error(hass, 
 async def test_parallel_shift_and_min_flow_sensors(hass, clock):
     """Die beiden Temperatur-Sensoren parallelverschiebung und mindestvorlauf kommen aus hebel; eine offset-Entity
     wird nicht erzeugt."""
-    await _setup(hass)
+    await _setup(hass, hebel_an=True)
 
     _fire(hass, status_event(TENANT, "regelt", hebel={"room_setpoint": 21.0, "min_flow": 20.5}))
     await hass.async_block_till_done()
 
-    shift = hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung")
-    min_flow = hass.states.get("sensor.smartheat_wohnung1_mindestvorlauf")
+    shift = hass.states.get("sensor.smartheat_k1_parallelverschiebung")
+    min_flow = hass.states.get("sensor.smartheat_k1_mindestvorlauf")
     assert (shift.state, min_flow.state) == ("21.0", "20.5")
     assert shift.attributes["unit_of_measurement"] == min_flow.attributes["unit_of_measurement"] == "°C"
-    assert hass.states.get("sensor.smartheat_wohnung1_offset") is None
+    assert hass.states.get("sensor.smartheat_k1_offset") is None
     # Ein Hebel, der im Event fehlt, ist unknown, die uebrigen Sensoren bleiben davon unberuehrt.
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "unknown"
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "unknown"
 
 
 async def test_viessmann_entry_shows_level_and_room_setpoint(hass, clock):
-    await _setup(hass, profile_id="viessmann_vicare", lever_set="viessmann_vicare",
+    await _setup(hass, hebel_an=True, profile_id="viessmann_vicare", lever_set="viessmann_vicare",
                  hebel=["curve", "level", "room_setpoint"], shift_lever="level")
 
     _fire(hass, status_event(
@@ -787,12 +852,12 @@ async def test_viessmann_entry_shows_level_and_room_setpoint(hass, clock):
     ))
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.smartheat_wohnung1_heizkurve").state == "1.2"
-    niveau = hass.states.get("sensor.smartheat_wohnung1_niveau")
+    assert hass.states.get("sensor.smartheat_k1_heizkurve").state == "1.2"
+    niveau = hass.states.get("sensor.smartheat_k1_niveau")
     assert (niveau.state, niveau.attributes["unit_of_measurement"]) == ("3.0", "K")
-    assert hass.states.get("sensor.smartheat_wohnung1_raum_soll").state == "21.0"
-    assert hass.states.get("sensor.smartheat_wohnung1_parallelverschiebung") is None
-    assert hass.states.get("sensor.smartheat_wohnung1_heizgrenze") is None
+    assert hass.states.get("sensor.smartheat_k1_raum_soll").state == "21.0"
+    assert hass.states.get("sensor.smartheat_k1_parallelverschiebung") is None
+    assert hass.states.get("sensor.smartheat_k1_heizgrenze") is None
 
 
 async def test_gestoppt_reason_keeps_the_addon_name_once_it_runs_again(hass, supervisor, clock, notes):
@@ -984,3 +1049,148 @@ async def test_a_check_waiting_for_the_supervisor_does_not_start_the_addon_after
 
     assert supervisor.actions == []
     assert created == [] and dismissed == ["smartheat_wohnung1_addon"]
+
+
+# --- Lebenszeichen der Integration (smartheat_integration) und Lebenszeichen des Add-ons ---
+
+MANIFEST = Path(__file__).parent.parent / "custom_components" / "smartheat" / "manifest.json"
+MANIFEST_VERSION = json.loads(MANIFEST.read_text())["version"]
+STILLE = 900  # SILENCE_SECONDS
+
+
+def _integration_events(hass):
+    return async_capture_events(hass, INTEGRATION_EVENT)
+
+
+async def test_the_integration_event_is_sent_when_the_entry_loads_with_exactly_the_frozen_core(hass, clock):
+    events = _integration_events(hass)
+
+    await _setup(hass)
+
+    assert [event.data for event in events] == [
+        {"schema": 1, "version": MANIFEST_VERSION, "v5_schemas": [STATUS_EVENT_SCHEMA]},
+    ]
+    assert tuple(events[0].data) == INTEGRATION_EVENT_FIELDS
+
+
+async def test_every_check_sends_the_integration_event_even_when_the_supervisor_is_unreachable(
+        hass, supervisor, clock):
+    entry = await _setup(hass)
+    events = _integration_events(hass)
+
+    await entry.runtime_data.async_check()
+    supervisor.client.addons.addon_info.side_effect = SupervisorError("weg")
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert len(events) == 3
+
+
+async def test_the_integration_event_comes_again_after_the_watchdog_restarted_the_addon(hass, supervisor, clock):
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    await coordinator.async_check()
+    clock["t"] += 300
+    events = _integration_events(hass)
+
+    await coordinator.async_check()  # zweite Pruefung "laeuft nicht": Start, dann das Lebenszeichen noch einmal
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == [("start", BRIDGE_SLUG)]
+    assert len(events) == 2  # die Pruefung selbst und der Neustart
+
+
+async def test_a_startet_status_of_the_own_device_gets_an_answering_integration_event_other_statuses_do_not(
+        hass, clock):
+    await _setup(hass)
+    events = _integration_events(hass)
+
+    _fire(hass, status_event(TENANT, "regelt"))
+    await hass.async_block_till_done()
+    assert events == []
+
+    _fire(hass, status_event(None, "startet", geraet_zustand="wartet_auf_einrichtung"))
+    _fire(hass, status_event(TENANT, "startet", geraet_id="shg-b"))  # fremdes Geraet: keine Antwort
+    await hass.async_block_till_done()
+    assert len(events) == 1
+
+
+async def test_the_integration_event_carries_no_time(hass, clock):
+    clock["t"] = 123456.0
+    events = _integration_events(hass)
+
+    await _setup(hass)
+
+    assert "123456" not in json.dumps(events[0].data)
+
+
+@pytest.mark.parametrize("event", [
+    {**status_event(TENANT, "regelt"), "schema": 5},
+    {**status_event(TENANT, "regelt"), "schema": 3},
+    {**status_event(TENANT, "regelt"), "schema": "x", "status": "neu_unbekannt"},
+    {**status_event(TENANT, "regelt"), "kreise": "kaputt"},
+])
+async def test_an_own_event_of_any_schema_or_content_is_a_sign_of_life_no_restart_over_two_silence_periods(
+        hass, supervisor, clock, notes, event):
+    entry = await _setup(hass)
+
+    for _ in range(6):  # 1800 s = zwei Stille-Fristen, jeweils 300 s Abstand zum Ereignis
+        clock["t"] += 300
+        _fire(hass, event)
+        await hass.async_block_till_done()
+        await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == []
+    assert entry.runtime_data.watchdog_status is None
+    assert notes[0] == []
+    assert entry.runtime_data.data is None  # verworfen und trotzdem Lebenszeichen
+
+
+async def test_real_silence_after_a_sign_of_life_still_restarts(hass, supervisor, clock, notes):
+    entry = await _setup(hass)
+    clock["t"] += 600
+    _fire(hass, {**status_event(TENANT, "regelt"), "schema": 5})
+    await hass.async_block_till_done()
+
+    clock["t"] += STILLE - 1
+    await entry.runtime_data.async_check()
+    assert supervisor.actions == []
+    clock["t"] += 1
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == [("restart", BRIDGE_SLUG)]
+    assert hass.states.get(STATUS).state == "reagiert_nicht"
+
+
+async def test_an_event_of_a_foreign_device_is_no_sign_of_life(hass, supervisor, clock, notes):
+    entry = await _setup(hass)
+    clock["t"] += STILLE - 1
+    _fire(hass, status_event(TENANT, "regelt", geraet_id="shg-b"))
+    _fire(hass, {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"})
+    await hass.async_block_till_done()
+
+    clock["t"] += 1
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == [("restart", BRIDGE_SLUG)]
+
+
+async def test_a_high_schema_event_ends_a_silence_incident(hass, supervisor, clock, notes):
+    entry = await _setup(hass)
+    clock["t"] += STILLE
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+    assert hass.states.get(STATUS).state == "reagiert_nicht"
+
+    clock["t"] += 10
+    _fire(hass, {**status_event(TENANT, "regelt"), "schema": 5})
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.watchdog_status is None

@@ -16,3 +16,10 @@ include = ["custom_components"]
 exclude = ["**/.venv", "**/__pycache__"]
 pythonVersion = "3.14"
 typeCheckingMode = "basic"
+
+[tool.coverage.run]
+source = ["custom_components/smartheat"]
+
+[tool.coverage.report]
+# Regel test-coverage der Quality Scale: ueber 95 Prozent; die Messung bricht den Lauf darunter ab.
+fail_under = 95

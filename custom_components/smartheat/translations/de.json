@@ -16,7 +16,8 @@
       },
       "anlage": {
         "title": "Anlage",
-        "data": {"anlage": "Anlage"}
+        "data": {"anlage": "Anlage"},
+        "data_description": {"anlage": "Die Anlage deines SmartHeat-Kontos, die dieses Gerät regeln soll."}
       },
       "ersetzen": {
         "title": "Gerät ersetzen",
@@ -28,21 +29,28 @@
       },
       "integration": {
         "title": "Heizungs-Integration",
-        "data": {"integration": "Integration"}
+        "data": {"integration": "Integration"},
+        "data_description": {"integration": "Die Home-Assistant-Integration, die mit deiner Heizung spricht, zum Beispiel die deines Heizungsherstellers."}
       },
       "system": {
         "title": "Heizung",
         "description": "{integration}\n\n{hinweis}",
-        "data": {"kreise": "Heizkreise (ein bis vier)", "profil": "Anlagenprofil"}
+        "data": {"kreise": "Heizkreise (ein bis vier)", "profil": "Anlagenprofil"},
+        "data_description": {
+          "kreise": "Die Heizkreise, die SmartHeat regeln soll. Wähle mindestens einen und höchstens vier; Heizkreis 1 ist erforderlich.",
+          "profil": "Die Bauart deiner Heizungsanlage. Sie bestimmt, welche Werte SmartHeat liest und welche Einstellungen es ändern darf."
+        }
       },
       "hebelsatz": {
         "title": "Ansteuerung",
-        "data": {"hebelsatz": "Ansteuerung"}
+        "data": {"hebelsatz": "Ansteuerung"},
+        "data_description": {"hebelsatz": "Die Einstellungen deiner Heizung, die SmartHeat ändern darf. Wähle die Variante, die zu deiner Heizung passt."}
       },
       "abo": {
         "title": "Abo für Heizkreis {nummer}",
         "description": "Wähle das Abo, das Heizkreis {nummer} trägt. Ohne Auswahl bleibt der Kreis erkannt und wird nicht eingerichtet. {abos}",
-        "data": {"abo_id": "Abo"}
+        "data": {"abo_id": "Abo"},
+        "data_description": {"abo_id": "Das Abo deines SmartHeat-Kontos, das diesen Heizkreis trägt. Jedes Abo trägt einen Heizkreis."}
       },
       "raeume": {
         "title": "Heizkreis {nummer}: Raum",
@@ -54,6 +62,14 @@
           "raum_soll": "Wunschtemperatur",
           "kontroll_name": "Zweiter Raum: Name (optional)",
           "kontroll_fuehler": "Zweiter Raum: Fühler (optional)"
+        },
+        "data_description": {
+          "raum_name": "Ein kurzer Name für den Raum, bis 40 Zeichen.",
+          "raumfuehler": "Temperaturfühler, die die Raumtemperatur messen. Wähle einen bis acht Fühler je Heizkreis.",
+          "room_target": "Die Entity, in der du die Wunschtemperatur dieses Raums einstellst, zum Beispiel das Thermostat. Genau ein Raum liefert sie.",
+          "raum_soll": "Die Wunschtemperatur dieses Raums, die zu Beginn angeboten wird.",
+          "kontroll_name": "Name eines zweiten Raums, der nur gemessen wird und nicht die Wunschtemperatur liefert. Leer lassen, wenn es keinen gibt.",
+          "kontroll_fuehler": "Temperaturfühler des zweiten Raums. Zusammen mit seinem Namen ausfüllen."
         }
       },
       "anlagenwerte": {
@@ -85,6 +101,33 @@
           "energy_thermal_heating": "Energie: Wärme Heizen (optional)",
           "energy_thermal_dhw": "Energie: Wärme Warmwasser (optional)",
           "energy_electrical_total": "Energie: Strom gesamt (optional)"
+        },
+        "data_description": {
+          "curve": "Die Entity, die die Steigung der Heizkurve hält. SmartHeat passt sie an.",
+          "room_setpoint": "Die Entity der Heizung, die den Raum-Soll bzw. den Zonen-Soll hält.",
+          "level": "Die Entity, die das Niveau (die Parallelverschiebung) der Heizkurve hält.",
+          "heat_limit": "Die Entity, die die Außentemperatur hält, ab der die Heizung abschaltet. SmartHeat passt sie an.",
+          "min_flow": "Die Entity, die die niedrigste Vorlauftemperatur der Heizung hält.",
+          "mode_select": "Die Entity, mit der die Betriebsart bzw. das Heizprogramm der Heizung gewählt wird.",
+          "setpoint_comfort": "Die Entity, die den Raum-Soll im Komfortbetrieb hält.",
+          "setpoint_setback": "Die Entity, die den Raum-Soll im Absenkbetrieb hält.",
+          "outdoor_temp": "Der Außentemperaturfühler. SmartHeat stützt seine Regelung darauf.",
+          "flow_temperature": "Gemessene Vorlauftemperatur der Heizung. Optional; sie ergänzt nur die angezeigten Werte.",
+          "flow_setpoint": "Die Vorlauftemperatur, die die Heizung anstrebt. Optional.",
+          "return_temperature": "Gemessene Rücklauftemperatur der Heizung. Optional.",
+          "operating_mode": "Die aktuelle Betriebsart als Messwert. Optional.",
+          "system_water_pressure": "Wasserdruck der Anlage. Optional.",
+          "efficiency_ratio": "Der Effizienzwert, den der Hersteller meldet. Optional.",
+          "generator_hours": "Betriebsstunden des Wärmeerzeugers. Optional.",
+          "generator_starts": "Anzahl der Starts des Wärmeerzeugers. Optional.",
+          "generator_state": "Status des Wärmeerzeugers. Optional.",
+          "energy_electrical_heating": "Elektrische Energie, die fürs Heizen verbraucht wird. Optional.",
+          "energy_electrical_dhw": "Elektrische Energie, die fürs Warmwasser verbraucht wird. Optional.",
+          "energy_primary_heating": "Primärenergie, die fürs Heizen verbraucht wird. Optional.",
+          "energy_primary_dhw": "Primärenergie, die fürs Warmwasser verbraucht wird. Optional.",
+          "energy_thermal_heating": "Wärmeenergie, die fürs Heizen abgegeben wird. Optional.",
+          "energy_thermal_dhw": "Wärmeenergie, die fürs Warmwasser abgegeben wird. Optional.",
+          "energy_electrical_total": "Gesamte verbrauchte elektrische Energie. Optional."
         }
       },
       "benachrichtigung": {
@@ -93,6 +136,11 @@
           "benachrichtigung": "Handys",
           "hinweise_aus": "Hinweise ohne Push",
           "batterien": "Batterien"
+        },
+        "data_description": {
+          "benachrichtigung": "Die Handys, die Push-Mitteilungen von SmartHeat erhalten. Leer lassen für keine.",
+          "hinweise_aus": "Arten von Hinweisen, die nur in Home Assistant erscheinen und nicht als Push gesendet werden.",
+          "batterien": "Batterie-Entities, die SmartHeat überwacht und deren schwachen Stand es meldet."
         }
       },
       "zusammenfassung": {"title": "Zusammenfassung", "description": "Anlage {anlage}. Hinweise:\n{warnungen}\n\nJetzt einrichten?"},
@@ -213,6 +261,9 @@
       }
     }
   },
+  "device": {
+    "kreis": {"name": "Heizkreis {kreis}"}
+  },
   "entity": {
     "sensor": {
       "status": {
@@ -221,7 +272,8 @@
           "startet": "Startet", "regelt": "Regelt", "konfigurationsfehler": "Konfigurationsfehler",
           "zugang_abgelehnt": "Zugang abgelehnt", "abo_beendet": "Abo beendet", "abo_inaktiv": "Abo inaktiv",
           "notbetrieb": "Notbetrieb", "datenfehler": "Datenfehler", "abgemeldet": "Abgemeldet",
-          "addon_gestoppt": "Add-on gestoppt", "reagiert_nicht": "Add-on reagiert nicht"
+          "addon_gestoppt": "Add-on gestoppt", "reagiert_nicht": "Add-on reagiert nicht",
+          "integration_veraltet": "Integration veraltet", "addon_veraltet": "Add-on veraltet"
         }
       },
       "datenfehler": {
@@ -239,17 +291,22 @@
       "gelernte_steigung": {"name": "Gelernte Steigung"},
       "gelernte_heizgrenze": {"name": "Gelernte Heizgrenze (Fußpunkt)"},
       "abo": {"name": "Abo", "state": {"aktiv": "Aktiv", "inaktiv": "Inaktiv", "beendet": "Beendet", "unbekannt": "Unbekannt"}},
-      "zustand": {"name": "Zustand", "state": {"regelt": "Regelt", "abo_inaktiv": "Abo inaktiv", "abo_beendet": "Abo beendet", "testphase": "Testphase ohne SmartHeat", "ausser_betrieb": "Außer Betrieb"}},
+      "zustand": {"name": "Zustand", "state": {"regelt": "Regelt", "abo_inaktiv": "Abo inaktiv", "abo_beendet": "Abo beendet", "testphase": "Testphase ohne SmartHeat", "ausser_betrieb": "Außer Betrieb", "heizt": "Heizt", "pause": "Pause", "abwesend": "Abwesend", "boost": "Boost", "notbetrieb": "Notbetrieb", "einlernphase": "Einlernphase", "nicht_geregelt": "Nicht geregelt", "kuehl": "Kühl", "heizt_auf": "Heizt auf", "uebersteuert": "Übersteuert", "leerstand": "Leerstand"}},
       "kaelteschutz": {"name": "Kälteschutz", "state": {"aus": "Aus", "soll": "Raum zu kalt gegenüber Wunsch", "frost": "Frostnähe"}},
-      "addon_version": {"name": "Add-on-Version"}
+      "addon_version": {"name": "Add-on-Version"},
+      "raumtemperatur": {"name": "Raumtemperatur"},
+      "befunde": {"name": "Befunde"}
     },
-    "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}},
+    "binary_sensor": {"notbetrieb": {"name": "Notbetrieb"}, "server_verbunden": {"name": "Server verbunden"}},
     "number": {"wunschtemperatur": {"name": "Wunschtemperatur"}}
   },
   "exceptions": {
     "wunsch_ungueltig": {"message": "Die Wunschtemperatur muss eine Zahl sein."},
+    "kreis_nicht_gemeldet": {"message": "Die Anlage meldet diesen Heizkreis gerade nicht, darum kann SmartHeat die Wunschtemperatur nicht weitergeben."},
     "thermostat_aus": {"message": "Das Thermostat ist ausgeschaltet. Solange es aus ist, nimmt SmartHeat keine Wunschtemperatur an."},
-    "addon_nicht_bereit": {"message": "Das Add-on läuft nicht oder meldet sich nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte warten, bis das Add-on wieder läuft."}
+    "addon_nicht_bereit": {"message": "Das Add-on läuft nicht oder meldet sich nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte warten, bis das Add-on wieder läuft."},
+    "integration_veraltet": {"message": "Die SmartHeat-Integration ist älter als das Add-on und liest dessen Meldungen nicht, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte die Integration aktualisieren."},
+    "addon_veraltet": {"message": "Das SmartHeat-Add-on ist älter als die Integration und wird von ihr nicht verstanden, SmartHeat kann die Wunschtemperatur deshalb nicht weitergeben. Bitte das Add-on aktualisieren."}
   },
   "issues": {
     "update_noetig": {"title": "SmartHeat: Add-on aktualisieren", "description": "{text} Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."},
@@ -258,7 +315,10 @@
     "soll_quelle_aus": {"title": "SmartHeat: Thermostat ist aus", "description": "{text}"},
     "konfiguration_abgelehnt": {"title": "SmartHeat: Einstellung abgelehnt", "description": "Das Add-on hat die neue Einstellung abgelehnt: {text} Bitte unter SmartHeat → Neu konfigurieren prüfen."},
     "gesperrt": {"title": "SmartHeat: Gerät gesperrt", "description": "{text}"},
-    "geraet_hinweis": {"title": "SmartHeat-Hinweis", "description": "{text}"}
+    "geraet_hinweis": {"title": "SmartHeat-Hinweis", "description": "{text}"},
+    "integration_veraltet": {"title": "SmartHeat: Integration aktualisieren", "description": "Das Add-on ist neuer als diese Integration und spricht eine Version, die sie nicht liest. Die Werte erscheinen erst wieder, wenn die Integration mindestens auf Version {mindest_integration} aktualisiert ist. Einstellungen → Geräte & Dienste → HACS → SmartHeat → Aktualisieren."},
+    "integration_veraltet_ohne_version": {"title": "SmartHeat: Integration aktualisieren", "description": "Das Add-on ist neuer als diese Integration und spricht eine Version, die sie nicht liest. Die Werte erscheinen erst wieder, wenn die Integration aktualisiert ist. Einstellungen → Geräte & Dienste → HACS → SmartHeat → Aktualisieren."},
+    "addon_veraltet": {"title": "SmartHeat: Add-on aktualisieren", "description": "Das Add-on ist älter als diese Integration und spricht eine Version, die sie nicht mehr liest. Die Werte erscheinen erst wieder, wenn das Add-on aktualisiert ist. Einstellungen → Add-ons → Heizungsbrücke → Aktualisieren."}
   },
   "common": {
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",

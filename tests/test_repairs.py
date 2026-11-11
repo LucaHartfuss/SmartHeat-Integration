@@ -102,6 +102,13 @@ def test_broken_hints_create_no_issue_and_do_not_raise(hass, hinweise):
     assert _own_issues(hass) == {}
 
 
+@pytest.mark.parametrize("key", ["Frau Mustermann ist verreist", "Update-Noetig", "a" * 41, "ä", "x/y", "a b"])
+def test_a_key_that_is_not_a_code_creates_no_issue(hass, key):
+    """Die Issue-ID steht im Diagnose-Download: ein Schluessel mit freiem Text darf dort nie erscheinen."""
+    repairs.async_update(hass, [{"key": key, "stufe": "kritisch", "text": "x"}, {"key": "wunsch_begrenzt"}])
+    assert set(_own_issues(hass)) == {"hinweis_wunsch_begrenzt"}
+
+
 def test_hint_without_text_or_stufe_is_a_warning_with_empty_text(hass):
     repairs.async_update(hass, [{"key": "soll_quelle_aus"}])
     issue = ir.async_get(hass).async_get_issue(DOMAIN, "hinweis_soll_quelle_aus")

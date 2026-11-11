@@ -16,7 +16,8 @@
       },
       "anlage": {
         "title": "Installation",
-        "data": {"anlage": "Installation"}
+        "data": {"anlage": "Installation"},
+        "data_description": {"anlage": "The installation of your SmartHeat account that this device is going to control."}
       },
       "ersetzen": {
         "title": "Replace device",
@@ -28,21 +29,28 @@
       },
       "integration": {
         "title": "Heating integration",
-        "data": {"integration": "Integration"}
+        "data": {"integration": "Integration"},
+        "data_description": {"integration": "The Home Assistant integration that talks to your heating, for example the one of your heating manufacturer."}
       },
       "system": {
         "title": "Heating",
         "description": "{integration}\n\n{hinweis}",
-        "data": {"kreise": "Heating circuits (one to four)", "profil": "Installation profile"}
+        "data": {"kreise": "Heating circuits (one to four)", "profil": "Installation profile"},
+        "data_description": {
+          "kreise": "The heating circuits SmartHeat is going to control. Choose at least one and at most four; heating circuit 1 is required.",
+          "profil": "The type of your heating installation. It decides which values SmartHeat reads and which settings it may change."
+        }
       },
       "hebelsatz": {
         "title": "Control",
-        "data": {"hebelsatz": "Control"}
+        "data": {"hebelsatz": "Control"},
+        "data_description": {"hebelsatz": "The settings of your heating that SmartHeat is allowed to change. Choose the variant that matches your heating."}
       },
       "abo": {
         "title": "Subscription for heating circuit {nummer}",
         "description": "Choose the subscription that carries heating circuit {nummer}. Without a choice the circuit stays detected and is not set up. {abos}",
-        "data": {"abo_id": "Subscription"}
+        "data": {"abo_id": "Subscription"},
+        "data_description": {"abo_id": "The subscription of your SmartHeat account that pays for this heating circuit. Each subscription can carry one heating circuit."}
       },
       "raeume": {
         "title": "Heating circuit {nummer}: room",
@@ -54,6 +62,14 @@
           "raum_soll": "Desired temperature",
           "kontroll_name": "Second room: name (optional)",
           "kontroll_fuehler": "Second room: sensors (optional)"
+        },
+        "data_description": {
+          "raum_name": "A short name for the room, up to 40 characters.",
+          "raumfuehler": "Temperature sensors that measure the room temperature. Choose one to eight sensors per heating circuit.",
+          "room_target": "The entity in which you set the desired temperature of this room, for example the thermostat. Exactly one room provides it.",
+          "raum_soll": "The desired room temperature of this room that is offered at the start.",
+          "kontroll_name": "Name of a second room that is only measured and does not provide the desired temperature. Leave empty if there is none.",
+          "kontroll_fuehler": "Temperature sensors of the second room. Fill in together with its name."
         }
       },
       "anlagenwerte": {
@@ -85,6 +101,33 @@
           "energy_thermal_heating": "Energy: thermal heating (optional)",
           "energy_thermal_dhw": "Energy: thermal, hot water (optional)",
           "energy_electrical_total": "Energy: electrical total (optional)"
+        },
+        "data_description": {
+          "curve": "The entity that holds the slope of the heating curve. SmartHeat adjusts it.",
+          "room_setpoint": "The entity of the heating that holds the room setpoint or the zone setpoint.",
+          "level": "The entity that holds the level (parallel shift) of the heating curve.",
+          "heat_limit": "The entity that holds the outdoor temperature above which the heating switches off. SmartHeat adjusts it.",
+          "min_flow": "The entity that holds the lowest flow temperature of the heating.",
+          "mode_select": "The entity with which the operating mode or heating program of the heating is chosen.",
+          "setpoint_comfort": "The entity that holds the room setpoint in comfort mode.",
+          "setpoint_setback": "The entity that holds the room setpoint in setback mode.",
+          "outdoor_temp": "The outdoor temperature sensor. SmartHeat bases its control on it.",
+          "flow_temperature": "Measured flow temperature of the heating. Optional; it only completes the displayed values.",
+          "flow_setpoint": "The flow temperature the heating aims for. Optional.",
+          "return_temperature": "Measured return temperature of the heating. Optional.",
+          "operating_mode": "The current operating mode as a reading. Optional.",
+          "system_water_pressure": "Water pressure of the installation. Optional.",
+          "efficiency_ratio": "The efficiency value the manufacturer reports. Optional.",
+          "generator_hours": "Operating hours of the heat generator. Optional.",
+          "generator_starts": "Number of starts of the heat generator. Optional.",
+          "generator_state": "Status of the heat generator. Optional.",
+          "energy_electrical_heating": "Electrical energy used for heating. Optional.",
+          "energy_electrical_dhw": "Electrical energy used for hot water. Optional.",
+          "energy_primary_heating": "Primary energy used for heating. Optional.",
+          "energy_primary_dhw": "Primary energy used for hot water. Optional.",
+          "energy_thermal_heating": "Thermal energy delivered for heating. Optional.",
+          "energy_thermal_dhw": "Thermal energy delivered for hot water. Optional.",
+          "energy_electrical_total": "Total electrical energy used. Optional."
         }
       },
       "benachrichtigung": {
@@ -93,6 +136,11 @@
           "benachrichtigung": "Phones",
           "hinweise_aus": "Notes without push",
           "batterien": "Batteries"
+        },
+        "data_description": {
+          "benachrichtigung": "The phones that receive push notifications from SmartHeat. Leave empty for none.",
+          "hinweise_aus": "Kinds of notes that appear in Home Assistant only and are not sent as push notifications.",
+          "batterien": "Battery entities SmartHeat watches and reports when they run low."
         }
       },
       "zusammenfassung": {"title": "Summary", "description": "Installation {anlage}. Notes:\n{warnungen}\n\nSet up now?"},
@@ -213,6 +261,9 @@
       }
     }
   },
+  "device": {
+    "kreis": {"name": "Heating circuit {kreis}"}
+  },
   "entity": {
     "sensor": {
       "status": {
@@ -221,7 +272,8 @@
           "startet": "Starting", "regelt": "Controlling", "konfigurationsfehler": "Configuration error",
           "zugang_abgelehnt": "Access denied", "abo_beendet": "Subscription ended",
           "abo_inaktiv": "Subscription inactive", "notbetrieb": "Emergency mode", "datenfehler": "Data fault",
-          "abgemeldet": "Signed off", "addon_gestoppt": "Add-on stopped", "reagiert_nicht": "Add-on not responding"
+          "abgemeldet": "Signed off", "addon_gestoppt": "Add-on stopped", "reagiert_nicht": "Add-on not responding",
+          "integration_veraltet": "Integration outdated", "addon_veraltet": "Add-on outdated"
         }
       },
       "datenfehler": {
@@ -239,17 +291,22 @@
       "gelernte_steigung": {"name": "Learned slope"},
       "gelernte_heizgrenze": {"name": "Learned heating limit (anchor point)"},
       "abo": {"name": "Subscription", "state": {"aktiv": "Active", "inaktiv": "Inactive", "beendet": "Ended", "unbekannt": "Unknown"}},
-      "zustand": {"name": "State", "state": {"regelt": "Controlling", "abo_inaktiv": "Subscription inactive", "abo_beendet": "Subscription ended", "testphase": "Test phase without SmartHeat", "ausser_betrieb": "Out of service"}},
+      "zustand": {"name": "State", "state": {"regelt": "Controlling", "abo_inaktiv": "Subscription inactive", "abo_beendet": "Subscription ended", "testphase": "Test phase without SmartHeat", "ausser_betrieb": "Out of service", "heizt": "Heating", "pause": "Paused", "abwesend": "Away", "boost": "Boost", "notbetrieb": "Emergency mode", "einlernphase": "Learning phase", "nicht_geregelt": "Not controlled", "kuehl": "Cool", "heizt_auf": "Heating up", "uebersteuert": "Overridden", "leerstand": "Vacant"}},
       "kaelteschutz": {"name": "Cold protection", "state": {"aus": "Off", "soll": "Room too cold compared to the target", "frost": "Near freezing"}},
-      "addon_version": {"name": "Add-on version"}
+      "addon_version": {"name": "Add-on version"},
+      "raumtemperatur": {"name": "Room temperature"},
+      "befunde": {"name": "Findings"}
     },
-    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}},
+    "binary_sensor": {"notbetrieb": {"name": "Emergency mode"}, "server_verbunden": {"name": "Server connected"}},
     "number": {"wunschtemperatur": {"name": "Desired temperature"}}
   },
   "exceptions": {
     "wunsch_ungueltig": {"message": "The desired temperature must be a number."},
+    "kreis_nicht_gemeldet": {"message": "The system does not report this heating circuit at the moment, so SmartHeat cannot pass on the target temperature."},
     "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."},
-    "addon_nicht_bereit": {"message": "The add-on is not running or not responding, so SmartHeat cannot pass on the target temperature. Please wait until the add-on is back."}
+    "addon_nicht_bereit": {"message": "The add-on is not running or not responding, so SmartHeat cannot pass on the target temperature. Please wait until the add-on is back."},
+    "integration_veraltet": {"message": "The SmartHeat integration is older than the add-on and cannot read its messages, so it cannot pass on the target temperature. Please update the integration."},
+    "addon_veraltet": {"message": "The SmartHeat add-on is older than the integration and not understood by it, so the integration cannot pass on the target temperature. Please update the add-on."}
   },
   "issues": {
     "update_noetig": {"title": "SmartHeat: update the add-on", "description": "{text} Settings → Add-ons → Heizungsbrücke → Update."},
@@ -258,7 +315,10 @@
     "soll_quelle_aus": {"title": "SmartHeat: thermostat is off", "description": "{text}"},
     "konfiguration_abgelehnt": {"title": "SmartHeat: setting rejected", "description": "The add-on rejected the new setting: {text} Please check it under SmartHeat → Reconfigure."},
     "gesperrt": {"title": "SmartHeat: device blocked", "description": "{text}"},
-    "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"}
+    "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"},
+    "integration_veraltet": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated to at least version {mindest_integration}. Settings → Devices & services → HACS → SmartHeat → Update."},
+    "integration_veraltet_ohne_version": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated. Settings → Devices & services → HACS → SmartHeat → Update."},
+    "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."}
   },
   "common": {
     "warning_stale": "No update for more than 6 hours: {entities}",

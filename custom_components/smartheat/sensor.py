@@ -7,7 +7,7 @@ from datetime import datetime
 from math import isfinite
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
@@ -25,7 +25,7 @@ from .const import (
     KREIS_ZUSTAND_VALUES,
     STATUS_SENSOR_VALUES,
 )
-from .entity import SmartHeatEntity
+from .entity import SmartHeatEntity, async_kreis_entities, endliche_zahl
 
 
 def _number(value) -> float | None:
@@ -39,12 +39,19 @@ def _fault(data: dict) -> dict:
     return data.get("datenfehler") or {}
 
 
+def _ganzzahl(state: str) -> int | None:
+    try:
+        return int(state)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True, kw_only=True)
 class EventField:
     key: str
-    # Alle Lambdas in FIELDS/_lever_field/LEARNED_FIELDS liefern nur str/float/None (JSON-Skalare) oder datetime|None
-    # (letzte_serverantwort) -- object waere zu weit gefasst fuer _attr_native_value (StateType |
-    # date | datetime | Decimal).
+    # Alle Lambdas in ANLAGE_FIELDS/KREIS_FIELDS/_lever_field/LEARNED_FIELDS liefern nur str/float/int/None
+    # (JSON-Skalare) oder datetime|None (letzte_serverantwort) -- object waere zu weit gefasst fuer _attr_native_value
+    # (StateType | date | datetime | Decimal).
     value: Callable[[dict], StateType | datetime]
     attributes: Callable[[dict], dict] = lambda data: {}
     attribute_keys: tuple[str, ...] = ()
@@ -54,20 +61,31 @@ class EventField:
     unit: str | None = None
     category: EntityCategory | None = None
     precision: int | None = None
+    state_class: SensorStateClass | None = None
+    enabled_default: bool = True
 
 
 STATUS_KEY = "status"
-FIELDS = (
+# Felder der Anlage (Geraet der Anlage); sie liest der Sensor aus den Anlagenfeldern des Status-Ereignisses.
+ANLAGE_FIELDS = (
     EventField(
         key="datenfehler", value=lambda d: _fault(d).get("art", DATENFEHLER_KEINER),
         attributes=lambda d: {"rollen": _fault(d).get("rollen", [])}, attribute_keys=("rollen",),
         device_class=SensorDeviceClass.ENUM, options=[DATENFEHLER_KEINER, *DATENFEHLER_ARTEN],
+        category=EntityCategory.DIAGNOSTIC,
     ),
-    EventField(key="boost", value=lambda d: d["boost"], device_class=SensorDeviceClass.ENUM, options=list(BOOST_VALUES)),
     EventField(
         key="letzte_serverantwort",
         value=lambda d: dt_util.parse_datetime(d["letzte_serverantwort"]) if d["letzte_serverantwort"] else None,
-        restore=dt_util.parse_datetime, device_class=SensorDeviceClass.TIMESTAMP,
+        restore=dt_util.parse_datetime, device_class=SensorDeviceClass.TIMESTAMP, category=EntityCategory.DIAGNOSTIC,
+    ),
+    EventField(key="addon_version", value=lambda d: d["addon_version"], category=EntityCategory.DIAGNOSTIC),
+)
+# Felder je Kreis (Geraet des Kreises); sie liest der Sensor aus den Feldern seines Kreises.
+KREIS_FIELDS = (
+    EventField(
+        key="boost", value=lambda d: d["boost"], device_class=SensorDeviceClass.ENUM, options=list(BOOST_VALUES),
+        category=EntityCategory.DIAGNOSTIC,
     ),
     EventField(
         key="abo", value=lambda d: d["abo"], attributes=lambda d: {"frist_ende": d["abo_frist_ende"]},
@@ -81,11 +99,20 @@ FIELDS = (
         key="kaelteschutz", value=lambda d: d["kaelteschutz"], device_class=SensorDeviceClass.ENUM,
         options=list(KAELTESCHUTZ_VALUES),
     ),
-    EventField(key="addon_version", value=lambda d: d["addon_version"], category=EntityCategory.DIAGNOSTIC),
+    EventField(
+        key="raumtemperatur", value=lambda d: endliche_zahl(d["raum_ist"]), restore=_number,
+        device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    # Nur die Zahl der Befunde; Art und Einzelheiten stehen bei den Hinweisen der Anlage.
+    EventField(
+        key="befunde", value=lambda d: len(d["befunde"]) if isinstance(d["befunde"], list) else None,
+        restore=_ganzzahl,
+    ),
 )
 
 
-# Stabile Schluessel je Hebel: die Entity-IDs von client1 bleiben gleich.
+# Stabile Schluessel je Hebel (die Entity-IDs sind Teil des Vertrags mit Dashboards und Automationen).
 _LEVER_KEYS = {"curve": "heizkurve", "level": "niveau", "heat_limit": "heizgrenze", "min_flow": "mindestvorlauf"}
 _TEMPERATURE_LEVERS = frozenset({"room_setpoint", "heat_limit", "min_flow"})
 
@@ -104,45 +131,55 @@ def _lever_field(lever: str, shift_lever: str | None) -> EventField:
         key=lever_entity_key(lever, shift_lever), value=lambda d, lever=lever: d["hebel"][lever], restore=_number,
         device_class=SensorDeviceClass.TEMPERATURE if temperature else None,
         unit=UnitOfTemperature.CELSIUS if temperature else ("K" if lever == "level" else None),
+        category=EntityCategory.DIAGNOSTIC, enabled_default=False,
     )
 
 
 # Lernwerte kommen ungerundet vom Server; angezeigt mit zwei Nachkommastellen.
 LEARNED_FIELDS = (
-    EventField(key="gelernte_steigung", value=lambda d: d["gelernt"]["curve"], restore=_number, precision=2),
+    EventField(
+        key="gelernte_steigung", value=lambda d: d["gelernt"]["curve"], restore=_number, precision=2,
+        category=EntityCategory.DIAGNOSTIC, enabled_default=False,
+    ),
     EventField(
         key="gelernte_heizgrenze", value=lambda d: d["gelernt"]["heat_limit"], restore=_number,
         device_class=SensorDeviceClass.TEMPERATURE, unit=UnitOfTemperature.CELSIUS, precision=2,
+        category=EntityCategory.DIAGNOSTIC, enabled_default=False,
     ),
 )
 
 
-# Feste Reihenfolge der Hebel (LEVER_OPTIONS): gleiche Entity-Reihenfolge fuer client1.
+# Feste Reihenfolge der Hebel (LEVER_OPTIONS).
 _LEVER_ORDER = ("curve", "room_setpoint", "level", "heat_limit", "min_flow")
 
 
-def entity_fields(entry_data: Mapping) -> tuple[EventField, ...]:
-    """Feste Felder plus je Hebel aus entry_data["hebel"] (Server-Vorschlag; unbekannte Hebel entfallen) und je
-    Lernwert. Ohne bekannten Hebel nur die festen Felder."""
+def kreis_fields(entry_data: Mapping) -> tuple[EventField, ...]:
+    """Felder je Kreis: die festen plus je Hebel aus entry_data["hebel"] (Server-Vorschlag; unbekannte Hebel
+    entfallen) und je Lernwert. Ohne bekannten Hebel nur die festen Felder."""
     configured = entry_data.get("hebel")
     if not isinstance(configured, list | tuple):
         configured = ()
     hebel = [lever for lever in _LEVER_ORDER if lever in configured]
     if not hebel:
-        return FIELDS
+        return KREIS_FIELDS
     shift_lever = entry_data.get("shift_lever")
-    return FIELDS + tuple(_lever_field(lever, shift_lever) for lever in hebel) + LEARNED_FIELDS
+    return KREIS_FIELDS + tuple(_lever_field(lever, shift_lever) for lever in hebel) + LEARNED_FIELDS
 
 
-def entity_keys(entry_data: Mapping) -> tuple[str, ...]:
-    return (STATUS_KEY, *(event_field.key for event_field in entity_fields(entry_data)))
+# Push ueber den Coordinator, kein Abruf je Entity: keine Begrenzung gleichzeitiger Aufrufe.
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
     async_add_entities([
-        StatusSensor(coordinator), *(EventSensor(coordinator, event_field) for event_field in entity_fields(entry.data)),
+        StatusSensor(coordinator), *(EventSensor(coordinator, event_field) for event_field in ANLAGE_FIELDS),
     ])
+    felder = kreis_fields(entry.data)
+    async_kreis_entities(
+        hass, entry, async_add_entities,
+        lambda coordinator, kreis: [EventSensor(coordinator, event_field, kreis) for event_field in felder],
+    )
 
 
 class StatusSensor(SmartHeatEntity, SensorEntity):
@@ -155,6 +192,10 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "sensor", STATUS_KEY)
 
+    @property
+    def available(self) -> bool:
+        return True
+
     def _has_value(self) -> bool:
         return self.coordinator.status is not None
 
@@ -162,7 +203,9 @@ class StatusSensor(SmartHeatEntity, SensorEntity):
         hints = (self.coordinator.data or {}).get("hinweise")
         if not isinstance(hints, dict):
             hints = {}  # kein Objekt (aelteres/fremdes Event): Hinweise leer statt Absturz
-        self._attr_native_value = self.coordinator.status
+        status = self.coordinator.status
+        # Ein Status, den diese Version nicht kennt, ist "unbekannt" statt eines Fehlers beim Schreiben (ENUM).
+        self._attr_native_value = status if status in STATUS_SENSOR_VALUES else None
         self._attr_extra_state_attributes = {
             "grund": self.coordinator.reason, **{hint: hints.get(hint) for hint in HINT_FIELDS},
         }
@@ -178,19 +221,21 @@ class EventSensor(SmartHeatEntity, SensorEntity):
     # explizit optional, da _apply() bei fehlenden Attributen bewusst None zuweist.
     _attr_extra_state_attributes: dict[str, Any] | None = None
 
-    def __init__(self, coordinator, event_field: EventField) -> None:
-        super().__init__(coordinator, "sensor", event_field.key)
+    def __init__(self, coordinator, event_field: EventField, kreis: int | None = None) -> None:
+        super().__init__(coordinator, "sensor", event_field.key, kreis)
         self._field = event_field
         self._attr_device_class = event_field.device_class
         self._attr_options = event_field.options
         self._attr_native_unit_of_measurement = event_field.unit
         self._attr_entity_category = event_field.category
         self._attr_suggested_display_precision = event_field.precision
+        self._attr_state_class = event_field.state_class
+        self._attr_entity_registry_enabled_default = event_field.enabled_default
 
     def _apply(self) -> None:
-        data = self.coordinator.sicht
-        # _apply() laeuft laut SmartHeatEntity nur, wenn _has_value() True ist, d.h.
-        # self.coordinator.data ist nicht None (siehe entity.py).
+        data = self.daten
+        # _apply() laeuft laut SmartHeatEntity nur, wenn _has_value() True ist, d.h. die Felder der Anlage bzw. des
+        # Kreises sind vorhanden (siehe entity.py).
         assert data is not None
         self._attr_native_value = self._safe_value(data)
         try:

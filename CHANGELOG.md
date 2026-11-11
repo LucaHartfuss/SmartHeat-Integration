@@ -5,6 +5,48 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Die Mindestversion im Repair-Text ist enger gefasst: nur ASCII-Ziffern, Endung nur `-x`, `+x` oder `.devN`. Werte wie
+  `1.2.3.com` oder mit Unicode-Ziffern erscheinen nicht mehr im Text; das Repair nimmt dann den Text ohne Version.
+- Das Status-Ereignis des Add-ons trägt zwei weitere Anlagenfelder, die die Integration liest: `konfig_version`
+  (Version der Konfiguration des Geräts) und `mindest_integration` (kritische Mindestversion der Integration). Ein
+  Kreis-Gerät entfällt damit erst, wenn zwei Ereignisse mit derselben Konfigurationsversion den Kreis nicht mehr
+  nennen; ohne die Version bleibt es stehen. Das Schema bleibt 4.
+- HACS: Mindestversion Home Assistant jetzt 2026.9.4 (`hacs.json`), die Version, gegen die die Tests laufen
+  (vorher 2026.4.0, ungeprüft).
+- Einrichtungsassistent: Jedes Formularfeld hat jetzt einen Hilfetext (`data_description`, deutsch und englisch).
+  `config_flow.py` ist vollständig durch Verhaltenstests abgedeckt (Wartezeiten, Abbrüche, Fehlerrücksprung,
+  Entfernen); `scripts/check.sh` bricht unter 100 Prozent für diese Datei ab. Die Regeln `config-flow` und
+  `config-flow-test-coverage` der Quality Scale stehen auf erfüllt.
+- Qualität: `quality_scale.yaml` weist alle Regeln der Integration Quality Scale mit Stand und Begründung aus (Bronze
+  und Silver bis auf die offenen Punkte `brands`, Aktionen und Anleitung);
+  das Manifest nennt `integration_type: hub`; jede Plattform setzt `PARALLEL_UPDATES = 0`. Die Testabdeckung wird in
+  jedem Testlauf gemessen und bricht unter 95 Prozent ab (heute 98 Prozent).
+- Neu: Diagnose-Download für den Eintrag (Einstellungen → Geräte & Dienste → SmartHeat → Diagnose herunterladen). Die
+  Datei nennt Versionen (Integration, Add-on, Home Assistant, gelesene Schemata), den Zustand des Wächters, den
+  letzten Status mit allen Kreisen und ob der Server verbunden ist. Sie enthält keine Anlagen-ID, keine Namen
+  (Kreise heißen „Kreis 1“, „Kreis 2“ …), keine Entity-IDs der Zuordnung, keine Benachrichtigungsdienste, keinen
+  Übernahme-Code und keine Texte des Geräts; die Geräte-ID erscheint nur als `shg-` plus sechs Zeichen. Abwesenheit,
+  Wochenplan und Leerstand stünden nur als ja/nein darin, nie mit Zeiten.
+- Eine bestehende Einrichtung zieht beim ersten Laden auf die neuen Entity-IDs um: die Kreis-Entities
+  (z. B. `sensor.smartheat_<name>_niveau`) heißen jetzt `…smartheat_k1_…`, die Entities der Anlage
+  (`sensor.smartheat_status` usw.) tragen keinen Anlagennamen mehr. Es bleibt jeweils derselbe Registry-Eintrag:
+  Verlauf, vom Kunden vergebene Namen, Bereiche und Sichtbarkeit bleiben erhalten; eine vom Kunden selbst gewählte
+  Entity-ID bleibt unverändert. Dashboards und Automationen, die die alten IDs nennen, müssen auf die neuen IDs
+  umgestellt werden. Entities ohne Gegenstück in der neuen Version werden entfernt. Vor der ersten Änderung legt die
+  Integration ihre eigenen Registry-Einträge und den Konfigurationseintrag in `.storage/smartheat.registry_sicherung`
+  ab: der erste Stand vor dem Umzug bleibt dauerhaft, dazu die letzten drei späteren Stände; das Entfernen des Eintrags
+  löscht seine Sicherung. Lässt sich die Sicherung nicht schreiben oder lesen, oder scheitert der Umzug, lädt der Eintrag
+  nicht (Home Assistant versucht es später erneut) und der Wächter startet erst nach dem Umzug. Die Sicherung ist ein
+  Nachweis und eine Hilfe für die Handarbeit, kein Rückweg: vor dem Update eine vollständige Sicherung von Home
+  Assistant samt Datenbank anlegen; nur sie bringt die Verlaufsdaten zurück.
+- Ein Kreis, den die Anlage nicht mehr meldet, verliert sein Gerät nur, wenn das Ereignis eine Konfigurationsversion
+  und mindestens einen Kreis nennt; ein Ereignis ohne Kreise gilt nicht als Beleg für den Wegfall. Die
+  Wunschtemperatur eines nicht gemeldeten Kreises lehnt die Entity mit einer eigenen Meldung ab (ruft jemand den Dienst
+  auf, überspringt Home Assistant nicht verfügbare Entities stumm).
+- Die Mindestversion im Reparatur-Hinweis „Integration veraltet“ erscheint nur in der Form `1.4.0` (mit höchstens einer
+  Endung wie `-rc1`); sonst zeigt der Hinweis den Text ohne Version. Reparatur-Hinweise des Geräts mit einem Schlüssel,
+  der kein Code ist, entstehen nicht mehr. Der Diagnose-Download nennt vom Datenfehler nur die bekannte Art, zeigt
+  in den Reparatur-Hinweisen keine Kennung mit freiem Text, und das Log nennt ein unbekanntes Schema nur als Typ.
 - Der Standardserver ist jetzt `https://accounts.setwell.de` (vorher `https://accounts.hartfussha.org`). Die Adresse
   gilt nur für eine neue Einrichtung und nur, wenn die Option `bootstrap_url` des Add-ons Heizungsbrücke nicht gesetzt
   ist; bestehende Einträge sprechen nicht mit dem Server und bleiben unberührt. Das Add-on selbst wechselt beim
@@ -19,6 +61,38 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   startet SmartHeat es neu“ (wie bei „reagiert nicht“).
 - Löschen Sie den Eintrag, während der Wächter das Add-on gerade startet, legt die laufende Prüfung die Meldung danach
   nicht mehr neu an und startet das Add-on nicht mehr.
+- Die Integration meldet dem Add-on ihre Version mit dem Ereignis `smartheat_integration` (`schema`, `version`,
+  `v5_schemas`): beim Laden, mit jeder Wächter-Prüfung (alle 5 Minuten), nach einem Neustart des Add-ons durch den
+  Wächter und wenn das Add-on `startet` meldet. Jedes Status-Ereignis des eigenen Geräts zählt jetzt als Lebenszeichen
+  des Add-ons, auch wenn die Integration sein Schema nicht kennt: ein neueres Add-on wird nicht mehr nur deshalb neu
+  gestartet.
+- Sprechen Add-on und Integration kein gemeinsames Schema des Status-Ereignisses, zeigt der Status-Sensor
+  `integration_veraltet` (das Add-on ist neuer, die Integration muss aktualisiert werden) oder `addon_veraltet` (das
+  Add-on ist älter und muss aktualisiert werden). Dazu erscheint ein Reparatur-Hinweis; bei `integration_veraltet`
+  nennt er die Mindestversion der Integration, wenn das Add-on sie mitschickt. Die übrigen Entities sind dann „nicht
+  verfügbar“, und die Wunschtemperatur lehnt das Setzen mit einem Text ab, statt zu schreiben. Das nächste lesbare
+  Ereignis hebt den Befund auf. Ein unbekannter Status des Add-ons verwirft das Ereignis nicht mehr (der
+  Status-Sensor zeigt dann „unbekannt“); die Wunschtemperatur sendet das Schema, das das Add-on zuletzt gemeldet hat.
+- Die Anlage ist ein Gerät in Home Assistant (Name der Anlage aus dem Status-Ereignis, sonst „SmartHeat“; Hersteller
+  SmartHeat, Modell Home Assistant, Version des Add-ons), und jeder Heizkreis, den die Anlage meldet, bekommt ein
+  eigenes Gerät darunter. Das Gerät trägt den Namen des Heizkreis-Abos, sonst „Heizkreis n“. Ein neuer Kreis erscheint
+  mit dem nächsten Status-Ereignis; fehlt er in zwei Ereignissen mit derselben Konfigurationsversion, verschwinden sein
+  Gerät und dessen Entities. Ein Kreis, den die Anlage nicht mehr meldet, lässt sich auch von Hand löschen. Meldet die
+  Anlage mehr als vier Kreise oder eine Kreisnummer über vier, verwirft die Integration das Ereignis (Warnung ohne
+  Namen im Log). Das Gerät der Anlage heißt nun nach der Anlage statt „SmartHeat <Anlage>“.
+- Die Entities hängen an ihrem Gerät: Status, Datenfehler, letzte Serverantwort, Add-on-Version, Notbetrieb und
+  „Server verbunden“ (neu) an der Anlage; Zustand, Kälteschutz, Boost, Abo, Raumtemperatur (neu), Befunde (neu,
+  Anzahl) und die Wunschtemperatur an dem Kreis, den sie betreffen. Die Entity-IDs der Kreise lauten
+  `<Plattform>.smartheat_k<n>_<Schlüssel>` (zum Beispiel `sensor.smartheat_k1_zustand`), die ihrer Anlage
+  `<Plattform>.smartheat_<Schlüssel>`; die `unique_id` trägt Anlage, Kreis und Schlüssel. Hebel und gelernte Werte
+  sind Diagnose-Entities und standardmäßig ausgeschaltet. Der Zustand kennt alle Werte des Katalogs, auch die des
+  Alltags (`heizt_auf` und weitere). Die Entities eines Kreises entstehen mit dem ersten Status-Ereignis, das den
+  Kreis meldet. Bestehende Entities behalten ihre ID, solange der Registry-Eintrag sie trägt; die alten Entities von
+  Zustand, Kälteschutz, Boost, Abo, Wunschtemperatur und der Hebel entfernt die Integration beim Laden.
+- Meldet der Wächter das Add-on als gestoppt oder nicht reagierend, sind wie beim Versionsbefund alle Entities außer
+  dem Status „nicht verfügbar“, die der Anlage und die jedes Heizkreises; die Wunschtemperatur lehnt das Setzen ab.
+  Mit der Entwarnung kehren die Werte zurück. Der Übergang steht je einmal im Protokoll (nur der Befund, ohne Namen
+  oder Werte).
 
 ## 1.1.0
 

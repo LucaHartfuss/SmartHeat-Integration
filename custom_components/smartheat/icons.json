@@ -1,0 +1,51 @@
+{
+  "entity": {
+    "sensor": {
+      "status": {"default": "mdi:radiator"},
+      "datenfehler": {"default": "mdi:database-alert-outline"},
+      "letzte_serverantwort": {"default": "mdi:cloud-clock-outline"},
+      "addon_version": {"default": "mdi:package-variant-closed"},
+      "boost": {"default": "mdi:rocket-launch-outline"},
+      "abo": {"default": "mdi:card-account-details-outline"},
+      "zustand": {
+        "default": "mdi:radiator",
+        "state": {
+          "regelt": "mdi:thermostat-auto",
+          "abo_inaktiv": "mdi:card-off-outline",
+          "abo_beendet": "mdi:card-off-outline",
+          "testphase": "mdi:test-tube",
+          "ausser_betrieb": "mdi:power-plug-off-outline",
+          "heizt": "mdi:radiator",
+          "pause": "mdi:pause-circle-outline",
+          "abwesend": "mdi:home-export-outline",
+          "boost": "mdi:rocket-launch-outline",
+          "notbetrieb": "mdi:alert-outline",
+          "einlernphase": "mdi:school-outline",
+          "nicht_geregelt": "mdi:radiator-off",
+          "kuehl": "mdi:snowflake",
+          "heizt_auf": "mdi:trending-up",
+          "uebersteuert": "mdi:hand-back-right-outline",
+          "leerstand": "mdi:home-outline"
+        }
+      },
+      "kaelteschutz": {"default": "mdi:snowflake-alert"},
+      "raumtemperatur": {"default": "mdi:home-thermometer-outline"},
+      "befunde": {"default": "mdi:clipboard-alert-outline"},
+      "heizkurve": {"default": "mdi:chart-bell-curve"},
+      "parallelverschiebung": {"default": "mdi:arrow-up-down"},
+      "heizgrenze": {"default": "mdi:thermometer-lines"},
+      "mindestvorlauf": {"default": "mdi:pipe"},
+      "niveau": {"default": "mdi:stairs"},
+      "raum_soll": {"default": "mdi:thermostat"},
+      "gelernte_steigung": {"default": "mdi:school-outline"},
+      "gelernte_heizgrenze": {"default": "mdi:school-outline"}
+    },
+    "binary_sensor": {
+      "notbetrieb": {"default": "mdi:alert-outline"},
+      "server_verbunden": {"default": "mdi:cloud-off-outline", "state": {"on": "mdi:cloud-check-outline"}}
+    },
+    "number": {
+      "wunschtemperatur": {"default": "mdi:thermostat"}
+    }
+  }
+}

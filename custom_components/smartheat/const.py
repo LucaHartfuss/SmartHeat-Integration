@@ -18,13 +18,21 @@ STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 4
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
-    "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise",
+    "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name",
+    "konfig_version", "mindest_integration", "kreise",
 )
 STATUS_KREIS_FIELDS = (
     "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
     "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "zustand", "kaelteschutz",
 )
-# Bis die Entities je Kreis kommen, zeigen die heutigen den ersten Kreis.
+# Lebenszeichen der Integration an das Add-on (Vertrag V5). Der Kern -- Name, Typ und Bedeutung dieser drei Felder --
+# bleibt in jedem kuenftigen Schema gleich, damit jedes Add-on Version und gelesene Schemata der Integration lesen kann.
+# `v5_schemas` nennt die Schemata von `smartheat_status`, die die Integration liest. Keine Zeiten und keine Kennungen.
+INTEGRATION_EVENT = "smartheat_integration"
+INTEGRATION_EVENT_SCHEMA = 1
+INTEGRATION_EVENT_FIELDS = ("schema", "version", "v5_schemas")
+V5_SCHEMAS = (STATUS_EVENT_SCHEMA,)
+# Nummer des ersten Kreises: Vorgabe fuer Werkzeuge, die genau einen Kreis ansprechen.
 ERSTER_KREIS = 1
 # Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen.
 HINWEIS_FIELDS = ("key", "stufe", "text")
@@ -47,13 +55,36 @@ ADDON_STATUS_VALUES = (
 )
 STATUS_ADDON_GESTOPPT = "addon_gestoppt"
 STATUS_REAGIERT_NICHT = "reagiert_nicht"
-STATUS_SENSOR_VALUES = ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT)
+# Versionsbefunde der Integration (nie im Status-Ereignis des Add-ons): das Add-on meldet ein Schema, das die Integration
+# nicht liest, weil es hoeher (Integration veraltet) bzw. niedriger (Add-on veraltet) ist als alle gelesenen. Gleichnamig
+# sind das Repair, die Uebersetzung der Ablehnung und der Zustand des Status-Sensors; ohne brauchbare Mindestversion
+# (`mindest_integration` ist ein Anlagenfeld des Status-Ereignisses, nicht Teil des eingefrorenen Kerns) nimmt das
+# Repair den Schluessel mit Endung.
+STATUS_INTEGRATION_VERALTET = "integration_veraltet"
+STATUS_ADDON_VERALTET = "addon_veraltet"
+STATUS_VERSION_VALUES = (STATUS_INTEGRATION_VERALTET, STATUS_ADDON_VERALTET)
+ISSUE_OHNE_VERSION = "_ohne_version"
+# Ein Code des Add-ons (Schluessel, Stufe, Art, Zustand): kleine Buchstaben, Ziffern, Unterstrich. Was ihm nicht entspricht,
+# gilt als freier Text und geht weder in eine Issue-ID noch in die Diagnose.
+CODE_RE = re.compile(r"[a-z0-9_]{1,40}")
+# Eine Versionsnummer: drei ASCII-Zahlen, hoechstens eine Endung (`-x`, `+x` oder `.devN`); die Endung nach einem Punkt
+# ist nur `.dev` samt Zahl, damit kein Domain- oder Pfadmuster (`1.2.3.com`) entsteht, das ein Repair-Text als Link
+# darstellen koennte, und keine Unicode-Ziffern durchkommen. Das Muster ist dasselbe wie im Add-on.
+MINDEST_INTEGRATION_RE = re.compile(
+    r"(?=.{1,32}\Z)\d{1,6}\.\d{1,6}\.\d{1,6}(?:[-+][0-9A-Za-z]{1,16}|\.dev\d{1,6})?", re.ASCII)
+STATUS_SENSOR_VALUES = (
+    ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT) + STATUS_VERSION_VALUES
+)
 BOOST_KEINER = "keiner"
 BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
 ABO_VALUES = ("aktiv", "inaktiv", "beendet", "unbekannt")
 # Zustand und Kaelteschutz eines Kreises (Codes des Add-ons; die Texte stehen nur in den Uebersetzungen). Die Menge des
 # Zustands waechst mit dem Add-on; ein Wert ausserhalb der Menge zeigt die Entity als unbekannt.
-KREIS_ZUSTAND_VALUES = ("regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb")
+KREIS_ZUSTAND_VALUES = (
+    "regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb",
+    "heizt", "pause", "abwesend", "boost", "notbetrieb", "einlernphase", "nicht_geregelt", "kuehl", "heizt_auf",
+    "uebersteuert", "leerstand",
+)
 KAELTESCHUTZ_VALUES = ("aus", "soll", "frost")
 DATENFEHLER_ARTEN = ("lokal", "server", "anlage")
 DATENFEHLER_KEINER = "keiner"
@@ -92,6 +123,9 @@ EINRICHTUNG_MAX_BATTERIEN = 16
 EINRICHTUNG_MAX_HANDYS = 10
 # Kopie von device_protocol.KREISE_MAX (Heizkreise je Geraet; Contract-Check 76).
 EINRICHTUNG_MAX_KREISE = 4
+# Anzeigename von Geraet und Hersteller; laengster uebernommener Name (Anlage, Heizkreis-Abo) in Zeichen.
+PRODUKT_NAME = "SmartHeat"
+GERAET_NAME_MAX = 100
 
 # Einrichtungs-API (Server einrichtung/api.py ROUTEN).
 EINRICHTUNG_PREFIX = "/einrichtung/v1"
@@ -229,9 +263,16 @@ def slug(tenant_id: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", tenant_id.lower())
 
 
-def entity_id(platform: str, tenant_id: str, key: str) -> str:
-    """Feste Entity-IDs: sensor.smartheat_<slug>_status, unveraendert fuer die Dashboards von client1."""
-    return f"{platform}.smartheat_{slug(tenant_id)}_{key}"
+def entity_id(platform: str, key: str, kreis: int | None = None) -> str:
+    """Feste Entity-IDs ohne Anlagennamen: <plattform>.smartheat_<schluessel> fuer die Anlage,
+    <plattform>.smartheat_k<n>_<schluessel> fuer einen Kreis."""
+    return f"{platform}.smartheat_{'' if kreis is None else f'k{kreis}_'}{key}"
+
+
+def unique_id(tenant_id: str, key: str, kreis: int | None = None) -> str:
+    """Stabile Kennung einer Entity aus Anlage, Kreis und Schluessel; die Registry haelt an ihr fest, auch wenn die
+    Entity-ID geaendert wird."""
+    return f"{tenant_id}_{'' if kreis is None else f'k{kreis}_'}{key}"
 
 
 def watchdog_notification_id(tenant_id: str) -> str:

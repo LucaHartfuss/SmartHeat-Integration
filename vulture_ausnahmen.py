@@ -6,6 +6,8 @@ nicht: ein Treffer dort ist ein Befund (der Contract-Check liest sie, die Integr
 async_setup_entry  # HA-Hook: Integration und jede Plattform (binary_sensor, number, sensor)
 async_unload_entry  # HA-Hook: Eintrag entladen
 async_remove_entry  # HA-Hook: Eintrag entfernt
+async_remove_config_entry_device  # HA-Hook: Geraet von Hand loeschen (Kreis-Geraete)
+async_get_config_entry_diagnostics  # HA-Hook: Diagnose-Download des Eintrags (diagnostics.py)
 
 # Config-Flow (config_flow.py): HA registriert den Flow ueber domain= und ruft Schritte als async_step_<step_id>.
 SmartHeatConfigFlow  # HA-Hook: ConfigFlow-Unterklasse, registriert ueber domain=
@@ -39,3 +41,12 @@ _._attr_suggested_display_precision  # HA-Entity-Attribut (SensorEntity.suggeste
 _._attr_options  # HA-Entity-Attribut (SensorEntity.options, Enum-Sensor)
 _._attr_extra_state_attributes  # HA-Entity-Attribut (Entity.extra_state_attributes)
 _.async_set_native_value  # HA-Hook: NumberEntity, Dienst number.set_value
+_.available  # HA-Entity-Eigenschaft (Entity.available): "nicht verfuegbar" bei einem Versionsbefund
+_._attr_state_class  # HA-Entity-Attribut (SensorEntity.state_class)
+_._attr_entity_registry_enabled_default  # HA-Entity-Attribut (Entity.entity_registry_enabled_default): Hebel aus
+
+# Von Werkzeugen ausserhalb der Integration gelesen (tools/contract_check.py, tools/e2e/drive_ha2.py).
+ERSTER_KREIS  # Nummer des ersten Kreises als Vorgabe fuer Werkzeuge, die genau einen Kreis ansprechen
+
+# Plattformen (sensor.py, binary_sensor.py, number.py): HA liest PARALLEL_UPDATES je Plattformmodul.
+PARALLEL_UPDATES  # HA-Hook: Begrenzung gleichzeitiger Aufrufe je Plattform

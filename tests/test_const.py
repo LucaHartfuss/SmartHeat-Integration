@@ -8,11 +8,12 @@ def test_status_event_schema_4_separates_the_plant_from_the_circuits():
     assert const.STATUS_EVENT_SCHEMA == 4
     assert const.STATUS_EVENT_FIELDS == (
         "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
-        "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise")
+        "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name",
+        "konfig_version", "mindest_integration", "kreise")
     assert const.STATUS_KREIS_FIELDS == (
         "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
         "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "zustand", "kaelteschutz")
-    assert const.KREIS_ZUSTAND_VALUES == ("regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb")
+    assert set(const.KREIS_ZUSTAND_VALUES) >= {"regelt", "abo_inaktiv", "abo_beendet", "testphase", "ausser_betrieb", "heizt_auf"}
     assert const.KAELTESCHUTZ_VALUES == ("aus", "soll", "frost")
 
 
@@ -83,11 +84,15 @@ def test_addon_and_wait_constants():
             const.ENTFERNEN_WAIT_SECONDS, const.POLL_SECONDS) == (300, 120, 900, 300, 2)
 
 
-def test_entity_ids_are_unchanged_for_client1():
-    assert const.entity_id("sensor", "client1", "status") == "sensor.smartheat_client1_status"
-    assert const.entity_id("number", "client1", "wunschtemperatur") == "number.smartheat_client1_wunschtemperatur"
-    assert const.entity_id("binary_sensor", "Smoke-Test 01", "notbetrieb") == "binary_sensor.smartheat_smoke_test_01_notbetrieb"
+def test_entity_ids_of_the_installation_and_of_the_circuits():
+    assert const.entity_id("sensor", "status") == "sensor.smartheat_status"
+    assert const.entity_id("binary_sensor", "notbetrieb") == "binary_sensor.smartheat_notbetrieb"
+    assert const.entity_id("number", "wunschtemperatur", kreis=1) == "number.smartheat_k1_wunschtemperatur"
+    assert const.entity_id("sensor", "zustand", kreis=4) == "sensor.smartheat_k4_zustand"
+    assert const.unique_id("client1", "status") == "client1_status"
+    assert const.unique_id("client1", "zustand", kreis=2) == "client1_k2_zustand"
     assert const.watchdog_notification_id("client1") == "smartheat_client1_addon"
+    assert const.watchdog_notification_id("Smoke-Test 01") == "smartheat_smoke_test_01_addon"
 
 
 def test_the_outdated_addon_text_names_the_minimum_version():

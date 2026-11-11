@@ -1668,6 +1668,33 @@ def test_both_languages_label_the_same_roles():
     assert labels[0] == labels[1] and "curve" in labels[0]
 
 
+@pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_every_form_field_has_a_description(path):
+    """Jedes Feld eines Schritts hat neben der Beschriftung (`data`) einen erklaerenden Text (`data_description`),
+    und umgekehrt gehoert jeder Text zu einem Feld; die Texte stehen nur in den Uebersetzungsdateien."""
+    schritte = json.loads((_COMPONENT / path).read_text(encoding="utf-8"))["config"]["step"]
+    mit_feldern = {name: schritt for name, schritt in schritte.items() if "data" in schritt}
+
+    assert {"anlage", "integration", "system", "hebelsatz", "abo", "raeume", "anlagenwerte",
+            "benachrichtigung"} <= set(mit_feldern)
+    for name, schritt in mit_feldern.items():
+        beschreibungen = schritt.get("data_description", {})
+        assert set(beschreibungen) == set(schritt["data"]), (path, name)
+        for feld, text in beschreibungen.items():
+            assert isinstance(text, str) and len(text.strip()) > 10, (path, name, feld)
+            assert text.strip() != schritt["data"][feld].strip(), (path, name, feld)
+
+
+def test_descriptions_exist_in_both_languages_with_different_text():
+    """Deutsch und Englisch erklaeren dieselben Felder, keine der beiden Sprachen ist eine Kopie der anderen."""
+    texte = {sprache: json.loads((_COMPONENT / f"translations/{sprache}.json").read_text(encoding="utf-8"))
+             ["config"]["step"] for sprache in ("de", "en")}
+
+    for name, schritt in texte["en"].items():
+        for feld, text in schritt.get("data_description", {}).items():
+            assert texte["de"][name]["data_description"][feld] != text, (name, feld)
+
+
 def test_strings_json_equals_the_english_translation():
     assert json.loads((_COMPONENT / "strings.json").read_text()) == json.loads(
         (_COMPONENT / "translations/en.json").read_text())
@@ -1869,3 +1896,215 @@ async def test_neu_konfigurieren_ohne_einen_vorhandenen_kreis_wird_abgelehnt(has
     assert result["step_id"] == "system" and result["errors"] == {"kreise": "kreis_nicht_entfernbar"}
     assert not any(call[0] in ("zuordnung", "neu_konfigurieren") for call in server.calls)
 
+
+
+# --- Randfaelle des Ablaufs: Wartezeiten, Abbrueche und Fehlerruecksprung ---
+
+_ABFRAGE = 0.001
+
+
+def _nach_der_wartezeit(monkeypatch, aenderung):
+    """Zwischen zwei Abfragen wartet der Assistent POLL_SECONDS (hier eine eigene, erkennbare Dauer); danach hat
+    `aenderung` den Stand der Attrappe geaendert, wie ihn die naechste Abfrage sieht. Die Wartezeit selbst entfaellt."""
+    original = asyncio.sleep
+
+    async def schlafen(sekunden, *args):
+        if sekunden == _ABFRAGE:
+            aenderung()
+            sekunden = 0
+        return await original(sekunden, *args)
+
+    monkeypatch.setattr(config_flow, "POLL_SECONDS", _ABFRAGE)
+    monkeypatch.setattr(asyncio, "sleep", schlafen)
+
+
+async def test_die_wartezeit_des_pollings_schlaeft_wirklich(monkeypatch):
+    gewartet = []
+
+    async def schlafen(sekunden):
+        gewartet.append(sekunden)
+
+    monkeypatch.setattr(asyncio, "sleep", schlafen)
+
+    await config_flow._pause(2.5)
+
+    assert gewartet == [2.5]
+
+
+async def test_ein_unbekanntes_geraet_beim_lesen_bricht_mit_dem_serverttext_ab(hass, server):
+    server.fehler["geraet"] = NotFound("Gerät gesperrt.", 404)
+
+    result = await _bis_anlage(hass)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "geraet_unbekannt")
+    assert result["description_placeholders"] == {"grund": "Gerät gesperrt."}
+    assert server.calls[-1] == ("abmelden",)
+
+
+async def test_die_inventur_fragt_nach_bis_das_ergebnis_da_ist(hass, server, monkeypatch):
+    server.inventur_ergebnis = {"zustand": "laeuft"}
+    _nach_der_wartezeit(monkeypatch, lambda: server.geraet_sicht.update(inventur={"zustand": "fertig"}))
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+
+    assert result["step_id"] == "system"
+    assert server.calls.count(("inventur",)) == 1
+
+
+async def test_ein_vorschlag_ohne_integration_bricht_ab(hass, server):
+    server.vorschlag_antwort = {"integrationen": []}
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "keine_integration")
+    assert result["description_placeholders"] == {"grund": "-"}
+
+
+@pytest.mark.parametrize("eingabe, feld", [
+    ({"kontroll_fuehler": ["sensor.wohnzimmer_temperatur"]}, "kontroll_name"),
+    ({"kontroll_name": "Bad"}, "kontroll_fuehler")], ids=["fuehler_ohne_name", "name_ohne_fuehler"])
+async def test_ein_zweiter_raum_braucht_name_und_fuehler_zusammen(hass, server, eingabe, feld):
+    result = await _bis_raeume(hass)
+
+    result = await _configure(hass, result, {"raumfuehler": ["climate.wohnzimmer_thermostat"],
+                                             "room_target": "climate.wohnzimmer_thermostat", "raum_soll": 20.0}
+                                            | eingabe)
+
+    assert result["step_id"] == "raeume" and result["errors"] == {feld: "required"}
+
+
+async def _zwei_kreise_bis_zusammenfassung(hass, server, *, zweiter_mit_abo):
+    result = await _system(hass, server, _angebot(2), abos=["a1"] if zweiter_mit_abo else [])
+    result = await _configure(hass, result, {"kreise": [_kreis_schluessel(0), _kreis_schluessel(1)],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _kreis_ausfuellen(hass, result)
+    result = await _kreis_ausfuellen(hass, result, abo="a1" if zweiter_mit_abo else None)
+    return result
+
+
+async def test_der_server_lehnt_den_namen_des_raums_ab_und_der_fehler_steht_am_namensfeld(hass, server):
+    result = await _zwei_kreise_bis_zusammenfassung(hass, server, zweiter_mit_abo=True)
+    server.pruef_ergebnis = {"fehler": {"k2.raeume": "name"}, "warnungen": {}}
+
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+
+    assert result["step_id"] == "raeume" and result["description_placeholders"] == {"nummer": "2"}
+    assert result["errors"] == {"raum_name": "name"}
+
+
+async def test_der_server_lehnt_die_kreise_ab_und_der_assistent_geht_zur_auswahl_zurueck(hass, server):
+    result = await _zwei_kreise_bis_zusammenfassung(hass, server, zweiter_mit_abo=True)
+    server.pruef_ergebnis = {"fehler": {"kreise": "kreis_1_fehlt"}, "warnungen": {}}
+
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+
+    assert result["step_id"] == "system" and result["errors"] == {"kreise": "kreis_1_fehlt"}
+
+
+async def test_ein_fehler_der_anlage_fuehrt_an_ausgelassenen_kreisen_vorbei_zu_den_handys(hass, server):
+    """Der zweite Kreis hat kein Abo und bleibt aus der Anfrage; der Fehler der Handys gehoert zu keinem Kreis."""
+    result = await _zwei_kreise_bis_zusammenfassung(hass, server, zweiter_mit_abo=False)
+    assert result["step_id"] == "benachrichtigung"
+    server.pruef_ergebnis = {"fehler": {"benachrichtigung": "unknown_service"}, "warnungen": {}}
+
+    result = await _configure(hass, result, {"benachrichtigung": [], "hinweise_aus": [], "batterien": []})
+
+    assert result["step_id"] == "benachrichtigung" and result["errors"] == {"benachrichtigung": "unknown_service"}
+
+
+async def test_das_einrichten_fragt_nach_bis_das_geraet_fertig_meldet(hass, server, monkeypatch):
+    server.auftrag_ergebnis = {"zustand": "laeuft", "fehler": None}
+
+    def fertig():
+        server.auftrag_ergebnis = {"zustand": "fertig", "fehler": None}
+        server.geraet_sicht.update(eingerichtet=True, tenant_id=TENANT, konfiguration=KONFIGURATION)
+
+    _nach_der_wartezeit(monkeypatch, fertig)
+
+    result = await _configure(hass, await _bis_zusammenfassung(hass), {})
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert [c for c in server.calls if c[0] == "auftrag"] == [("auftrag", "j1")] * 2
+
+
+async def test_ohne_konfiguration_des_geraets_legt_der_assistent_keinen_eintrag_an(hass, server, monkeypatch):
+    async def einrichten_ohne_konfiguration(anfrage):
+        server.calls.append(("einrichten", anfrage))
+        return "j1"
+
+    monkeypatch.setattr(server, "_einrichten", einrichten_ohne_konfiguration)
+
+    result = await _configure(hass, await _bis_zusammenfassung(hass), {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "keine_konfiguration")
+    assert not hass.config_entries.async_entries(DOMAIN)
+    assert server.calls[-1] == ("abmelden",)
+
+
+async def _entfernen_starten(hass, server, nach_dem_einrichten=lambda: None):
+    """Richtet das Geraet ein und startet das Entfernen; `nach_dem_einrichten` stellt die Attrappe erst danach ein,
+    damit das Einrichten selbst unbehelligt bleibt."""
+    entry = await _eingerichtet(hass, server)
+    nach_dem_einrichten()
+    result = await _reconfigure(hass, entry)
+    result = await _configure(hass, result, {"next_step_id": "geraet_entfernen"})
+    result = await _configure(hass, result, {})
+    await hass.async_block_till_done()
+    return result
+
+
+async def test_ein_sofort_freigegebenes_geraet_ist_entfernt_ohne_auftrag(hass, server):
+    server.entfernen_ergebnis = {"freigegeben": True}
+
+    result = await _entfernen_starten(hass, server)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernt")
+    assert not any(call[0] == "auftrag" for call in server.calls)
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+async def test_ein_entfernen_ohne_auftragsnummer_scheitert_ohne_den_eintrag_zu_loeschen(hass, server):
+    server.entfernen_ergebnis = {}
+
+    result = await _entfernen_starten(hass, server)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_fehler")
+    assert result["description_placeholders"] == {"grund": "-"}
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+async def test_ein_unerreichbarer_server_waehrend_des_entfernens_entfernt_den_eintrag_trotzdem(hass, server, caplog):
+    def unerreichbar():
+        server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
+        server.fehler["auftrag"] = CannotConnect()
+
+    with caplog.at_level(logging.INFO):
+        result = await _entfernen_starten(hass, server, unerreichbar)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_laeuft")
+    assert "Stand des Entfernens nicht lesbar (CannotConnect)" in caplog.text
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+async def test_ein_abgelehnter_auftrag_beim_entfernen_nennt_den_text_des_servers(hass, server):
+    def abgelehnt():
+        server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
+        server.fehler["auftrag"] = ApiError("Auftrag unbekannt.", 400)
+
+    result = await _entfernen_starten(hass, server, abgelehnt)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_fehler")
+    assert result["description_placeholders"] == {"grund": "Auftrag unbekannt."}
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+async def test_das_entfernen_fragt_nach_bis_der_auftrag_fertig_ist(hass, server, monkeypatch):
+    """Das Token bleibt gueltig, solange der Auftrag nicht fertig ist: der Stand `fertig` kommt als Antwort des
+    Auftrags, nicht als Widerruf."""
+    _nach_der_wartezeit(monkeypatch, lambda: setattr(server, "auftrag_ergebnis", {"zustand": "fertig", "fehler": None}))
+
+    result = await _entfernen_starten(
+        hass, server, lambda: setattr(server, "auftrag_ergebnis", {"zustand": "wartet_bestaetigung", "fehler": None}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernt")
+    assert [c for c in server.calls if c[0] == "auftrag" and c[1] == "j3"] == [("auftrag", "j3")] * 2
