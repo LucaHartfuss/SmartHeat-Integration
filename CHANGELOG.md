@@ -5,6 +5,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Hinweise des Geräts: höchstens 50 Reparatur-Hinweise je Eintrag (kritische zuerst); die übrigen fasst ein
+  Sammel-Hinweis mit ihrer Anzahl zusammen. Die Kennung eines Hinweises mit unbekanntem Schlüssel besteht nur aus dem
+  Kreis (`k<n>`, falls der Schlüssel damit beginnt) und einem Kurzhash, nie aus Entity- oder Fühlernamen; bekannte
+  Schlüssel behalten ihre lesbare Kennung.
 - Push-Kern: Rote Befunde des Wächters (`addon_gestoppt`, `reagiert_nicht`, `addon_fehlt`) gehen sofort als Push an die
   Handys, die das Status-Ereignis des Add-ons nennt (nur Dienste `notify.mobile_app_*`, höchstens zehn), auch in der
   Ruhezeit; ein fehlgeschlagener Versand wird bis zu 24 h wiederholt, ein offener Befund erinnert alle 24 h. Orangefarbene

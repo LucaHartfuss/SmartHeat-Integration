@@ -318,6 +318,7 @@
     "konfiguration_abgelehnt": {"title": "SmartHeat: setting rejected", "description": "The add-on rejected the new setting: {text} Please check it under SmartHeat → Reconfigure."},
     "gesperrt": {"title": "SmartHeat: device blocked", "description": "{text}"},
     "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"},
+    "geraet_hinweise_viele": {"title": "SmartHeat: many more notices", "description": "The device reports {anzahl} further notices that are not listed here. Please check the heating installation and the add-on."},
     "integration_veraltet": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated to at least version {mindest_integration}. Settings → Devices & services → HACS → SmartHeat → Update."},
     "integration_veraltet_ohne_version": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated. Settings → Devices & services → HACS → SmartHeat → Update."},
     "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."},

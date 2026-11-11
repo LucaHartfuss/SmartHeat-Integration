@@ -19,6 +19,7 @@ from custom_components.smartheat.const import (
     STATUS_EVENT,
     STATUS_SENSOR_VALUES,
     WUNSCH_EVENT,
+    hinweis_issue_id,
 )
 
 from .addon_fakes import make_device_entry, status_event
@@ -256,7 +257,7 @@ async def test_ein_unbekannter_hinweisschluessel_ergibt_den_rueckfall_und_das_er
     await _fire(hass, _ereignis(raum_soll=21.5, geraet_hinweise=[hinweis]))
 
     assert float(hass.states.get(WUNSCH).state) == 21.5
-    assert _issues(hass)["hinweis_neuer_hinweis"].translation_key == "geraet_hinweis"
+    assert _issues(hass)[hinweis_issue_id("neuer_hinweis")].translation_key == "geraet_hinweis"
 
 
 # --- Aushandlung nach v5_schemas ---

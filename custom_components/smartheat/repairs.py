@@ -17,6 +17,9 @@ from .const import (
     HINWEIS_FELD_STUFE,
     HINWEIS_FELD_TEXT,
     HINWEIS_KEYS,
+    HINWEIS_SAMMEL_ID,
+    HINWEIS_SAMMEL_KEY,
+    HINWEISE_MAX,
     ISSUE_OHNE_VERSION,
     MINDEST_INTEGRATION_RE,
     STATUS_ADDON_MEHRFACH,
@@ -51,17 +54,23 @@ def _klartext(text: object) -> str:
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
-    """Issues `hinweis_<key>` auf den Stand von `hinweise` bringen; Eintraege ohne Schluessel oder mit einem Schluessel,
-    der kein Code ist, ignorieren (die Issue-ID steht im Diagnose-Download und darf keinen freien Text tragen)."""
+    """Issues `hinweis_…` auf den Stand von `hinweise` bringen; Eintraege ohne Schluessel oder mit einem Schluessel,
+    der kein Code ist, ignorieren (die Issue-ID steht im Diagnose-Download und darf keinen freien Text tragen; ihre
+    Bildung: `const.hinweis_issue_id`). Hoechstens HINWEISE_MAX Issues, kritische zuerst; fuer die uebrigen gibt es ein
+    Sammel-Issue mit deren Anzahl."""
     registry = ir.async_get(hass)
-    aktuell = set()
+    gueltig: dict[str, tuple[str, dict]] = {}
     for hinweis in hinweise:
         if not isinstance(hinweis, dict):
             continue
         key = hinweis.get(HINWEIS_FELD_KEY)
         if not isinstance(key, str) or CODE_RE.fullmatch(key) is None:
             continue
-        issue_id = hinweis_issue_id(key)
+        gueltig.setdefault(hinweis_issue_id(key), (key, hinweis))
+    # sorted ist stabil: innerhalb einer Stufe bleibt die Reihenfolge des Geraets
+    ausgewaehlt = sorted(gueltig.items(), key=lambda eintrag: eintrag[1][1].get(HINWEIS_FELD_STUFE) != KRITISCH)
+    aktuell = set()
+    for issue_id, (key, hinweis) in ausgewaehlt[:HINWEISE_MAX]:
         aktuell.add(issue_id)
         severity = ir.IssueSeverity.ERROR if hinweis.get(HINWEIS_FELD_STUFE) == KRITISCH else ir.IssueSeverity.WARNING
         ir.async_create_issue(
@@ -69,6 +78,13 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
             severity=severity,
             translation_key=key if key in HINWEIS_KEYS else GERAET_HINWEIS,
             translation_placeholders={"text": _klartext(hinweis.get(HINWEIS_FELD_TEXT))},
+        )
+    ueberzaehlig = len(ausgewaehlt) - HINWEISE_MAX
+    if ueberzaehlig > 0:
+        aktuell.add(HINWEIS_SAMMEL_ID)
+        ir.async_create_issue(
+            hass, DOMAIN, HINWEIS_SAMMEL_ID, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+            translation_key=HINWEIS_SAMMEL_KEY, translation_placeholders={"anzahl": str(ueberzaehlig)},
         )
     for domain, issue_id in list(registry.issues):
         if domain == DOMAIN and issue_id.startswith(_PREFIX) and issue_id not in aktuell:

@@ -1,6 +1,7 @@
 """Konstanten der SmartHeat-Integration: Oberflaeche ueber der Einrichtungs-API des Servers, Status
 und Wunschtemperatur ueber das lokale Add-on. Ereignis-, Discovery- und Routen-Werte sind Cross-Repo-Vertrag
 (tools/contract_check.py im Dev-Root)."""
+import hashlib
 import re
 
 DOMAIN = "smartheat"
@@ -40,6 +41,12 @@ HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = HINWEIS_FIELDS
 HINWEIS_SOLL_QUELLE_AUS = "soll_quelle_aus"
 HINWEIS_KEYS = ("update_noetig", "geraet_doppelt", "wunsch_begrenzt", HINWEIS_SOLL_QUELLE_AUS,
                 "konfiguration_abgelehnt", "gesperrt")
+# Hoechstens so viele Issues aus Geraetehinweisen je Eintrag; die uebrigen fasst ein Sammel-Issue unter fester ID zusammen.
+HINWEISE_MAX = 50
+HINWEIS_SAMMEL_ID = "hinweis_sammel"
+HINWEIS_SAMMEL_KEY = "geraet_hinweise_viele"
+HINWEIS_HASH_ZEICHEN = 10
+HINWEIS_KREIS_RE = re.compile(r"(k\d{1,3})_.")
 STATUS_STARTET = "startet"
 STATUS_REGELT = "regelt"
 STATUS_KONFIGURATIONSFEHLER = "konfigurationsfehler"
@@ -308,5 +315,13 @@ def signal_update(entry_id: str) -> str:
 
 
 def hinweis_issue_id(key: str) -> str:
-    return f"hinweis_{re.sub(r'[^a-z0-9_]', '_', key.lower())}"
+    """Issue-ID eines Geraetehinweises. Ein bekannter Schluessel bleibt lesbar; bei jedem anderen steht nur der Kreis
+    (`k<n>`, wenn der Schluessel damit beginnt) und ein Kurzhash des Schluessels in der ID: sie steht in der Registry
+    und im Diagnose-Download und darf keinen Entity- oder Fuehlernamen tragen. Die ID hat nie mehr als 31 Zeichen."""
+    sauber = re.sub(r"[^a-z0-9_]", "_", key.lower())
+    if sauber in HINWEIS_KEYS:
+        return f"hinweis_{sauber}"
+    kurzhash = "h" + hashlib.sha256(sauber.encode()).hexdigest()[:HINWEIS_HASH_ZEICHEN]
+    kreis = HINWEIS_KREIS_RE.match(sauber)
+    return f"hinweis_{kreis.group(1) + '_' if kreis else ''}{kurzhash}"
 
