@@ -181,6 +181,7 @@ class SmartHeatCoordinator:
         self.version_status: str | None = None
         self.wunsch_schema: int = WUNSCH_EVENT_SCHEMA
         self._watchdog_reason: str | None = None
+        self._verfuegbar_gemeldet = True
         self._watchdog = Watchdog(started_at=_now())
         self._checking = False
         self._stopped = False
@@ -203,6 +204,23 @@ class SmartHeatCoordinator:
         if self.version_status is not None:
             return self.version_status
         return None if self.data is None else self.data.get("status")
+
+    @property
+    def verfuegbar(self) -> bool:
+        """Ob die Entities ausser dem Status ihre Werte zeigen: nicht bei einem Waechter- oder Versionsbefund."""
+        return self.watchdog_status is None and self.version_status is None
+
+    @callback
+    def _verfuegbarkeit_melden(self) -> None:
+        """Den Uebergang nach "nicht verfuegbar" und zurueck je einmal ins Log (INFO), nur mit dem Befundcode."""
+        verfuegbar = self.verfuegbar
+        if verfuegbar == self._verfuegbar_gemeldet:
+            return
+        self._verfuegbar_gemeldet = verfuegbar
+        if verfuegbar:
+            _LOGGER.info("Entities wieder verfuegbar")
+        else:
+            _LOGGER.info("Entities nicht verfuegbar (Befund %s)", self.status)
 
     @property
     def reason(self) -> str | None:
@@ -304,6 +322,7 @@ class SmartHeatCoordinator:
             _LOGGER.info("Versionsbefund des Add-ons: %s", befund or "keiner")
         self.version_status = befund
         repairs.async_set_version(self.hass, befund, mindest_integration)
+        self._verfuegbarkeit_melden()
         async_dispatcher_send(self.hass, self.signal)
 
     async def async_check(self, _now_dt=None) -> None:
@@ -364,6 +383,7 @@ class SmartHeatCoordinator:
         previous = self.watchdog_status
         changed = (status, reason) != (previous, self._watchdog_reason)
         self.watchdog_status, self._watchdog_reason = status, reason
+        self._verfuegbarkeit_melden()
         if previous is None and status is not None:
             persistent_notification.async_create(
                 self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),

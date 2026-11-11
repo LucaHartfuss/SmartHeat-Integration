@@ -58,9 +58,10 @@ class SmartHeatEntity(RestoreEntity):
 
     @property
     def available(self) -> bool:
-        """Nicht verfuegbar, solange Add-on und Integration kein gemeinsames Schema sprechen: die zuletzt gelesenen
-        Werte waeren dann veraltet. Der Status-Sensor bleibt verfuegbar und nennt den Befund."""
-        return self.coordinator.version_status is None
+        """Nicht verfuegbar, solange der Waechter das Add-on als gestoppt oder nicht reagierend meldet oder Add-on und
+        Integration kein gemeinsames Schema sprechen: die zuletzt gelesenen Werte waeren dann veraltet. Der
+        Status-Sensor bleibt verfuegbar und nennt den Befund."""
+        return self.coordinator.verfuegbar
 
     @property
     def daten(self) -> dict | None:

@@ -47,6 +47,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   Alltags (`heizt_auf` und weitere). Die Entities eines Kreises entstehen mit dem ersten Status-Ereignis, das den
   Kreis meldet. Bestehende Entities behalten ihre ID, solange der Registry-Eintrag sie trägt; die alten Entities von
   Zustand, Kälteschutz, Boost, Abo, Wunschtemperatur und der Hebel entfernt die Integration beim Laden.
+- Meldet der Wächter das Add-on als gestoppt oder nicht reagierend, sind wie beim Versionsbefund alle Entities außer
+  dem Status „nicht verfügbar“, die der Anlage und die jedes Heizkreises; die Wunschtemperatur lehnt das Setzen ab.
+  Mit der Entwarnung kehren die Werte zurück. Der Übergang steht je einmal im Protokoll (nur der Befund, ohne Namen
+  oder Werte).
 
 ## 1.1.0
 
