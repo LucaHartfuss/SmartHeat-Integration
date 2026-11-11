@@ -5,6 +5,16 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Eine bestehende Einrichtung zieht beim ersten Laden auf die neuen Entity-IDs um: die Kreis-Entities
+  (z. B. `sensor.smartheat_<name>_niveau`) heißen jetzt `…smartheat_k1_…`, die Entities der Anlage
+  (`sensor.smartheat_status` usw.) tragen keinen Anlagennamen mehr. Es bleibt jeweils derselbe Registry-Eintrag:
+  Verlauf, vom Kunden vergebene Namen, Bereiche und Sichtbarkeit bleiben erhalten; eine vom Kunden selbst gewählte
+  Entity-ID bleibt unverändert. Dashboards und Automationen, die die alten IDs nennen, müssen auf die neuen IDs
+  umgestellt werden. Entities ohne Gegenstück in der neuen Version werden entfernt. Vor der ersten Änderung legt die
+  Integration ihre eigenen Registry-Einträge und den Konfigurationseintrag in `.storage/smartheat.registry_sicherung`
+  ab (die letzten drei Stände); lässt sich die Sicherung nicht schreiben, lädt der Eintrag nicht und die Registry
+  bleibt unberührt. Die Sicherung ersetzt keine Sicherung von Home Assistant: vor dem Update eine vollständige
+  Sicherung anlegen; ein Zurückgehen auf die alte Version geht nur mit dieser Sicherung bei gestopptem Home Assistant.
 - Der Standardserver ist jetzt `https://accounts.setwell.de` (vorher `https://accounts.hartfussha.org`). Die Adresse
   gilt nur für eine neue Einrichtung und nur, wenn die Option `bootstrap_url` des Add-ons Heizungsbrücke nicht gesetzt
   ist; bestehende Einträge sprechen nicht mit dem Server und bleiben unberührt. Das Add-on selbst wechselt beim

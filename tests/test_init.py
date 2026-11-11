@@ -75,18 +75,20 @@ async def test_nach_dem_ersten_ereignis_hat_der_kreis_seine_entities_an_seinem_g
         assert hass.states.get(entity_id) is not None, entity_id
 
 
-async def test_eine_bestehende_entity_der_anlage_behaelt_ihre_id_in_der_registry(hass):
-    """Die Registry gewinnt gegen die vorgeschlagene ID: das Umbenennen der Entities einer laufenden Anlage ist Sache der
-    Migration, nicht des Ladens."""
+async def test_eine_bestehende_entity_der_anlage_bekommt_die_feste_id_mit_demselben_eintrag(hass):
+    """Der Registry-Eintrag einer laufenden Anlage bleibt derselbe (Verlauf), nur seine ID folgt dem festen Schema; die
+    Einzelheiten des Umzugs stehen in test_registry_umzug.py."""
     entry = make_device_entry(hass, tenant_id="client1")
-    er.async_get(hass).async_get_or_create("sensor", DOMAIN, "client1_status", config_entry=entry,
-                                           suggested_object_id="smartheat_client1_status")
+    vorher = er.async_get(hass).async_get_or_create("sensor", DOMAIN, "client1_status", config_entry=entry,
+                                                    suggested_object_id="smartheat_client1_status")
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert er.async_get(hass).async_get_entity_id("sensor", DOMAIN, "client1_status") == "sensor.smartheat_client1_status"
-    assert hass.states.get("sensor.smartheat_client1_status") is not None
+    assert er.async_get(hass).async_get_entity_id("sensor", DOMAIN, "client1_status") == "sensor.smartheat_status"
+    assert er.async_get(hass).async_get("sensor.smartheat_status").id == vorher.id
+    assert hass.states.get("sensor.smartheat_status") is not None
+    assert hass.states.get("sensor.smartheat_client1_status") is None
 
 
 async def test_viessmann_entry_has_its_own_levers(hass):
@@ -103,25 +105,23 @@ async def test_viessmann_entry_has_its_own_levers(hass):
 
 
 async def test_orphaned_entities_are_removed(hass):
-    """Verwaiste Entities: ein Sensor aus 0.7.x, der Hebel eines anderen Hebelsatzes und die Entities ohne Kreis aus der
-    Zeit vor den Kreis-Entities."""
+    """Verwaiste Entities: ein Sensor aus 0.7.x, der Hebel eines anderen Hebelsatzes und die Entities eines Kreises
+    ausserhalb des Bereichs; die Entities ohne Kreis-Teil ziehen dagegen auf Kreis 1 um (test_registry_umzug.py)."""
     entry = make_device_entry(hass, tenant_id="client1")
     registry = er.async_get(hass)
-    for key in ("offset", "niveau", "zustand", "boost", "heizkurve"):
+    for key in ("offset", "niveau"):
         registry.async_get_or_create("sensor", DOMAIN, f"client1_{key}", config_entry=entry,
                                      suggested_object_id=f"smartheat_client1_{key}")
-    registry.async_get_or_create("number", DOMAIN, "client1_wunschtemperatur", config_entry=entry,
-                                 suggested_object_id="smartheat_client1_wunschtemperatur")
     registry.async_get_or_create("sensor", DOMAIN, "client1_k1_niveau", config_entry=entry,
                                  suggested_object_id="smartheat_k1_niveau")
+    registry.async_get_or_create("sensor", DOMAIN, "client1_k5_boost", config_entry=entry,
+                                 suggested_object_id="smartheat_k5_boost")
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
     for entity_id in ("sensor.smartheat_client1_offset", "sensor.smartheat_client1_niveau",
-                      "sensor.smartheat_client1_zustand", "sensor.smartheat_client1_boost",
-                      "sensor.smartheat_client1_heizkurve", "number.smartheat_client1_wunschtemperatur",
-                      "sensor.smartheat_k1_niveau"):
+                      "sensor.smartheat_k1_niveau", "sensor.smartheat_k5_boost"):
         assert registry.async_get(entity_id) is None, entity_id
     assert registry.async_get("sensor.smartheat_status") is not None
 
