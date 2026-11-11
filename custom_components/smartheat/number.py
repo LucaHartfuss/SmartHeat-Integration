@@ -31,6 +31,10 @@ from .entity import SmartHeatEntity, async_kreis_entities, endliche_zahl
 KEY = "wunschtemperatur"
 
 
+# Push ueber den Coordinator, kein Abruf je Entity: keine Begrenzung gleichzeitiger Aufrufe.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     async_kreis_entities(
         hass, entry, async_add_entities, lambda coordinator, kreis: [WunschtemperaturEntity(coordinator, kreis)])

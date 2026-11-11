@@ -5,6 +5,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Qualität: `quality_scale.yaml` weist alle Regeln der Integration Quality Scale mit Stand und Begründung aus (Bronze
+  und Silver bis auf die offenen Punkte `brands`, `config-flow`, `config-flow-test-coverage`, Aktionen und Anleitung);
+  das Manifest nennt `integration_type: hub`; jede Plattform setzt `PARALLEL_UPDATES = 0`. Die Testabdeckung wird in
+  jedem Testlauf gemessen und bricht unter 95 Prozent ab (heute 98 Prozent).
 - Neu: Diagnose-Download für den Eintrag (Einstellungen → Geräte & Dienste → SmartHeat → Diagnose herunterladen). Die
   Datei nennt Versionen (Integration, Add-on, Home Assistant, gelesene Schemata), den Zustand des Wächters, den
   letzten Status mit allen Kreisen und ob der Server verbunden ist. Sie enthält keine Anlagen-ID, keine Namen

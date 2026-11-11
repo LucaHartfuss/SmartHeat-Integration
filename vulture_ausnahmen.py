@@ -47,3 +47,6 @@ _._attr_entity_registry_enabled_default  # HA-Entity-Attribut (Entity.entity_reg
 
 # Von Werkzeugen ausserhalb der Integration gelesen (tools/contract_check.py, tools/e2e/drive_ha2.py).
 ERSTER_KREIS  # Nummer des ersten Kreises als Vorgabe fuer Werkzeuge, die genau einen Kreis ansprechen
+
+# Plattformen (sensor.py, binary_sensor.py, number.py): HA liest PARALLEL_UPDATES je Plattformmodul.
+PARALLEL_UPDATES  # HA-Hook: Begrenzung gleichzeitiger Aufrufe je Plattform

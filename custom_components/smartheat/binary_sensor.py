@@ -14,6 +14,10 @@ SERVER_VERBUNDEN_KEY = "server_verbunden"
 ENTITY_KEYS = (NOTBETRIEB_KEY, SERVER_VERBUNDEN_KEY)
 
 
+# Push ueber den Coordinator, kein Abruf je Entity: keine Begrenzung gleichzeitiger Aufrufe.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
     async_add_entities([NotbetriebSensor(coordinator), ServerVerbundenSensor(coordinator)])

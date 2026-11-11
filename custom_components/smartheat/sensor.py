@@ -166,6 +166,10 @@ def kreis_fields(entry_data: Mapping) -> tuple[EventField, ...]:
     return KREIS_FIELDS + tuple(_lever_field(lever, shift_lever) for lever in hebel) + LEARNED_FIELDS
 
 
+# Push ueber den Coordinator, kein Abruf je Entity: keine Begrenzung gleichzeitiger Aufrufe.
+PARALLEL_UPDATES = 0
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
     async_add_entities([

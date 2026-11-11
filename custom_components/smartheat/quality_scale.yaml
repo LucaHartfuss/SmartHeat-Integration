@@ -1,0 +1,113 @@
+# Nachweis zur Integration Quality Scale (Regelliste der in der CI eingesetzten Home-Assistant-Version; ein Test hält
+# die Datei mit ihr gleich). Ziel: Bronze und Silver (ohne brands) sowie ausgewählte Gold-Punkte. Gold-Regeln, die hier
+# nicht zugesagt sind, stehen als todo mit Grund, Platin ist nicht Ziel.
+rules:
+  # Bronze
+  action-setup:
+    status: todo
+    comment: Die Integration registriert noch keine Aktionen; sie entstehen mit Abwesenheit und Wochenplan.
+  appropriate-polling:
+    status: exempt
+    comment: Kein Abruf; der Zustand kommt als Ereignis des Add-ons (Push).
+  brands:
+    status: todo
+    comment: Bilder liegen im Repository (brand), der Eintrag im Brands-Repository steht aus; die CI prüft ohne brands.
+  common-modules: done
+  config-flow-test-coverage:
+    status: todo
+    comment: Der Ablauf ist getestet (config_flow.py etwa 97 Prozent), aber nicht vollständig abgedeckt.
+  config-flow:
+    status: todo
+    comment: Die Felder des Einrichtungsablaufs haben keine data_description.
+  dependency-transparency:
+    status: exempt
+    comment: Keine Bibliothek aus PyPI; requirements im Manifest ist leer.
+  docs-actions:
+    status: todo
+    comment: Wie action-setup; ohne Aktionen nichts zu beschreiben.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup:
+    status: exempt
+    comment: Beim Laden besteht keine Verbindung; der Zustand kommt als Ereignis, der Wächter prüft das Add-on.
+  unique-config-entry: done
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters:
+    status: exempt
+    comment: Es gibt keinen Optionsdialog; die Zuordnung ändert Neu konfigurieren.
+  docs-installation-parameters:
+    status: todo
+    comment: Die Felder des Assistenten stehen noch nicht vollständig in der Anleitung.
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable: done
+  parallel-updates: done
+  reauthentication-flow:
+    status: exempt
+    comment: Die Integration speichert keinen Zugang; der Server-Token lebt nur im Speicher des Assistenten.
+  test-coverage: done
+
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery-update-info:
+    status: exempt
+    comment: Die Discovery trägt nur die Geräte-ID, keine Adresse, die sich ändern könnte.
+  discovery: done
+  docs-data-update:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-examples:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-known-limitations:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-supported-devices:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-supported-functions:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-troubleshooting:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-use-cases:
+    status: todo
+    comment: Anleitung folgt mit der Hilfeseite.
+  docs-triggers:
+    status: exempt
+    comment: Die Integration stellt keine Trigger bereit.
+  docs-conditions:
+    status: exempt
+    comment: Die Integration stellt keine Bedingungen bereit.
+  dynamic-devices: done
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
+  entity-translations: done
+  exception-translations: done
+  icon-translations: done
+  reconfiguration-flow: done
+  repair-issues: done
+  stale-devices: done
+
+  # Platin (nicht Ziel)
+  async-dependency:
+    status: exempt
+    comment: Keine Bibliothek, die Anbindung läuft über Ereignisse und den Supervisor-Client von Home Assistant.
+  inject-websession:
+    status: todo
+    comment: Nicht Ziel; der Assistent nutzt die gemeinsame Sitzung von Home Assistant (async_get_clientsession).
+  strict-typing:
+    status: todo
+    comment: Nicht Ziel; die Typprüfung läuft im Basismodus (pyright).

@@ -51,7 +51,7 @@ lint() {
   py -m ruff check . && py -m pyright --pythonpath "$PYEXE" && py scripts/ci/pin_check.py --repo "$PWD" &&
     py scripts/ci/geheimnis_scan.py --repo "$PWD" && py -m vulture custom_components vulture_ausnahmen.py --min-confidence 60
 }
-tests() { py -m pytest -q; }
+tests() { py -m pytest -q --cov --cov-report=term-missing:skip-covered; }
 # Das eigene Repo ist dieser Checkout (auch ein Worktree), die Nachbarn kommen aus dem Dev-Root.
 contract() { python3 "$DEV/tools/contract_check.py" --integration "$PWD"; }
 check_only lint test contract
