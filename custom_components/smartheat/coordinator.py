@@ -297,7 +297,7 @@ class SmartHeatCoordinator:
         befund = _versionsbefund(schema)
         if befund is not None:
             # Das Add-on spricht ein Schema, das diese Integration nicht liest: Befund statt Stillstand. Die zuletzt
-            # gelesenen Werte bleiben stehen, nur der Zustand wechselt; den Text der Mindestversion liefert der Kern.
+            # gelesenen Werte bleiben stehen, nur der Zustand wechselt; die Mindestversion fuer den Text steht im Anlagenfeld `mindest_integration`.
             self._set_version_status(befund, data.get("mindest_integration"))
             return
         if isinstance(schema, bool) or schema not in V5_SCHEMAS:

@@ -5,6 +5,8 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Die Mindestversion im Repair-Text ist enger gefasst: nur ASCII-Ziffern, Endung nur `-x`, `+x` oder `.devN`. Werte wie
+  `1.2.3.com` oder mit Unicode-Ziffern erscheinen nicht mehr im Text; das Repair nimmt dann den Text ohne Version.
 - Das Status-Ereignis des Add-ons trägt zwei weitere Anlagenfelder, die die Integration liest: `konfig_version`
   (Version der Konfiguration des Geräts) und `mindest_integration` (kritische Mindestversion der Integration). Ein
   Kreis-Gerät entfällt damit erst, wenn zwei Ereignisse mit derselben Konfigurationsversion den Kreis nicht mehr

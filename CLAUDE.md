@@ -47,10 +47,12 @@ Linie `scripts/ci/tag_pruefen.sh` gegen `.github/allowed_signers` auf `main`) un
 - `manifest.json`-Repo-URL = Name des GitHub-Repos (`SmartHeat-Integration`), nicht der lokale Ordnername.
 - Einträge ohne `geraet_id` (VERSION 2) bleiben ohne Migration im Zustand `MIGRATION_ERROR` (seit Stufe 4; kein eigener
   Text mehr); „Neu konfigurieren“ bricht bei ihnen mit `unknown` ab.
-- Die Entities von `client1` bleiben nicht, wie sie waren: `registry_umzug.py` zieht beim Laden die 13 Kreis-Entities
-  als dieselben Registry-Einträge auf `{tenant}_k1_<schlüssel>` und die Entity-ID `smartheat_k1_<schlüssel>` um (nur wenn
-  die ID die einst vom Add-on vergebene ist und das Ziel frei ist; sonst bleibt die Kachel leer; die Anlage-Entities
-  heißen danach `smartheat_<schlüssel>`; `tests/test_registry_umzug.py`, Kennungen: `tests/test_init.py`). Die Sicherung im
+- Die Entities von `client1` bleiben nicht, wie sie waren: `registry_umzug.py` zieht beim Laden die vorhandenen
+  Kreis-Entities (bei Vaillant mit vier Hebeln 13 je Kreis: 6 feste, 4 Hebel, 2 Lernwerte, Wunschtemperatur; auf `client1`
+  gab es vor dem Update davon 11, `raumtemperatur` und `befunde` entstehen neu) als dieselben Registry-Einträge auf
+  `{tenant}_k1_<schlüssel>` und die Entity-ID `smartheat_k1_<schlüssel>` um (nur wenn
+  die ID die einst vom Add-on vergebene ist und das Ziel frei ist; sonst bleibt die Kachel leer; die 6 Anlage-Entities (davon 5 schon
+  vor dem Update, neu ist `server_verbunden`) heißen danach `smartheat_<schlüssel>`; `tests/test_registry_umzug.py`, Kennungen: `tests/test_init.py`). Die Sicherung im
   Store `smartheat.registry_sicherung` ist ein Nachweis, kein Rückweg: der Rückweg ist die HA-Vollsicherung samt
   Datenbank vor dem Update, Ablauf in `../docs/runbooks/` („Update `client1`“). Die Dashboards in `HomeAssistantPapa`
   verwenden die neuen IDs.

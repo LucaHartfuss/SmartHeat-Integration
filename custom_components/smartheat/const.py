@@ -58,7 +58,8 @@ STATUS_REAGIERT_NICHT = "reagiert_nicht"
 # Versionsbefunde der Integration (nie im Status-Ereignis des Add-ons): das Add-on meldet ein Schema, das die Integration
 # nicht liest, weil es hoeher (Integration veraltet) bzw. niedriger (Add-on veraltet) ist als alle gelesenen. Gleichnamig
 # sind das Repair, die Uebersetzung der Ablehnung und der Zustand des Status-Sensors; ohne brauchbare Mindestversion
-# im Kern des Ereignisses nimmt das Repair den Schluessel mit Endung.
+# (`mindest_integration` ist ein Anlagenfeld des Status-Ereignisses, nicht Teil des eingefrorenen Kerns) nimmt das
+# Repair den Schluessel mit Endung.
 STATUS_INTEGRATION_VERALTET = "integration_veraltet"
 STATUS_ADDON_VERALTET = "addon_veraltet"
 STATUS_VERSION_VALUES = (STATUS_INTEGRATION_VERALTET, STATUS_ADDON_VERALTET)
@@ -66,9 +67,11 @@ ISSUE_OHNE_VERSION = "_ohne_version"
 # Ein Code des Add-ons (Schluessel, Stufe, Art, Zustand): kleine Buchstaben, Ziffern, Unterstrich. Was ihm nicht entspricht,
 # gilt als freier Text und geht weder in eine Issue-ID noch in die Diagnose.
 CODE_RE = re.compile(r"[a-z0-9_]{1,40}")
-# Eine Versionsnummer: drei Zahlen, hoechstens eine Endung; kein Domain- oder Pfadmuster, das ein Repair-Text als Link
-# darstellen koennte.
-MINDEST_INTEGRATION_RE =re.compile(r"(?=.{1,32}\Z)\d{1,6}\.\d{1,6}\.\d{1,6}(?:[.+-][0-9A-Za-z]{1,16})?")
+# Eine Versionsnummer: drei ASCII-Zahlen, hoechstens eine Endung (`-x`, `+x` oder `.devN`); die Endung nach einem Punkt
+# ist nur `.dev` samt Zahl, damit kein Domain- oder Pfadmuster (`1.2.3.com`) entsteht, das ein Repair-Text als Link
+# darstellen koennte, und keine Unicode-Ziffern durchkommen. Das Muster ist dasselbe wie im Add-on.
+MINDEST_INTEGRATION_RE = re.compile(
+    r"(?=.{1,32}\Z)\d{1,6}\.\d{1,6}\.\d{1,6}(?:[-+][0-9A-Za-z]{1,16}|\.dev\d{1,6})?", re.ASCII)
 STATUS_SENSOR_VALUES = (
     ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT) + STATUS_VERSION_VALUES
 )

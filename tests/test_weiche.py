@@ -98,7 +98,10 @@ async def test_der_befund_gilt_auch_ohne_vorher_gelesenes_ereignis(hass, clock):
 
 @pytest.mark.parametrize("kern", [None, "", "x" * 200, 7, ["1.4.0"], "1.4 <b>", "www.setwell-update.de",
                                   "1.4", "1..4.0", "1.4.0.", "a.b.c", "1.4.0/evil", "1.4.0" + "x" * 30,
-                                  "1.4.0-www.evil.de", "1.4.0+a@b", "1.4.0-a:b", "1.4.0-a/b"])
+                                  "1.4.0-www.evil.de", "1.4.0+a@b", "1.4.0-a:b", "1.4.0-a/b",
+                                  "1.2.3.com", "1.2.3.dev", "1.2.3.dev1234567", "1.2.3.rc1",
+                                  "١.٢.٣", "1.2.3-١", "1.2.3\n",
+                                  "111111.111111.111111-" + "a" * 12])
 async def test_ohne_brauchbare_mindestversion_zeigt_das_repair_den_text_ohne_version(hass, clock, kern):
     await _setup(hass)
     ereignis = {**_ereignis(schema=5), "mindest_integration": kern}
@@ -111,7 +114,8 @@ async def test_ohne_brauchbare_mindestversion_zeigt_das_repair_den_text_ohne_ver
     assert "x" * 200 not in json.dumps(issue.translation_placeholders or {})
 
 
-@pytest.mark.parametrize("kern", ["1.4.0", "2.10.3", "1.4.0-rc1", "1.4.0+build5", "1.4.0.dev2"])
+@pytest.mark.parametrize("kern", ["1.4.0", "2.10.3", "1.4.0-rc1", "1.4.0+build5", "1.4.0.dev2", "1.2.3", "1.2.3-rc1",
+                                  "1.2.3+b5", "1.2.3.dev4", "111111.111111.111111-" + "a" * 11])
 async def test_eine_strenge_mindestversion_wird_im_repair_genannt(hass, clock, kern):
     await _setup(hass)
 

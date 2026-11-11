@@ -75,7 +75,7 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
 
 def async_set_version(hass: HomeAssistant, befund: str | None, mindest_integration: object = None) -> None:
     """Das Repair zum Versionsbefund (`integration_veraltet` oder `addon_veraltet`) setzen; `None` nimmt es zurueck. Es
-    gibt hoechstens eines. Nur der Text zu `integration_veraltet` nennt die Mindestversion aus dem Kern des Ereignisses;
+    gibt hoechstens eines. Nur der Text zu `integration_veraltet` nennt die Mindestversion aus dem Anlagenfeld `mindest_integration` des Ereignisses;
     sie erscheint nur, wenn sie wie eine Version aussieht, sonst nimmt das Repair den Text ohne Version. Nicht
     behebbar, Warnung (Orange), kein Push."""
     for alt in STATUS_VERSION_VALUES:
