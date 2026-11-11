@@ -3,8 +3,10 @@ HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte Status-Ereign
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
 meldet, meldet Befunde per persistent_notification (Push an die Handys ist Sache des Add-ons, Nutzer-Entscheidung
-2026-10-11) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Sie schreibt nie auf
-die Anlage (keine Notbremse, Nutzer-Entscheidung) und ruft keinen Server."""
+2026-10-11) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
+eigenen Geraets zaehlt als Lebenszeichen des Add-ons, gleich welches Schema; umgekehrt meldet die Integration dem
+Add-on ihre Version und gelesenen Schemata (INTEGRATION_EVENT). Sie schreibt nie auf die Anlage (keine Notbremse,
+Nutzer-Entscheidung) und ruft keinen Server."""
 from __future__ import annotations
 
 import logging
@@ -24,6 +26,9 @@ from . import repairs
 from .const import (
     ADDON_STATUS_VALUES,
     ERSTER_KREIS,
+    INTEGRATION_EVENT,
+    INTEGRATION_EVENT_FIELDS,
+    INTEGRATION_EVENT_SCHEMA,
     MAX_RESTARTS_PER_WINDOW,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
@@ -33,7 +38,9 @@ from .const import (
     STATUS_EVENT_SCHEMA,
     STATUS_KREIS_FIELDS,
     STATUS_REAGIERT_NICHT,
+    STATUS_STARTET,
     STOPPED_AFTER_CHECKS,
+    V5_SCHEMAS,
     WATCHDOG_INTERVAL_SECONDS,
     WATCHDOG_MESSAGES,
     WATCHDOG_REASONS,
@@ -153,6 +160,7 @@ class SmartHeatCoordinator:
         self._watchdog = Watchdog(started_at=_now())
         self._checking = False
         self._stopped = False
+        self._version = ""
 
     @property
     def signal(self) -> str:
@@ -183,7 +191,9 @@ class SmartHeatCoordinator:
         return None if self.data is None else self.data.get("grund")
 
     @callback
-    def async_start(self) -> None:
+    def async_start(self, version: str) -> None:
+        """Startet Zuhoeren und Waechter-Takt und meldet dem Add-on die Version der Integration."""
+        self._version = version
         self._watchdog = Watchdog(started_at=_now())
         self._stopped = False
         self.entry.async_on_unload(self._async_stop)
@@ -191,6 +201,13 @@ class SmartHeatCoordinator:
         self.entry.async_on_unload(async_track_time_interval(
             self.hass, self.async_check, timedelta(seconds=WATCHDOG_INTERVAL_SECONDS),
         ))
+        self._async_send_integration_event()
+
+    @callback
+    def _async_send_integration_event(self) -> None:
+        """Lebenszeichen der Integration: nur Schema, Version und gelesene Schemata, ohne Zeit und ohne Kennung."""
+        werte = {"schema": INTEGRATION_EVENT_SCHEMA, "version": self._version, "v5_schemas": list(V5_SCHEMAS)}
+        self.hass.bus.async_fire(INTEGRATION_EVENT, {feld: werte[feld] for feld in INTEGRATION_EVENT_FIELDS})
 
     @callback
     def _async_stop(self) -> None:
@@ -205,6 +222,16 @@ class SmartHeatCoordinator:
         data = event.data
         if data.get("geraet_id") != self.geraet_id:
             return
+        # Jedes Ereignis des eigenen Geraets ist ein Lebenszeichen des Add-ons, gleich welches Schema und welcher Inhalt:
+        # ein neueres Add-on darf nicht als stumm gelten und neu gestartet werden, nur weil die Integration es nicht liest.
+        self._watchdog.event_received(_now())
+        if data.get("status") == STATUS_STARTET:
+            self._async_send_integration_event()  # frisch gestartetes Add-on: Version und Schemata gleich nennen
+        if self.watchdog_status is not None:
+            # Entwarnung pruefen: gilt erst, wenn auch das Add-on laeuft. An den Eintrag gebunden: wird beim
+            # Entladen/Entfernen storniert -- sonst koennte dieser Task danach noch das Add-on (neu) starten oder
+            # parallel zum Zeit-Takt laufen.
+            self.entry.async_create_task(self.hass, self.async_check(), f"smartheat_recheck_{self.tenant_id}")
         if data.get("schema") != STATUS_EVENT_SCHEMA or data.get("status") not in ADDON_STATUS_VALUES:
             _LOGGER.warning(
                 "Status-Event mit unbekanntem schema/status ignoriert: %r/%r", data.get("schema"), data.get("status"),
@@ -217,14 +244,8 @@ class SmartHeatCoordinator:
         # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS); fehlende bleiben fehlend.
         self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data and key != "kreise"}
         self.kreise = kreise
-        self._watchdog.event_received(_now())
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
-        if self.watchdog_status is not None:
-            # Entwarnung pruefen: gilt erst, wenn auch das Add-on laeuft. An den Eintrag gebunden: wird beim
-            # Entladen/Entfernen storniert -- sonst koennte dieser Task danach noch das Add-on (neu) starten oder
-            # parallel zum Zeit-Takt laufen.
-            self.entry.async_create_task(self.hass, self.async_check(), f"smartheat_recheck_{self.tenant_id}")
         async_dispatcher_send(self.hass, self.signal)
 
     async def async_check(self, _now_dt=None) -> None:
@@ -234,6 +255,7 @@ class SmartHeatCoordinator:
             return
         self._checking = True
         try:
+            self._async_send_integration_event()  # auch wenn der Supervisor gleich nicht antwortet
             try:
                 manager = await async_find_bridge_manager(self.hass)
             except AddonError as error:
@@ -255,6 +277,8 @@ class SmartHeatCoordinator:
                 return
             if revive:
                 await self._async_revive(manager, bool(running))
+                if not self._stopped:
+                    self._async_send_integration_event()  # das neu gestartete Add-on erfaehrt Version und Schemata
             if self._stopped:  # waehrend des Starts wurde der Eintrag entladen/geloescht: keine Meldung neu anlegen
                 return
             self._set_watchdog_status(status)

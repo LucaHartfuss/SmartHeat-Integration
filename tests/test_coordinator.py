@@ -1,8 +1,10 @@
 """Coordinator, Entities und zweiter Waechter (Schema 4, Zuordnung ueber die
 Geraete-ID, Waechter nur fuer die Heizungsbruecke, Meldung nur per persistent_notification)."""
 import asyncio
+import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
@@ -11,12 +13,21 @@ from homeassistant.core import State
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
+    async_capture_events,
     async_fire_time_changed,
     async_mock_service,
     mock_restore_cache,
 )
 
-from custom_components.smartheat.const import STATUS_EVENT, STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS, WATCHDOG_MESSAGES
+from custom_components.smartheat.const import (
+    INTEGRATION_EVENT,
+    INTEGRATION_EVENT_FIELDS,
+    STATUS_EVENT,
+    STATUS_EVENT_FIELDS,
+    STATUS_EVENT_SCHEMA,
+    STATUS_KREIS_FIELDS,
+    WATCHDOG_MESSAGES,
+)
 from custom_components.smartheat.coordinator import Watchdog
 
 from .addon_fakes import make_device_entry, status_event
@@ -984,3 +995,148 @@ async def test_a_check_waiting_for_the_supervisor_does_not_start_the_addon_after
 
     assert supervisor.actions == []
     assert created == [] and dismissed == ["smartheat_wohnung1_addon"]
+
+
+# --- Lebenszeichen der Integration (smartheat_integration) und Lebenszeichen des Add-ons ---
+
+MANIFEST = Path(__file__).parent.parent / "custom_components" / "smartheat" / "manifest.json"
+MANIFEST_VERSION = json.loads(MANIFEST.read_text())["version"]
+STILLE = 900  # SILENCE_SECONDS
+
+
+def _integration_events(hass):
+    return async_capture_events(hass, INTEGRATION_EVENT)
+
+
+async def test_the_integration_event_is_sent_when_the_entry_loads_with_exactly_the_frozen_core(hass, clock):
+    events = _integration_events(hass)
+
+    await _setup(hass)
+
+    assert [event.data for event in events] == [
+        {"schema": 1, "version": MANIFEST_VERSION, "v5_schemas": [STATUS_EVENT_SCHEMA]},
+    ]
+    assert tuple(events[0].data) == INTEGRATION_EVENT_FIELDS
+
+
+async def test_every_check_sends_the_integration_event_even_when_the_supervisor_is_unreachable(
+        hass, supervisor, clock):
+    entry = await _setup(hass)
+    events = _integration_events(hass)
+
+    await entry.runtime_data.async_check()
+    supervisor.client.addons.addon_info.side_effect = SupervisorError("weg")
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert len(events) == 3
+
+
+async def test_the_integration_event_comes_again_after_the_watchdog_restarted_the_addon(hass, supervisor, clock):
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    await coordinator.async_check()
+    clock["t"] += 300
+    events = _integration_events(hass)
+
+    await coordinator.async_check()  # zweite Pruefung "laeuft nicht": Start, dann das Lebenszeichen noch einmal
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == [("start", BRIDGE_SLUG)]
+    assert len(events) == 2  # die Pruefung selbst und der Neustart
+
+
+async def test_a_startet_status_of_the_own_device_gets_an_answering_integration_event_other_statuses_do_not(
+        hass, clock):
+    await _setup(hass)
+    events = _integration_events(hass)
+
+    _fire(hass, status_event(TENANT, "regelt"))
+    await hass.async_block_till_done()
+    assert events == []
+
+    _fire(hass, status_event(None, "startet", geraet_zustand="wartet_auf_einrichtung"))
+    _fire(hass, status_event(TENANT, "startet", geraet_id="shg-b"))  # fremdes Geraet: keine Antwort
+    await hass.async_block_till_done()
+    assert len(events) == 1
+
+
+async def test_the_integration_event_carries_no_time(hass, clock):
+    clock["t"] = 123456.0
+    events = _integration_events(hass)
+
+    await _setup(hass)
+
+    assert "123456" not in json.dumps(events[0].data)
+
+
+@pytest.mark.parametrize("event", [
+    {**status_event(TENANT, "regelt"), "schema": 5},
+    {**status_event(TENANT, "regelt"), "schema": 3},
+    {**status_event(TENANT, "regelt"), "schema": "x", "status": "neu_unbekannt"},
+    {**status_event(TENANT, "regelt"), "kreise": "kaputt"},
+])
+async def test_an_own_event_of_any_schema_or_content_is_a_sign_of_life_no_restart_over_two_silence_periods(
+        hass, supervisor, clock, notes, event):
+    entry = await _setup(hass)
+
+    for _ in range(6):  # 1800 s = zwei Stille-Fristen, jeweils 300 s Abstand zum Ereignis
+        clock["t"] += 300
+        _fire(hass, event)
+        await hass.async_block_till_done()
+        await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == []
+    assert entry.runtime_data.watchdog_status is None
+    assert notes[0] == []
+    assert entry.runtime_data.data is None  # verworfen und trotzdem Lebenszeichen
+
+
+async def test_real_silence_after_a_sign_of_life_still_restarts(hass, supervisor, clock, notes):
+    entry = await _setup(hass)
+    clock["t"] += 600
+    _fire(hass, {**status_event(TENANT, "regelt"), "schema": 5})
+    await hass.async_block_till_done()
+
+    clock["t"] += STILLE - 1
+    await entry.runtime_data.async_check()
+    assert supervisor.actions == []
+    clock["t"] += 1
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == [("restart", BRIDGE_SLUG)]
+    assert hass.states.get(STATUS).state == "reagiert_nicht"
+
+
+async def test_an_event_of_a_foreign_device_is_no_sign_of_life(hass, supervisor, clock, notes):
+    entry = await _setup(hass)
+    clock["t"] += STILLE - 1
+    _fire(hass, status_event(TENANT, "regelt", geraet_id="shg-b"))
+    _fire(hass, {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"})
+    await hass.async_block_till_done()
+
+    clock["t"] += 1
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+
+    assert supervisor.actions == [("restart", BRIDGE_SLUG)]
+
+
+async def test_a_high_schema_event_ends_a_silence_incident(hass, supervisor, clock, notes):
+    entry = await _setup(hass)
+    clock["t"] += STILLE
+    await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
+    assert hass.states.get(STATUS).state == "reagiert_nicht"
+
+    clock["t"] += 10
+    _fire(hass, {**status_event(TENANT, "regelt"), "schema": 5})
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.watchdog_status is None

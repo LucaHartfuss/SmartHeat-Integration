@@ -24,6 +24,13 @@ STATUS_KREIS_FIELDS = (
     "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
     "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "zustand", "kaelteschutz",
 )
+# Lebenszeichen der Integration an das Add-on (Vertrag V5). Der Kern -- Name, Typ und Bedeutung dieser drei Felder --
+# bleibt in jedem kuenftigen Schema gleich, damit jedes Add-on Version und gelesene Schemata der Integration lesen kann.
+# `v5_schemas` nennt die Schemata von `smartheat_status`, die die Integration liest. Keine Zeiten und keine Kennungen.
+INTEGRATION_EVENT = "smartheat_integration"
+INTEGRATION_EVENT_SCHEMA = 1
+INTEGRATION_EVENT_FIELDS = ("schema", "version", "v5_schemas")
+V5_SCHEMAS = (STATUS_EVENT_SCHEMA,)
 # Bis die Entities je Kreis kommen, zeigen die heutigen den ersten Kreis.
 ERSTER_KREIS = 1
 # Felder eines Geraete-Hinweises (geraet_hinweise); repairs.py und number.py lesen sie ueber diese Namen.

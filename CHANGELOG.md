@@ -19,6 +19,11 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   startet SmartHeat es neu“ (wie bei „reagiert nicht“).
 - Löschen Sie den Eintrag, während der Wächter das Add-on gerade startet, legt die laufende Prüfung die Meldung danach
   nicht mehr neu an und startet das Add-on nicht mehr.
+- Die Integration meldet dem Add-on ihre Version mit dem Ereignis `smartheat_integration` (`schema`, `version`,
+  `v5_schemas`): beim Laden, mit jeder Wächter-Prüfung (alle 5 Minuten), nach einem Neustart des Add-ons durch den
+  Wächter und wenn das Add-on `startet` meldet. Jedes Status-Ereignis des eigenen Geräts zählt jetzt als Lebenszeichen
+  des Add-ons, auch wenn die Integration sein Schema nicht kennt: ein neueres Add-on wird nicht mehr nur deshalb neu
+  gestartet.
 
 ## 1.1.0
 

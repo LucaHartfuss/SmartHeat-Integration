@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.loader import async_get_integration
 
 from . import addon_control, binary_sensor, number, repairs, sensor
 from .const import DOMAIN, watchdog_notification_id
@@ -19,7 +20,8 @@ PLATFORMS = [Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SENSOR]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SmartHeatCoordinator(hass, entry)
     entry.runtime_data = coordinator
-    coordinator.async_start()
+    integration = await async_get_integration(hass, DOMAIN)
+    coordinator.async_start(str(integration.version))
     _remove_orphaned_entities(hass, entry, coordinator.tenant_id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
