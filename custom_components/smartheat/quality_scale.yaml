@@ -14,11 +14,11 @@ rules:
     comment: Bilder liegen im Repository (brand), der Eintrag im Brands-Repository steht aus; die CI prüft ohne brands.
   common-modules: done
   config-flow-test-coverage:
-    status: todo
-    comment: Der Ablauf ist getestet (config_flow.py etwa 97 Prozent), aber nicht vollständig abgedeckt.
+    status: done
+    comment: config_flow.py ist zu 100 Prozent abgedeckt; scripts/check.sh bricht darunter ab.
   config-flow:
-    status: todo
-    comment: Die Felder des Einrichtungsablaufs haben keine data_description.
+    status: done
+    comment: Jedes Formularfeld des Ablaufs hat eine data_description in strings.json und beiden Übersetzungen.
   dependency-transparency:
     status: exempt
     comment: Keine Bibliothek aus PyPI; requirements im Manifest ist leer.

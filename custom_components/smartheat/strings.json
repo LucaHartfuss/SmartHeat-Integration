@@ -16,7 +16,8 @@
       },
       "anlage": {
         "title": "Installation",
-        "data": {"anlage": "Installation"}
+        "data": {"anlage": "Installation"},
+        "data_description": {"anlage": "The installation of your SmartHeat account that this device is going to control."}
       },
       "ersetzen": {
         "title": "Replace device",
@@ -28,21 +29,28 @@
       },
       "integration": {
         "title": "Heating integration",
-        "data": {"integration": "Integration"}
+        "data": {"integration": "Integration"},
+        "data_description": {"integration": "The Home Assistant integration that talks to your heating, for example the one of your heating manufacturer."}
       },
       "system": {
         "title": "Heating",
         "description": "{integration}\n\n{hinweis}",
-        "data": {"kreise": "Heating circuits (one to four)", "profil": "Installation profile"}
+        "data": {"kreise": "Heating circuits (one to four)", "profil": "Installation profile"},
+        "data_description": {
+          "kreise": "The heating circuits SmartHeat is going to control. Choose at least one and at most four; heating circuit 1 is required.",
+          "profil": "The type of your heating installation. It decides which values SmartHeat reads and which settings it may change."
+        }
       },
       "hebelsatz": {
         "title": "Control",
-        "data": {"hebelsatz": "Control"}
+        "data": {"hebelsatz": "Control"},
+        "data_description": {"hebelsatz": "The settings of your heating that SmartHeat is allowed to change. Choose the variant that matches your heating."}
       },
       "abo": {
         "title": "Subscription for heating circuit {nummer}",
         "description": "Choose the subscription that carries heating circuit {nummer}. Without a choice the circuit stays detected and is not set up. {abos}",
-        "data": {"abo_id": "Subscription"}
+        "data": {"abo_id": "Subscription"},
+        "data_description": {"abo_id": "The subscription of your SmartHeat account that pays for this heating circuit. Each subscription can carry one heating circuit."}
       },
       "raeume": {
         "title": "Heating circuit {nummer}: room",
@@ -54,6 +62,14 @@
           "raum_soll": "Desired temperature",
           "kontroll_name": "Second room: name (optional)",
           "kontroll_fuehler": "Second room: sensors (optional)"
+        },
+        "data_description": {
+          "raum_name": "A short name for the room, up to 40 characters.",
+          "raumfuehler": "Temperature sensors that measure the room temperature. Choose one to eight sensors per heating circuit.",
+          "room_target": "The entity in which you set the desired temperature of this room, for example the thermostat. Exactly one room provides it.",
+          "raum_soll": "The desired room temperature of this room that is offered at the start.",
+          "kontroll_name": "Name of a second room that is only measured and does not provide the desired temperature. Leave empty if there is none.",
+          "kontroll_fuehler": "Temperature sensors of the second room. Fill in together with its name."
         }
       },
       "anlagenwerte": {
@@ -85,6 +101,33 @@
           "energy_thermal_heating": "Energy: thermal heating (optional)",
           "energy_thermal_dhw": "Energy: thermal, hot water (optional)",
           "energy_electrical_total": "Energy: electrical total (optional)"
+        },
+        "data_description": {
+          "curve": "The entity that holds the slope of the heating curve. SmartHeat adjusts it.",
+          "room_setpoint": "The entity of the heating that holds the room setpoint or the zone setpoint.",
+          "level": "The entity that holds the level (parallel shift) of the heating curve.",
+          "heat_limit": "The entity that holds the outdoor temperature above which the heating switches off. SmartHeat adjusts it.",
+          "min_flow": "The entity that holds the lowest flow temperature of the heating.",
+          "mode_select": "The entity with which the operating mode or heating program of the heating is chosen.",
+          "setpoint_comfort": "The entity that holds the room setpoint in comfort mode.",
+          "setpoint_setback": "The entity that holds the room setpoint in setback mode.",
+          "outdoor_temp": "The outdoor temperature sensor. SmartHeat bases its control on it.",
+          "flow_temperature": "Measured flow temperature of the heating. Optional; it only completes the displayed values.",
+          "flow_setpoint": "The flow temperature the heating aims for. Optional.",
+          "return_temperature": "Measured return temperature of the heating. Optional.",
+          "operating_mode": "The current operating mode as a reading. Optional.",
+          "system_water_pressure": "Water pressure of the installation. Optional.",
+          "efficiency_ratio": "The efficiency value the manufacturer reports. Optional.",
+          "generator_hours": "Operating hours of the heat generator. Optional.",
+          "generator_starts": "Number of starts of the heat generator. Optional.",
+          "generator_state": "Status of the heat generator. Optional.",
+          "energy_electrical_heating": "Electrical energy used for heating. Optional.",
+          "energy_electrical_dhw": "Electrical energy used for hot water. Optional.",
+          "energy_primary_heating": "Primary energy used for heating. Optional.",
+          "energy_primary_dhw": "Primary energy used for hot water. Optional.",
+          "energy_thermal_heating": "Thermal energy delivered for heating. Optional.",
+          "energy_thermal_dhw": "Thermal energy delivered for hot water. Optional.",
+          "energy_electrical_total": "Total electrical energy used. Optional."
         }
       },
       "benachrichtigung": {
@@ -93,6 +136,11 @@
           "benachrichtigung": "Phones",
           "hinweise_aus": "Notes without push",
           "batterien": "Batteries"
+        },
+        "data_description": {
+          "benachrichtigung": "The phones that receive push notifications from SmartHeat. Leave empty for none.",
+          "hinweise_aus": "Kinds of notes that appear in Home Assistant only and are not sent as push notifications.",
+          "batterien": "Battery entities SmartHeat watches and reports when they run low."
         }
       },
       "zusammenfassung": {"title": "Summary", "description": "Installation {anlage}. Notes:\n{warnungen}\n\nSet up now?"},

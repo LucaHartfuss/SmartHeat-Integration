@@ -28,9 +28,10 @@ REGELN = {
     "icon-translations", "reconfiguration-flow", "repair-issues", "stale-devices",
     "async-dependency", "inject-websession", "strict-typing",
 }
-# Regeln, die heute erfuellt sind und es bleiben muessen (kein Rueckfall auf todo). Offen sind bewusst config-flow
-# (data_description fehlt), config-flow-test-coverage, brands, die Aktionen und die Anleitung.
+# Regeln, die heute erfuellt sind und es bleiben muessen (kein Rueckfall auf todo). Offen sind bewusst brands, die
+# Aktionen und die Anleitung.
 ERFUELLT = {
+    "config-flow", "config-flow-test-coverage",
     "common-modules", "entity-unique-id", "has-entity-name", "runtime-data", "test-before-configure",
     "unique-config-entry", "action-exceptions", "config-entry-unloading", "entity-unavailable", "integration-owner",
     "log-when-unavailable", "parallel-updates", "test-coverage", "devices", "diagnostics", "icon-translations",

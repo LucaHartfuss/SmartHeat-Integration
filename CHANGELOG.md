@@ -5,8 +5,12 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Einrichtungsassistent: Jedes Formularfeld hat jetzt einen Hilfetext (`data_description`, deutsch und englisch).
+  `config_flow.py` ist vollständig durch Verhaltenstests abgedeckt (Wartezeiten, Abbrüche, Fehlerrücksprung,
+  Entfernen); `scripts/check.sh` bricht unter 100 Prozent für diese Datei ab. Die Regeln `config-flow` und
+  `config-flow-test-coverage` der Quality Scale stehen auf erfüllt.
 - Qualität: `quality_scale.yaml` weist alle Regeln der Integration Quality Scale mit Stand und Begründung aus (Bronze
-  und Silver bis auf die offenen Punkte `brands`, `config-flow`, `config-flow-test-coverage`, Aktionen und Anleitung);
+  und Silver bis auf die offenen Punkte `brands`, Aktionen und Anleitung);
   das Manifest nennt `integration_type: hub`; jede Plattform setzt `PARALLEL_UPDATES = 0`. Die Testabdeckung wird in
   jedem Testlauf gemessen und bricht unter 95 Prozent ab (heute 98 Prozent).
 - Neu: Diagnose-Download für den Eintrag (Einstellungen → Geräte & Dienste → SmartHeat → Diagnose herunterladen). Die
