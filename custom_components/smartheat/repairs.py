@@ -4,15 +4,12 @@ Issue. Kein Fix-Flow (alle Issues sind nicht behebbar); HA laedt dieses Modul al
 behebbare Issues."""
 from __future__ import annotations
 
-import re
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     CODE_RE,
     DOMAIN,
-    ERROR_TEXT_MAX,
     HINWEIS_FELD_KEY,
     HINWEIS_FELD_STUFE,
     HINWEIS_FELD_TEXT,
@@ -28,29 +25,11 @@ from .const import (
     WATCHDOG_ISSUE_ID,
     hinweis_issue_id,
 )
+from .texts import klartext
 
 KRITISCH = "kritisch"
 _PREFIX = "hinweis_"
 GERAET_HINWEIS = "geraet_hinweis"
-# Markdown-Zeichen, dazu `&` (HTML-Entitaeten) und `:`, `.`, `@`: ohne sie verlinkt Markdown nackte Adressen selbst
-# (`https://…`, `www.…`, E-Mail-Adressen). Ein Backslash vor einem ASCII-Satzzeichen zeigt dieses woertlich.
-_MARKDOWN = re.compile(r"([\\`*_\[\]()<>#!|~&:.@])")
-_STEUERZEICHEN = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
-# Zero-width- und Bidi-Steuerzeichen: sie verstecken Zeichen oder drehen den Text optisch um.
-_UNSICHTBAR = re.compile("[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
-# Liste, Linie, Setext-Ueberschrift; `*`, `>`, `#`, Ziffer mit Punkt maskiert _MARKDOWN
-_BLOCKANFANG = re.compile(r"^[-+=]")
-
-
-def _klartext(text: object) -> str:
-    """Der Text des Geraets als Klartext fuer die Markdown-Beschreibung eines Issues: Zeilenumbrueche und andere
-    Steuerzeichen zu Leerzeichen, Zero-width- und Bidi-Zeichen weg, fuehrender Leerraum weg (sonst Codeblock), auf
-    ERROR_TEXT_MAX Zeichen gekuerzt, dann jedes Markdown-Zeichen sowie `&`, `:`, `.` und `@` mit `\\` maskiert und ein
-    fuehrendes `-`, `+`, `=` ebenso -- weder ein Link (auch kein automatisch erkannter) noch Formatierung noch ein
-    Block (Liste, Linie, Ueberschrift) kommt durch."""
-    sauber = _UNSICHTBAR.sub("", _STEUERZEICHEN.sub(" ", str(text or ""))).lstrip()
-    maskiert = _MARKDOWN.sub(r"\\\1", sauber[:ERROR_TEXT_MAX])
-    return _BLOCKANFANG.sub(r"\\\g<0>", maskiert)
 
 
 def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
@@ -77,7 +56,7 @@ def async_update(hass: HomeAssistant, hinweise: list[dict]) -> None:
             hass, DOMAIN, issue_id, is_fixable=False,
             severity=severity,
             translation_key=key if key in HINWEIS_KEYS else GERAET_HINWEIS,
-            translation_placeholders={"text": _klartext(hinweis.get(HINWEIS_FELD_TEXT))},
+            translation_placeholders={"text": klartext(hinweis.get(HINWEIS_FELD_TEXT))},
         )
     ueberzaehlig = len(ausgewaehlt) - HINWEISE_MAX
     if ueberzaehlig > 0:

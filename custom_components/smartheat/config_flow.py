@@ -96,7 +96,7 @@ from .einrichtung_client import (
     TooMany,
 )
 from .flow_progress import ProgressFlowMixin
-from .texts import async_hint, async_role_label
+from .texts import async_hint, async_role_label, klartext
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -195,6 +195,12 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) and value else "-"
 
 
+def _md(value: Any) -> str:
+    """Ein Wert fuer eine Beschreibung (Markdown), der nicht von uns stammt: maskiert, bei leerem Wert ein Strich.
+    Jeder solche Platzhalter geht hier durch."""
+    return klartext(value) or "-"
+
+
 def _entities(kandidaten: list[str], *, multiple: bool = False) -> selector.EntitySelector:
     return selector.EntitySelector(selector.EntitySelectorConfig(include_entities=list(kandidaten), multiple=multiple))
 
@@ -248,6 +254,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             await self._client.abmelden()
 
     async def _abbrechen(self, reason: str, **placeholders: str) -> ConfigFlowResult:
+        """Abbruch; Texte des Servers gehen vorher durch `_md` (eigene Texte bleiben, wie sie sind)."""
         await self._abmelden()
         return self.async_abort(reason=reason, description_placeholders=placeholders or None)
 
@@ -272,13 +279,13 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         except Rejected as error:
             if error.fehler:
                 raise _Feldfehler(error.fehler, error.text) from None
-            raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
+            raise _Abbruch("abgelehnt", grund=_md(error.text)) from None
         except NotFound as error:
             if veraltet is not None:
                 raise _Abbruch(veraltet) from None
-            raise _Abbruch("geraet_unbekannt", grund=_text(error.text)) from None
+            raise _Abbruch("geraet_unbekannt", grund=_md(error.text)) from None
         except Conflict as error:
-            raise _Abbruch(konflikt, grund=_text(error.text)) from None
+            raise _Abbruch(konflikt, grund=_md(error.text)) from None
         except InvalidResponse:
             # Text ist eine interne Diagnose, kein Text des Servers
             _LOGGER.warning("Einrichtung: unbrauchbare Antwort des Servers")
@@ -286,7 +293,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         except ApiError as error:
             if veraltet is not None and error.status == 405:
                 raise _Abbruch(veraltet) from None
-            raise _Abbruch("abgelehnt", grund=_text(error.text)) from None
+            raise _Abbruch("abgelehnt", grund=_md(error.text)) from None
 
     def _merken(self, unterbrechung: _Unterbrechung) -> str:
         """Unterbrechung aus einem Fortschritts-Job: im naechsten Schritt `unterbrechung` behandeln."""
@@ -307,7 +314,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             if self._fehler_ohne_feld():
                 # Kein Formular zeigt das Feld (z. B. kreis, tenant_id): Zurueckschicken liefe im Kreis.
                 grund = unterbrechung.text or ", ".join(f"{k}: {v}" for k, v in self._fehler.items())
-                return await self._abbrechen("abgelehnt", grund=grund)
+                return await self._abbrechen("abgelehnt", grund=_md(grund))
             return await self._formular_mit_fehlern()
         assert isinstance(unterbrechung, _Abbruch)
         return await self._abbrechen(unterbrechung.reason, **unterbrechung.placeholders)
@@ -409,9 +416,10 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     # --- Anmelden mit Geraetecode und Uebernehmen ---
 
-    def _anmelden_formular(self, errors: dict[str, str], grund: str = "-") -> ConfigFlowResult:
-        """Formular ohne Eingabefelder: es sagt, warum ein neuer Code noetig ist; Absenden beginnt den Ablauf neu."""
-        return self.async_show_form(step_id="anmelden", errors=errors, description_placeholders={"grund": grund})
+    def _anmelden_formular(self, errors: dict[str, str], grund: str = "") -> ConfigFlowResult:
+        """Formular ohne Eingabefelder: es sagt, warum ein neuer Code noetig ist (`grund`: Text des Servers, roh);
+        Absenden beginnt den Ablauf neu."""
+        return self.async_show_form(step_id="anmelden", errors=errors, description_placeholders={"grund": _md(grund)})
 
     async def async_step_anmelden(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Beginn eines Ablaufs (auch nach dem Formular mit Fehler): Adresse des Servers bestimmen, dann Nachweis und
@@ -514,21 +522,21 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         try:
             await self._client.uebernehmen(self._discovery["geraet_id"], code)
         except TokenUngueltig:
-            return "sitzung_abgelaufen", "-"
+            return "sitzung_abgelaufen", ""
         except ErneutAnmelden:
-            return "erneut_anmelden", "-"
+            return "erneut_anmelden", ""
         except PortalBestaetigung:
             raise _Abbruch("portal_bestaetigung") from None
         except TooMany as error:
-            return "uebernahme_gesperrt", _text(error.text)
+            return "uebernahme_gesperrt", error.text
         except Conflict as error:
-            return "anmeldung_gebunden", _text(error.text)
+            return "anmeldung_gebunden", error.text
         except (CannotConnect, ServerError):
-            return "cannot_connect", "-"
+            return "cannot_connect", ""
         except InvalidResponse:
-            return "unknown", "-"
+            return "unknown", ""
         except ApiError as error:
-            return "uebernahme_fehlgeschlagen", _text(error.text)
+            return "uebernahme_fehlgeschlagen", error.text
         return None
 
     async def _uebernahme_code(self) -> str | None:
@@ -558,7 +566,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     async def async_step_schon_eingerichtet(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is None:
             return self.async_show_form(step_id="schon_eingerichtet",
-                                        description_placeholders={"anlage": _text(self._geraet.get("tenant_id"))})
+                                        description_placeholders={"anlage": _md(self._geraet.get("tenant_id"))})
         return await self._eintrag()
 
     # --- Anlage ---
@@ -583,7 +591,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     async def async_step_ersetzen(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is None:
-            return self.async_show_form(step_id="ersetzen", description_placeholders={"anlage": _text(self._tenant)})
+            return self.async_show_form(step_id="ersetzen", description_placeholders={"anlage": _md(self._tenant)})
         return await self.async_step_inventur()
 
     # --- Inventur und Vorschlag ---
@@ -605,7 +613,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                 if stand.get("zustand") == _INVENTUR_FEHLGESCHLAGEN:
                     fehler = stand.get("fehler")
                     # Ein abgelaufener Befehl hat keinen Text: dann sagen, dass das Geraet nicht erreichbar war.
-                    grund = fehler if isinstance(fehler, str) and fehler else await async_hint(
+                    grund = _md(fehler) if isinstance(fehler, str) and fehler else await async_hint(
                         self.hass, "geraet_nicht_erreichbar")
                     raise _Abbruch("inventur_fehler", grund=grund)
                 if time.monotonic() >= deadline:
@@ -642,7 +650,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         angebot = [k for k in integration.get("kreise") or [] if isinstance(k, dict)]
         profile = [p for p in integration.get("profile") or [] if isinstance(p, dict) and p.get("hebelsaetze")]
         if not angebot or not profile:
-            return await self._abbrechen("nicht_unterstuetzt", integration=_text(integration.get("label")))
+            return await self._abbrechen("nicht_unterstuetzt", integration=_md(integration.get("label")))
         if user_input is not None:
             gewaehlt = list(user_input.get("kreise") or [])
             fehler = self._wahl_fehler(gewaehlt, angebot)
@@ -664,8 +672,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                 [{"value": p["profile_id"], "label": _text(p.get("label"))} for p in profile]),
         })
         return self.async_show_form(step_id="system", data_schema=schema, errors=self._fehler_fuer(("kreise",)),
-                                    description_placeholders={"integration": _text(integration.get("label")),
-                                                              "hinweis": integration.get("hinweis") or ""})
+                                    description_placeholders={"integration": _md(integration.get("label")),
+                                                              "hinweis": klartext(integration.get("hinweis"))})
 
     def _wahl_fehler(self, gewaehlt: list, angebot: list[dict]) -> dict[str, str]:
         """Fehler der Auswahl der Heizkreise: keiner, zu viele, oder ein schon eingerichteter Kreis fehlt (er laesst
@@ -945,10 +953,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         """Warnungen der Pruefung als Text der UI-Sprache; unbekannte Arten mit ihrem Schluessel."""
         zeilen = []
         for art, werte in warnungen.items():
-            entities = ", ".join(str(w) for w in werte) if isinstance(werte, list) else str(werte)
+            # Art und Entities stammen vom Server: jede Zeile bleibt eine Listenzeile, nur ihre Werte werden maskiert.
+            entities = klartext(", ".join(str(w) for w in werte) if isinstance(werte, list) else str(werte))
             key = f"warning_{art}"
             text = await async_hint(self.hass, key)
-            zeilen.append(f"- {text.format(entities=entities) if text != key else f'{art}: {entities}'}")
+            zeilen.append(f"- {text.format(entities=entities) if text != key else f'{klartext(art)}: {entities}'}")
         return "\n".join(zeilen) or "-"
 
     async def async_step_zusammenfassung(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -967,7 +976,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return await self._unterbrechung(unterbrechung)
         self._fehler = {}
         return self.async_show_form(step_id="zusammenfassung", description_placeholders={
-            "anlage": _text(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {})})
+            "anlage": _md(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {})})
 
     # --- Auftrag ---
 
@@ -988,7 +997,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                     self._geraet = await self._api(self._client.geraet)
                     return "fertig"
                 if auftrag.get("zustand") == AUFTRAG_FEHLGESCHLAGEN:
-                    raise _Abbruch("einrichten_fehler", grund=_text(auftrag.get("fehler")))
+                    raise _Abbruch("einrichten_fehler", grund=_md(auftrag.get("fehler")))
                 if time.monotonic() >= deadline:
                     raise _Abbruch("einrichten_zeit")
                 await asyncio.sleep(POLL_SECONDS)
@@ -1026,7 +1035,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
 
     async def async_step_menue(self, user_input: dict | None = None) -> ConfigFlowResult:
         return self.async_show_menu(step_id="menue", menu_options=["zuordnung_aendern", "geraet_entfernen"],
-                                    description_placeholders={"anlage": _text(self._geraet.get("tenant_id"))})
+                                    description_placeholders={"anlage": _md(self._geraet.get("tenant_id"))})
 
     async def async_step_zuordnung_aendern(self, user_input: dict | None = None) -> ConfigFlowResult:
         self._tenant = self._geraet.get("tenant_id")
@@ -1035,7 +1044,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     async def async_step_geraet_entfernen(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is None:
             return self.async_show_form(step_id="geraet_entfernen",
-                                        description_placeholders={"anlage": _text(self._geraet.get("tenant_id"))})
+                                        description_placeholders={"anlage": _md(self._geraet.get("tenant_id"))})
         return await self.async_step_entfernen()
 
     async def async_step_entfernen(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -1067,11 +1076,11 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
                 _LOGGER.info("Einrichtung: Stand des Entfernens nicht lesbar (%s)", type(error).__name__)
                 return "entfernen_laeuft"
             except ApiError as error:
-                return self._merken(_Abbruch("entfernen_fehler", grund=_text(error.text)))
+                return self._merken(_Abbruch("entfernen_fehler", grund=_md(error.text)))
             if auftrag.get("zustand") == AUFTRAG_FERTIG:
                 return "entfernt"
             if auftrag.get("zustand") == AUFTRAG_FEHLGESCHLAGEN:
-                return self._merken(_Abbruch("entfernen_fehler", grund=_text(auftrag.get("fehler"))))
+                return self._merken(_Abbruch("entfernen_fehler", grund=_md(auftrag.get("fehler"))))
             if time.monotonic() >= deadline:
                 return "entfernen_laeuft"
             await asyncio.sleep(POLL_SECONDS)

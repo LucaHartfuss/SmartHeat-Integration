@@ -5,6 +5,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Einrichtungsassistent: Texte des Servers und des Geräts (Gründe von Abbrüchen und Fehlern, Anlagenname, Name und
+  Hinweis der Integration, Warnungen) erscheinen in den Beschreibungen als Klartext: Links, Formatierung und
+  Listen oder Überschriften aus fremdem Text werden nicht mehr dargestellt, Zeilenumbrüche werden zu Leerzeichen, der
+  Text ist auf 300 Zeichen gekürzt. Dieselbe Maskierung gilt für die Reparatur-Hinweise des Geräts.
 - Hinweise des Geräts: höchstens 50 Reparatur-Hinweise je Eintrag (kritische zuerst); die übrigen fasst ein
   Sammel-Hinweis mit ihrer Anzahl zusammen. Die Kennung eines Hinweises mit unbekanntem Schlüssel besteht nur aus dem
   Kreis (`k<n>`, falls der Schlüssel damit beginnt) und einem Kurzhash, nie aus Entity- oder Fühlernamen; bekannte
