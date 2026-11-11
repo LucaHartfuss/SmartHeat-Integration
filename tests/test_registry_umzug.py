@@ -1,8 +1,6 @@
 """Umzug der Registry-Eintraege einer laufenden Anlage (client1) auf die Kennungen je Kreis: derselbe Eintrag behaelt
 seine Registry-Kennung, Einstellungen des Nutzers und damit den Verlauf; vor jeder Aenderung liegt eine Sicherung der
 eigenen Eintraege in der Ablage der Integration, ohne sie wird nichts veraendert."""
-from unittest.mock import patch
-
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import device_registry as dr
@@ -99,24 +97,35 @@ async def test_die_umgezogenen_entities_gehen_sofort_an_das_geraet_des_ersten_kr
     assert hass.states.get("sensor.smartheat_k1_zustand") is not None
 
 
-async def test_vor_der_aenderung_liegt_die_sicherung_der_eigenen_eintraege_in_der_ablage(hass, hass_storage):
+def _zaehlen(monkeypatch, registry, name, vorher=None):
+    """Ersetzt eine Registry-Methode durch einen Durchreicher, der Aufrufe zaehlt (und vorher eine Pruefung ausfuehrt)."""
+    echt = getattr(registry, name)
+    aufrufe = []
+
+    def durchreichen(*args, **kwargs):
+        aufrufe.append((args, kwargs))
+        if vorher is not None:
+            vorher()
+        return echt(*args, **kwargs)
+
+    monkeypatch.setattr(registry, name, durchreichen)
+    return aufrufe
+
+
+async def test_vor_der_aenderung_liegt_die_sicherung_der_eigenen_eintraege_in_der_ablage(
+        hass, hass_storage, monkeypatch):
     entry = make_device_entry(hass, tenant_id="client1")
     kennungen = _alte_entities(hass, entry)
     fremd = er.async_get(hass).async_get_or_create("sensor", "mypyllant", "fremd", suggested_object_id="fremd")
     registry = er.async_get(hass)
     gesehen = []
-    echt = registry.async_update_entity
+    _zaehlen(monkeypatch, registry, "async_update_entity", lambda: gesehen.append(SICHERUNG in hass_storage))
+    entfernen = _zaehlen(monkeypatch, registry, "async_remove")
 
-    def update(*args, **kwargs):
-        gesehen.append(SICHERUNG in hass_storage)
-        return echt(*args, **kwargs)
-
-    with patch.object(registry, "async_update_entity", side_effect=update), \
-            patch.object(registry, "async_remove", wraps=registry.async_remove) as entfernen:
-        await _laden(hass, entry)
+    await _laden(hass, entry)
 
     assert gesehen and all(gesehen)
-    assert entfernen.call_count == 0
+    assert entfernen == []
     sicherung = hass_storage[SICHERUNG]["data"]["sicherungen"][-1]
     assert {e["unique_id"]: e["id"] for e in sicherung["entities"]} == kennungen
     assert {e["entity_id"] for e in sicherung["entities"]} >= {"sensor.smartheat_client1_zustand"}
@@ -127,14 +136,18 @@ async def test_vor_der_aenderung_liegt_die_sicherung_der_eigenen_eintraege_in_de
     assert sicherung["gesichert_am"]
 
 
-async def test_scheitert_die_sicherung_aendert_sich_nichts_und_der_eintrag_laedt_nicht(hass, hass_storage):
+async def test_scheitert_die_sicherung_aendert_sich_nichts_und_der_eintrag_laedt_nicht(
+        hass, hass_storage, monkeypatch):
     entry = make_device_entry(hass, tenant_id="client1")
     kennungen = _alte_entities(hass, entry)
     vorher = {e.unique_id: e.entity_id for e in _eigene(hass, entry).values()}
 
-    with patch.object(Store, "async_save", side_effect=OSError("Platte voll")):
-        assert not await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+    async def platte_voll(self, *args, **kwargs):
+        raise OSError("Platte voll")
+
+    monkeypatch.setattr(Store, "async_save", platte_voll)
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.SETUP_RETRY
     assert {e.unique_id: e.entity_id for e in _eigene(hass, entry).values()} == vorher
@@ -150,7 +163,7 @@ async def test_ohne_alte_eintraege_wird_nichts_gesichert(hass, hass_storage):
     assert SICHERUNG not in hass_storage
 
 
-async def test_ein_zweites_laden_aendert_nichts_und_sichert_nicht_erneut(hass, hass_storage):
+async def test_ein_zweites_laden_aendert_nichts_und_sichert_nicht_erneut(hass, hass_storage, monkeypatch):
     entry = make_device_entry(hass, tenant_id="client1")
     _alte_entities(hass, entry)
     await _laden(hass, entry)
@@ -159,10 +172,11 @@ async def test_ein_zweites_laden_aendert_nichts_und_sichert_nicht_erneut(hass, h
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     registry = er.async_get(hass)
-    with patch.object(registry, "async_update_entity") as update, patch.object(registry, "async_remove") as entfernen:
-        await _laden(hass, entry)
+    update = _zaehlen(monkeypatch, registry, "async_update_entity")
+    entfernen = _zaehlen(monkeypatch, registry, "async_remove")
+    await _laden(hass, entry)
 
-    assert (update.call_count, entfernen.call_count) == (0, 0)
+    assert (update, entfernen) == ([], [])
     assert hass_storage[SICHERUNG]["data"] == erste
     assert {u: (e.id, e.entity_id) for u, e in _eigene(hass, entry).items()} == nachher
 
