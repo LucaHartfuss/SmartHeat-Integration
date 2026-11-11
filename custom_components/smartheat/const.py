@@ -18,7 +18,8 @@ STATUS_EVENT = "smartheat_status"
 STATUS_EVENT_SCHEMA = 4
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
-    "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name", "kreise",
+    "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name",
+    "konfig_version", "mindest_integration", "kreise",
 )
 STATUS_KREIS_FIELDS = (
     "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",

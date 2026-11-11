@@ -11,6 +11,7 @@
     "manueller_eingriff": null,
     "raumfuehler_ausgefallen": []
   },
+  "konfig_version": 1,
   "kreise": [
     {
       "abo": "aktiv",
@@ -58,6 +59,7 @@
     }
   ],
   "letzte_serverantwort": null,
+  "mindest_integration": "1.0.0",
   "notbetrieb": false,
   "schema": 4,
   "server_verbunden": true,

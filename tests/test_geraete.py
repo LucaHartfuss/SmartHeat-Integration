@@ -35,7 +35,9 @@ def _ereignis(nummern=(1, 2), konfig_version=7, **overrides):
     if kreise is None:
         kreise = [_kreis(n) for n in nummern]
     ereignis = status_event(TENANT, "regelt", kreise=kreise, **overrides)
-    if konfig_version is not None:
+    if konfig_version is None:
+        ereignis.pop("konfig_version", None)  # die Fixture traegt das Feld: ein Ereignis ohne Version laesst es weg
+    else:
         ereignis["konfig_version"] = konfig_version
     return ereignis
 

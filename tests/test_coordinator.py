@@ -298,6 +298,23 @@ async def test_the_coordinator_keeps_only_the_fields_of_the_status_event(hass, c
     assert coordinator.kreis(3) is None
 
 
+async def test_the_coordinator_keeps_the_config_version_and_the_minimum_integration_of_the_event(hass, clock):
+    """Konfigurationsversion und Mindestversion der Integration sind Anlagenfelder des Ereignisses: sie stehen in den
+    Daten des Coordinators, ein Ereignis ohne sie laesst sie fehlen (kein Ersatzwert)."""
+    entry = await _setup(hass)
+    _fire(hass, status_event(TENANT, "regelt", konfig_version=12, mindest_integration="1.2.0"))
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator.data["konfig_version"] == 12
+    assert coordinator.data["mindest_integration"] == "1.2.0"
+
+    ohne = {key: value for key, value in status_event(TENANT, "regelt").items()
+            if key not in ("konfig_version", "mindest_integration")}
+    _fire(hass, ohne)
+    await hass.async_block_till_done()
+    assert "konfig_version" not in coordinator.data and "mindest_integration" not in coordinator.data
+
+
 @pytest.mark.parametrize("event", [
     status_event(TENANT, "regelt", geraet_id="shg-b"),
     {key: value for key, value in status_event(TENANT, "regelt").items() if key != "geraet_id"},

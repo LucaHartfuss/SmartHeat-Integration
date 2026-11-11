@@ -5,6 +5,12 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Das Status-Ereignis des Add-ons trägt zwei weitere Anlagenfelder, die die Integration liest: `konfig_version`
+  (Version der Konfiguration des Geräts) und `mindest_integration` (kritische Mindestversion der Integration). Ein
+  Kreis-Gerät entfällt damit erst, wenn zwei Ereignisse mit derselben Konfigurationsversion den Kreis nicht mehr
+  nennen; ohne die Version bleibt es stehen. Das Schema bleibt 4.
+- HACS: Mindestversion Home Assistant jetzt 2026.9.4 (`hacs.json`), die Version, gegen die die Tests laufen
+  (vorher 2026.4.0, ungeprüft).
 - Einrichtungsassistent: Jedes Formularfeld hat jetzt einen Hilfetext (`data_description`, deutsch und englisch).
   `config_flow.py` ist vollständig durch Verhaltenstests abgedeckt (Wartezeiten, Abbrüche, Fehlerrücksprung,
   Entfernen); `scripts/check.sh` bricht unter 100 Prozent für diese Datei ab. Die Regeln `config-flow` und
