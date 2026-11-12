@@ -8,8 +8,9 @@ from custom_components.smartheat.supervisor_client import (
     AddonNotFoundError,
     AddonOutdatedError,
     AmbiguousAddonMatchError,
+    BrueckenStand,
     ResolvedAddon,
-    async_find_bridge_manager,
+    async_bruecke_stand,
     async_repository_slug,
     async_repository_slugs,
     async_resolve_bridge,
@@ -121,52 +122,102 @@ async def test_supervisor_error_becomes_addon_error(supervisor):
     assert "SupervisorError" in str(error.value)
 
 
-async def test_find_bridge_manager_resolves_the_slug_without_a_minimum_version(supervisor):
+async def test_bruecke_stand_resolves_the_slug_without_a_minimum_version(supervisor):
     _setup(supervisor, _both(hb_version="0.18.0"))
 
-    manager = await async_find_bridge_manager(None)
+    stand = await async_bruecke_stand(None)
 
-    assert manager.addon_slug == "f5f6325b_heizungsbruecke"
-
-
-async def test_find_bridge_manager_gives_none_for_missing_or_ambiguous(supervisor):
-    _setup(supervisor, _both()[1:])
-    assert await async_find_bridge_manager(None) is None
-
-    _setup(supervisor, _both() + [_installed_addon("f5f6325b_heizungsbruecke", REPO_URL)])  # zweite Bruecke
-    assert await async_find_bridge_manager(None) is None
+    assert stand.zustand == "gefunden"
+    assert stand.manager.addon_slug == "f5f6325b_heizungsbruecke"
 
 
-async def test_find_bridge_manager_turns_a_supervisor_error_into_addon_error(supervisor):
+_EIGENE = "f5f6325b_heizungsbruecke"
+_ANDERE = [_installed_addon("f5f6325b_cloudflared_access_mqtt", REPO_URL, "1.0.0"),
+           _installed_addon("core_matter_server", "https://github.com/home-assistant/addons")]
+_EIN_EINTRAG = [_repository()]
+_ZWEI_EINTRAEGE = [_repository(REPO, source=REPO_URL), _repository("0badc0de", source=REPO_URL + "#develop")]
+
+
+@pytest.mark.parametrize("repositories, installiert, erwartet", [
+    # genau ein Store-Eintrag unseres Repositorys
+    (_EIN_EINTRAG, [], "fehlt"),
+    (_EIN_EINTRAG, _ANDERE, "fehlt"),
+    (_EIN_EINTRAG, [_installed_addon(_EIGENE)], "gefunden"),
+    (_EIN_EINTRAG, [_installed_addon(_EIGENE), *_ANDERE], "gefunden"),
+    (_EIN_EINTRAG, [_installed_addon(_EIGENE), _installed_addon(_EIGENE)], "mehrfach"),
+    (_EIN_EINTRAG, [_installed_addon(_EIGENE), _installed_addon(_EIGENE), *_ANDERE], "mehrfach"),
+    # ein installiertes Add-on mit der Endung `_heizungsbruecke` ausserhalb unseres Repositorys: nicht belegbar
+    (_EIN_EINTRAG, [_installed_addon("local_heizungsbruecke", repository="local")], "unklar"),
+    (_EIN_EINTRAG, [_installed_addon("0badc0de_heizungsbruecke", repository="0badc0de")], "unklar"),
+    (_EIN_EINTRAG, [_installed_addon("f5f6325b_heizungsbruecke", repository="0badc0de")], "unklar"),
+    (_EIN_EINTRAG, [_installed_addon("local_heizungsbruecke", repository="local"), *_ANDERE], "unklar"),
+    # die eigene Bruecke neben einer fremden bleibt die eigene
+    (_EIN_EINTRAG, [_installed_addon(_EIGENE), _installed_addon("local_heizungsbruecke", repository="local")],
+     "gefunden"),
+    # kein oder kein eindeutiger Store-Eintrag: nie „fehlt“
+    ([], [], "unklar"),
+    ([], [_installed_addon(_EIGENE)], "unklar"),
+    ([_repository(source="https://github.com/jemand/SmartHeat-for-HomeAssistant")], [], "unklar"),
+    (_ZWEI_EINTRAEGE, [], "unklar"),
+    (_ZWEI_EINTRAEGE, [_installed_addon(_EIGENE)], "unklar"),
+])
+async def test_bruecke_stand_table_store_entries_times_installations(supervisor, repositories, installiert, erwartet):
+    """`fehlt` gibt es nur bei genau einem Store-Eintrag unseres Repositorys und keinem installierten Add-on mit der
+    Endung `_heizungsbruecke`, auch keinem fremden; sonst `gefunden`, `mehrfach` oder `unklar`."""
+    _setup(supervisor, installiert, repositories=repositories)
+
+    stand = await async_bruecke_stand(None)
+
+    assert isinstance(stand, BrueckenStand)
+    assert stand.zustand == erwartet
+    assert (stand.manager is not None) == (erwartet == "gefunden")
+
+
+async def test_bruecke_stand_turns_a_supervisor_error_into_addon_error(supervisor):
     _setup(supervisor, error=SupervisorError("weg"))
 
     with pytest.raises(AddonError) as error:
-        await async_find_bridge_manager(None)
+        await async_bruecke_stand(None)
     assert "weg" not in str(error.value)
     assert "SupervisorError" in str(error.value)
 
 
-async def test_find_bridge_manager_logs_missing_and_ambiguous_reasons_separately(supervisor, caplog):
+async def test_bruecke_stand_with_an_unreadable_store_raises_addon_error(supervisor):
+    _setup(supervisor, _both())
+    supervisor.errors["store.repositories_list"] = SupervisorError("weg")
+
+    with pytest.raises(AddonError):
+        await async_bruecke_stand(None)
+
+
+async def test_bruecke_stand_logs_missing_ambiguous_and_unclear_reasons_separately(supervisor, caplog):
     _setup(supervisor, _both()[1:])
     with caplog.at_level(logging.WARNING):
-        await async_find_bridge_manager(None)
+        await async_bruecke_stand(None)
     assert "heizungsbruecke" in caplog.text and "nicht installiert" in caplog.text
-    assert "mehrfach installiert" not in caplog.text
+    assert "mehrfach installiert" not in caplog.text and "nicht eindeutig" not in caplog.text
 
     caplog.clear()
     _setup(supervisor, _both() + [_installed_addon("f5f6325b_heizungsbruecke", REPO_URL)])
     with caplog.at_level(logging.WARNING):
-        await async_find_bridge_manager(None)
+        await async_bruecke_stand(None)
     assert "heizungsbruecke" in caplog.text and "mehrfach installiert" in caplog.text
-    assert "nicht installiert" not in caplog.text
+    assert "nicht installiert" not in caplog.text and "nicht eindeutig" not in caplog.text
+
+    caplog.clear()
+    _setup(supervisor, [_installed_addon("local_heizungsbruecke", repository="local")])
+    with caplog.at_level(logging.WARNING):
+        await async_bruecke_stand(None)
+    assert "nicht eindeutig" in caplog.text
+    assert "nicht installiert" not in caplog.text and "mehrfach installiert" not in caplog.text
 
 
-async def test_find_bridge_manager_without_hassio_raises_addon_error(hass):
+async def test_bruecke_stand_without_hassio_raises_addon_error(hass):
     # Fehlt Hass.io ganz (Core/Container-Installation, aus einem Backup wiederhergestellt), bricht
     # der rohe get_supervisor_client() mit einem KeyError ab -- der Aufrufer soll aber eine
     # reguläre AddonError sehen, um sauber zu degradieren (z.B. der Waechter).
     with pytest.raises(AddonError):
-        await async_find_bridge_manager(hass)
+        await async_bruecke_stand(hass)
 
 
 # --- Nur Add-ons aus unserem Repository (Herkunft an Store-Adresse und exaktem Slug) ---
@@ -186,7 +237,7 @@ async def test_addon_outside_our_repository_never_matches(supervisor, fake):
 
     with pytest.raises(AddonNotFoundError):
         await async_resolve_bridge(None, "0.19.0")
-    assert await async_find_bridge_manager(None) is None
+    assert (await async_bruecke_stand(None)).manager is None
 
 
 async def test_repository_whose_url_claims_ours_is_not_ours(supervisor):
@@ -201,7 +252,7 @@ async def test_repository_whose_url_claims_ours_is_not_ours(supervisor):
 async def test_without_our_repository_nothing_matches(supervisor):
     _setup(supervisor, _both(), repositories=[])
 
-    assert await async_find_bridge_manager(None) is None
+    assert (await async_bruecke_stand(None)).manager is None
 
 
 @pytest.mark.parametrize("source", [

@@ -1,6 +1,7 @@
 """Konstanten der SmartHeat-Integration: Oberflaeche ueber der Einrichtungs-API des Servers, Status
 und Wunschtemperatur ueber das lokale Add-on. Ereignis-, Discovery- und Routen-Werte sind Cross-Repo-Vertrag
 (tools/contract_check.py im Dev-Root)."""
+import hashlib
 import re
 
 DOMAIN = "smartheat"
@@ -19,7 +20,7 @@ STATUS_EVENT_SCHEMA = 4
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
     "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name",
-    "konfig_version", "mindest_integration", "kreise",
+    "konfig_version", "mindest_integration", "benachrichtigung", "hinweise_aus", "kreise",
 )
 STATUS_KREIS_FIELDS = (
     "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
@@ -40,6 +41,12 @@ HINWEIS_FELD_KEY, HINWEIS_FELD_STUFE, HINWEIS_FELD_TEXT = HINWEIS_FIELDS
 HINWEIS_SOLL_QUELLE_AUS = "soll_quelle_aus"
 HINWEIS_KEYS = ("update_noetig", "geraet_doppelt", "wunsch_begrenzt", HINWEIS_SOLL_QUELLE_AUS,
                 "konfiguration_abgelehnt", "gesperrt")
+# Hoechstens so viele Issues aus Geraetehinweisen je Eintrag; die uebrigen fasst ein Sammel-Issue unter fester ID zusammen.
+HINWEISE_MAX = 50
+HINWEIS_SAMMEL_ID = "hinweis_sammel"
+HINWEIS_SAMMEL_KEY = "geraet_hinweise_viele"
+HINWEIS_HASH_ZEICHEN = 10
+HINWEIS_KREIS_RE = re.compile(r"(k\d{1,3})_.")
 STATUS_STARTET = "startet"
 STATUS_REGELT = "regelt"
 STATUS_KONFIGURATIONSFEHLER = "konfigurationsfehler"
@@ -55,6 +62,17 @@ ADDON_STATUS_VALUES = (
 )
 STATUS_ADDON_GESTOPPT = "addon_gestoppt"
 STATUS_REAGIERT_NICHT = "reagiert_nicht"
+STATUS_ADDON_FEHLT = "addon_fehlt"
+STATUS_ADDON_MEHRFACH = "addon_mehrfach"
+# Waechterbefunde, bei denen das Add-on nichts annehmen kann: alle Entities ausser dem Status sind nicht verfuegbar und
+# die Wunschtemperatur lehnt ab. `addon_mehrfach` gehoert nicht dazu (das Add-on kann gesund laufen).
+STATUS_ADDON_NICHT_BEREIT = (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT, STATUS_ADDON_FEHLT)
+# Was der Supervisor ueber die Heizungsbruecke belegt: gefunden (genau eine), fehlt (Store-Eintrag eindeutig, nichts
+# installiert, auch keine fremde mit gleicher Endung), mehrfach (mehrere eigene), unklar (alles andere).
+BRUECKE_GEFUNDEN = "gefunden"
+BRUECKE_FEHLT = "fehlt"
+BRUECKE_MEHRFACH = "mehrfach"
+BRUECKE_UNKLAR = "unklar"
 # Versionsbefunde der Integration (nie im Status-Ereignis des Add-ons): das Add-on meldet ein Schema, das die Integration
 # nicht liest, weil es hoeher (Integration veraltet) bzw. niedriger (Add-on veraltet) ist als alle gelesenen. Gleichnamig
 # sind das Repair, die Uebersetzung der Ablehnung und der Zustand des Status-Sensors; ohne brauchbare Mindestversion
@@ -73,7 +91,8 @@ CODE_RE = re.compile(r"[a-z0-9_]{1,40}")
 MINDEST_INTEGRATION_RE = re.compile(
     r"(?=.{1,32}\Z)\d{1,6}\.\d{1,6}\.\d{1,6}(?:[-+][0-9A-Za-z]{1,16}|\.dev\d{1,6})?", re.ASCII)
 STATUS_SENSOR_VALUES = (
-    ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT) + STATUS_VERSION_VALUES
+    ADDON_STATUS_VALUES + (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT, STATUS_ADDON_FEHLT, STATUS_ADDON_MEHRFACH)
+    + STATUS_VERSION_VALUES
 )
 BOOST_KEINER = "keiner"
 BOOST_VALUES = (BOOST_KEINER, "komfort", "notfall")
@@ -237,21 +256,37 @@ POLL_SECONDS = 2
 # Waechter (nur die Heizungsbruecke).
 WATCHDOG_INTERVAL_SECONDS = 300
 STOPPED_AFTER_CHECKS = 2
+MISSING_AFTER_CHECKS = 3
 SILENCE_SECONDS = 900
 MAX_RESTARTS_PER_WINDOW = 3
 RESTART_WINDOW_SECONDS = 3600
-WATCHDOG_MESSAGES = {
-    STATUS_ADDON_GESTOPPT: ("SmartHeat: Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. "
-                            "Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat "
-                            "es neu."),
-    STATUS_REAGIERT_NICHT: ("SmartHeat: Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die "
-                            "Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons "
-                            "prüfen; wenn möglich, startet SmartHeat es neu."),
+# Das eine Repair des Waechters: bei einer Eskalation aendert sich sein Text-Code, nicht seine ID.
+WATCHDOG_ISSUE_ID = "waechter"
+
+# Push auf die Handys des Kunden. Der Store haelt Tageszaehler, aufgeschobene und offene Meldungen, nie Ziele.
+PUSH_STORE_KEY = "smartheat.push"
+PUSH_STORE_VERSION = 1
+# Ein Ziel ist genau ein Notify-Dienst der Companion-App; alles andere (andere Dienste, Gruppen, Skripte) wird verworfen.
+HA_DIENST_RE = re.compile(r"notify\.mobile_app_[a-z0-9_]+")
+PUSH_STUFE_ROT, PUSH_STUFE_ORANGE = "rot", "orange"  # Gelb wird nie gepusht
+# Welche Waechter-Befunde einen Push ausloesen (alle Rot); Versionsbefunde und `addon_mehrfach` nicht.
+PUSH_CODES = {
+    STATUS_ADDON_GESTOPPT: PUSH_STUFE_ROT,
+    STATUS_REAGIERT_NICHT: PUSH_STUFE_ROT,
+    STATUS_ADDON_FEHLT: PUSH_STUFE_ROT,
 }
-WATCHDOG_REASONS = {
-    STATUS_ADDON_GESTOPPT: "Add-on läuft nicht: Heizungsbrücke",
-    STATUS_REAGIERT_NICHT: "Heizungsbrücke meldet sich seit 15 Minuten nicht",
-}
+# Vorgaben und Grenzen der Regeln aus dem Status-Ereignis (Ruhezeit in Ortsstunden, Limit je Tag fuer Orange).
+PUSH_RUHE_VON, PUSH_RUHE_BIS, PUSH_TAGESLIMIT = 22, 7, 5
+PUSH_TAGESLIMIT_MIN, PUSH_TAGESLIMIT_MAX = 1, 50
+PUSH_WIEDERHOLUNG_SECONDS = 24 * 3600  # Erinnerung an offenes Rot und Frist fuer Wiederholungen nach einem Fehlschlag
+PUSH_VERSUCH_ABSTAND_SECONDS = 300
+PUSH_TAKT_SECONDS = 60
+PUSH_SENDE_TIMEOUT_SECONDS = 30
+PUSH_EINTRAEGE_MAX = 100
+PUSH_HINWEISE_AUS_MAX = 20
+# Nach dieser Zeit seit dem Start gilt ein Waechter ohne Befund als Entwarnung gegen einen alten Eintrag im Store
+# (Stille 900 s plus ein Pruefschritt).
+PUSH_ABGLEICH_SECONDS = SILENCE_SECONDS + WATCHDOG_INTERVAL_SECONDS
 
 ADDON_REPOSITORY_URL = "https://github.com/LucaHartfuss/SmartHeat-for-HomeAssistant"
 HEIZUNGSBRUECKE_ADDON_SLUG = "heizungsbruecke"
@@ -275,14 +310,18 @@ def unique_id(tenant_id: str, key: str, kreis: int | None = None) -> str:
     return f"{tenant_id}_{'' if kreis is None else f'k{kreis}_'}{key}"
 
 
-def watchdog_notification_id(tenant_id: str) -> str:
-    return f"smartheat_{slug(tenant_id)}_addon"
-
-
 def signal_update(entry_id: str) -> str:
     return f"{DOMAIN}_update_{entry_id}"
 
 
 def hinweis_issue_id(key: str) -> str:
-    return f"hinweis_{re.sub(r'[^a-z0-9_]', '_', key.lower())}"
+    """Issue-ID eines Geraetehinweises. Ein bekannter Schluessel bleibt lesbar; bei jedem anderen steht nur der Kreis
+    (`k<n>`, wenn der Schluessel damit beginnt) und ein Kurzhash des Schluessels in der ID: sie steht in der Registry
+    und im Diagnose-Download und darf keinen Entity- oder Fuehlernamen tragen. Die ID hat nie mehr als 31 Zeichen."""
+    sauber = re.sub(r"[^a-z0-9_]", "_", key.lower())
+    if sauber in HINWEIS_KEYS:
+        return f"hinweis_{sauber}"
+    kurzhash = "h" + hashlib.sha256(sauber.encode()).hexdigest()[:HINWEIS_HASH_ZEICHEN]
+    kreis = HINWEIS_KREIS_RE.match(sauber)
+    return f"hinweis_{kreis.group(1) + '_' if kreis else ''}{kurzhash}"
 

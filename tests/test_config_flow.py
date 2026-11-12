@@ -23,6 +23,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.smartheat import config_flow
 from custom_components.smartheat.const import ADDON_REPOSITORY_URL, DEFAULT_BASE_URL, DOMAIN, NACHWEIS_EVENT
 from custom_components.smartheat.einrichtung_client import ApiError, InvalidResponse, NotFound, ServerError, TooMany
+from custom_components.smartheat.texts import klartext
 
 from . import einrichtung_fakes
 from .einrichtung_fakes import (
@@ -501,7 +502,7 @@ async def test_fehler_beim_anfordern_des_codes_enden_mit_eigenem_text(hass, serv
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, grund)
     if platzhalter is not None:
-        assert result["description_placeholders"]["grund"] == platzhalter
+        assert result["description_placeholders"]["grund"] == ("-" if platzhalter == "-" else klartext(platzhalter))
     assert not any(call[0] in ("geraetecode_abholen", "uebernehmen") for call in server.calls)
 
 
@@ -532,7 +533,7 @@ async def test_fehler_beim_uebernehmen_stehen_im_formular_und_beenden_das_token(
     result = await _bis_anlage(hass)
 
     assert result["step_id"] == "anmelden" and result["errors"] == {"base": key}
-    assert result["description_placeholders"]["grund"] == grund
+    assert result["description_placeholders"]["grund"] == ("-" if grund == "-" else klartext(grund))
     assert server.calls[-1] == ("abmelden",)
 
 
@@ -630,7 +631,7 @@ async def test_field_errors_without_a_form_field_abort_with_the_server_text(hass
     result = await _configure(hass, await _bis_zusammenfassung(hass), {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "abgelehnt")
-    assert result["description_placeholders"]["grund"] == grund
+    assert result["description_placeholders"]["grund"] == klartext(grund)
 
 
 async def test_unusable_server_answer_is_an_unexpected_error(hass, server):
@@ -651,8 +652,8 @@ async def test_warnings_are_shown_as_text(hass, server):
     result = await _bis_zusammenfassung(hass)
 
     warnungen = result["description_placeholders"]["warnungen"]
-    assert "Seit über 6 Stunden kein neuer Wert: sensor.wohnzimmer_temperatur" in warnungen
-    assert "kuenftig: sensor.x" in warnungen
+    assert f"Seit über 6 Stunden kein neuer Wert: {klartext('sensor.wohnzimmer_temperatur')}" in warnungen
+    assert f"kuenftig: {klartext('sensor.x')}" in warnungen
 
 
 async def test_device_rejection_shows_the_reason(hass, server):
@@ -661,7 +662,7 @@ async def test_device_rejection_shows_the_reason(hass, server):
     result = await _configure(hass, await _bis_zusammenfassung(hass), {})
 
     assert result["type"] == FlowResultType.ABORT and result["reason"] == "einrichten_fehler"
-    assert "number.x" in result["description_placeholders"]["grund"]
+    assert result["description_placeholders"]["grund"] == klartext("Die Entity number.x gibt es nicht.")
     assert not hass.config_entries.async_entries(DOMAIN)
     assert server.calls[-1] == ("abmelden",)
 
@@ -1137,7 +1138,7 @@ async def test_server_rejection_aborts_with_its_text_and_logs_out(hass, server, 
         result = await _configure(hass, await _bis_benachrichtigung(hass), {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "abgelehnt")
-    assert result["description_placeholders"]["grund"] == error.text
+    assert result["description_placeholders"]["grund"] == klartext(error.text)
     assert server.calls[-1] == ("abmelden",)
 
 
@@ -1180,6 +1181,19 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
     assert result["description_placeholders"]["rolle"] == "Außentemperatur"
+
+
+async def test_unknown_required_role_without_candidates_is_masked_in_the_abort(hass, server):
+    """Ohne Uebersetzung ist die Bezeichnung der rohe Schluessel des Servers: er geht maskiert in die Beschreibung."""
+    hass.config.language = "de"
+    server.zuordnung_antwort = {**ZUORDNUNG, "rollen": [*ROLLEN[:2], {**ROLLEN[2], "rolle": HOSTIL, "vorschlag": None,
+                                                                       "kandidaten": []}]}
+
+    result = await _configure(hass, await _bis_raeume_vorher(hass), {
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
+    _nur_klartext(result["description_placeholders"]["rolle"])
 
 
 @pytest.mark.parametrize(("feld", "bezeichnung"), [("raumfuehler", "Raumfühler"),
@@ -1550,7 +1564,7 @@ async def test_failed_removal_has_its_own_text_and_keeps_the_entry(hass, server)
     result = await _configure(hass, await _configure(hass, result, {"next_step_id": "geraet_entfernen"}), {})
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_fehler")
-    assert result["description_placeholders"]["grund"] == "Gerät ist gesperrt."
+    assert result["description_placeholders"]["grund"] == klartext("Gerät ist gesperrt.")
     assert hass.config_entries.async_entries(DOMAIN) == [entry]
 
 
@@ -1937,7 +1951,7 @@ async def test_ein_unbekanntes_geraet_beim_lesen_bricht_mit_dem_serverttext_ab(h
     result = await _bis_anlage(hass)
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "geraet_unbekannt")
-    assert result["description_placeholders"] == {"grund": "Gerät gesperrt."}
+    assert result["description_placeholders"] == {"grund": klartext("Gerät gesperrt.")}
     assert server.calls[-1] == ("abmelden",)
 
 
@@ -2094,7 +2108,7 @@ async def test_ein_abgelehnter_auftrag_beim_entfernen_nennt_den_text_des_servers
     result = await _entfernen_starten(hass, server, abgelehnt)
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_fehler")
-    assert result["description_placeholders"] == {"grund": "Auftrag unbekannt."}
+    assert result["description_placeholders"] == {"grund": klartext("Auftrag unbekannt.")}
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1
 
 
@@ -2108,3 +2122,152 @@ async def test_das_entfernen_fragt_nach_bis_der_auftrag_fertig_ist(hass, server,
 
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernt")
     assert [c for c in server.calls if c[0] == "auftrag" and c[1] == "j3"] == [("auftrag", "j3")] * 2
+
+
+# --- Texte des Servers in den Beschreibungen: eine Maskierung ---
+
+HOSTIL = "[Klick](https://evil.example/x) **fett** www.evil.example a@b.example"
+
+
+def _nur_klartext(text: str) -> None:
+    """Der Wert eines Platzhalters ist die maskierte Form: kein Link, keine automatisch erkannte Adresse."""
+    assert text == klartext(HOSTIL)
+    assert "](" not in text and "https://" not in text and "www." not in text and "@b." not in text
+    assert "\\[Klick\\]" in text and "\\*\\*fett\\*\\*" in text
+
+
+async def _zusammenfassung_fuer(hass, anlage):
+    """Wie `_bis_zusammenfassung`, nur mit der Anlage `anlage`."""
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": anlage})
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _configure(hass, result, {"raumfuehler": ["sensor.wohnzimmer_temperatur"],
+                                             "room_target": "climate.wohnzimmer_thermostat", "raum_soll": 21.0})
+    result = await _configure(hass, result, {
+        "curve": "number.zuhause_circuit_0_heating_curve", "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
+        "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
+    result = await _configure(hass, result, {
+        "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "batterien": ["sensor.wohnzimmer_batterie"]})
+    assert result["step_id"] == "zusammenfassung"
+    return result
+
+
+async def test_der_grund_im_anmeldeformular_ist_klartext(hass, server):
+    server.fehler["uebernehmen"] = TooMany(HOSTIL, 429)
+
+    result = await _bis_anlage(hass)
+
+    assert result["step_id"] == "anmelden"
+    _nur_klartext(result["description_placeholders"]["grund"])
+
+
+@pytest.mark.parametrize("route", ["zuordnung", "geraet", "pruefen"])
+async def test_der_grund_eines_abbruchs_ist_klartext(hass, server, route):
+    server.fehler[route] = Rejected(HOSTIL)
+
+    if route == "geraet":
+        result = await _bis_anlage(hass)
+    elif route == "zuordnung":
+        result = await _configure(hass, await _bis_raeume_vorher(hass), {
+            "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
+    else:
+        result = await _configure(hass, await _bis_benachrichtigung(hass), {})
+
+    assert result["type"] == FlowResultType.ABORT
+    _nur_klartext(result["description_placeholders"]["grund"])
+
+
+async def test_der_grund_eines_fehlgeschlagenen_auftrags_ist_klartext(hass, server):
+    server.auftrag_ergebnis = {"zustand": "fehlgeschlagen", "fehler": HOSTIL}
+
+    result = await _configure(hass, await _bis_zusammenfassung(hass), {})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "einrichten_fehler")
+    _nur_klartext(result["description_placeholders"]["grund"])
+
+
+async def test_der_grund_beim_entfernen_ist_klartext(hass, server):
+    def abgelehnt():
+        server.auftrag_ergebnis = {"zustand": "wartet_bestaetigung", "fehler": None}
+        server.fehler["auftrag"] = ApiError(HOSTIL, 400)
+
+    result = await _entfernen_starten(hass, server, abgelehnt)
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "entfernen_fehler")
+    _nur_klartext(result["description_placeholders"]["grund"])
+
+
+async def test_die_anlage_im_schon_eingerichtet_schritt_ist_klartext(hass, server, supervisor):
+    server.geraet_sicht.update(eingerichtet=True, tenant_id=HOSTIL, konfiguration=KONFIGURATION)
+    _melden(supervisor, {"geraet_id": GERAET_ID, "zustand": "regelt"})
+
+    result = await _bis_anlage(hass, HassioServiceInfo(config={"geraet_id": GERAET_ID, "zustand": "regelt"}, name="x",
+                                                       slug=BRIDGE_SLUG, uuid="u2"))
+
+    assert result["step_id"] == "schon_eingerichtet"
+    _nur_klartext(result["description_placeholders"]["anlage"])
+
+
+async def test_die_anlage_im_ersetzen_schritt_ist_klartext(hass, server):
+    server.geraet_sicht["anlagen"] = [{"tenant_id": HOSTIL, "aktiv": True, "belegt": True, "ersetzbar": True}]
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": HOSTIL})
+
+    assert result["step_id"] == "ersetzen"
+    _nur_klartext(result["description_placeholders"]["anlage"])
+
+
+async def test_integration_und_hinweis_im_systemschritt_sind_klartext(hass, server):
+    integration = _integration(label=HOSTIL)
+    integration["hinweis"] = HOSTIL
+    server.vorschlag_antwort = {"integrationen": [integration]}
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+
+    assert result["step_id"] == "system"
+    _nur_klartext(result["description_placeholders"]["integration"])
+    _nur_klartext(result["description_placeholders"]["hinweis"])
+
+
+async def test_die_integration_beim_abbruch_nicht_unterstuetzt_ist_klartext(hass, server):
+    server.vorschlag_antwort = {"integrationen": [_integration(label=HOSTIL, kreise=[])]}
+
+    result = await _configure(hass, await _bis_anlage(hass), {"anlage": TENANT})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "nicht_unterstuetzt")
+    _nur_klartext(result["description_placeholders"]["integration"])
+
+
+async def test_anlage_und_warnungen_in_der_zusammenfassung_sind_klartext(hass, server):
+    server.geraet_sicht["anlagen"] = [{"tenant_id": HOSTIL, "aktiv": True, "belegt": False, "ersetzbar": False}]
+    server.pruef_ergebnis = {"fehler": {}, "warnungen": {"stale": [HOSTIL], HOSTIL: [HOSTIL]}}
+
+    result = await _zusammenfassung_fuer(hass, HOSTIL)
+
+    platzhalter = result["description_placeholders"]
+    _nur_klartext(platzhalter["anlage"])
+    zeilen = platzhalter["warnungen"].splitlines()
+    assert len(zeilen) == 2 and all(zeile.startswith("- ") for zeile in zeilen)
+    assert platzhalter["warnungen"].count(klartext(HOSTIL)) == 3
+    assert "](" not in platzhalter["warnungen"] and "https://" not in platzhalter["warnungen"]
+
+
+async def test_die_anlage_im_menue_und_beim_entfernen_ist_klartext(hass, server):
+    entry = await _eingerichtet(hass, server)
+    server.geraet_sicht["tenant_id"] = HOSTIL
+
+    result = await _reconfigure(hass, entry)
+
+    assert result["step_id"] == "menue"
+    _nur_klartext(result["description_placeholders"]["anlage"])
+    result = await _configure(hass, result, {"next_step_id": "geraet_entfernen"})
+    assert result["step_id"] == "geraet_entfernen"
+    _nur_klartext(result["description_placeholders"]["anlage"])
+
+
+async def test_fehlt_ein_text_bleibt_der_platzhalter_ein_strich(hass, server):
+    server.fehler["uebernehmen"] = TooMany("", 429)
+
+    result = await _bis_anlage(hass)
+
+    assert result["description_placeholders"] == {"grund": "-"}

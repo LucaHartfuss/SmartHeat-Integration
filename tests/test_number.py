@@ -96,11 +96,13 @@ async def test_wert_erscheint_erst_mit_dem_status_ereignis(hass):
     assert float(hass.states.get(WUNSCH).state) == 22.5
 
 
-@pytest.mark.parametrize("watchdog_status", ["addon_gestoppt", "reagiert_nicht"])
-async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status):
-    """Meldet der Waechter das Add-on als gestoppt oder nicht reagierend, nimmt die Entity keinen Wunsch an
-    (er ginge ins Leere): `addon_nicht_bereit`, kein Ereignis. Die Entity ist dann nicht verfuegbar, ein Dienstaufruf
-    erreicht sie nicht. Mit der Entwarnung geht es wieder."""
+@pytest.mark.parametrize("watchdog_status, ablehnung", [
+    ("addon_gestoppt", "addon_nicht_bereit"), ("reagiert_nicht", "addon_nicht_bereit"),
+    ("addon_fehlt", "addon_fehlt")])
+async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status, ablehnung):
+    """Meldet der Waechter das Add-on als gestoppt, nicht reagierend oder nicht installiert, nimmt die Entity keinen
+    Wunsch an (er ginge ins Leere): `addon_nicht_bereit` bzw. bei fehlendem Add-on `addon_fehlt`, kein Ereignis. Die
+    Entity ist dann nicht verfuegbar, ein Dienstaufruf erreicht sie nicht. Mit der Entwarnung geht es wieder."""
     entry = await _setup(hass)
     hass.bus.async_fire(STATUS_EVENT, _event())
     await hass.async_block_till_done()
@@ -110,7 +112,7 @@ async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status):
 
     with pytest.raises(ServiceValidationError) as error:
         await hass.data[DATA_COMPONENT].get_entity(WUNSCH).async_set_native_value(23.0)
-    assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, "addon_nicht_bereit")
+    assert (error.value.translation_domain, error.value.translation_key) == (DOMAIN, ablehnung)
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
     await hass.async_block_till_done()
     assert events == [] and hass.states.get(WUNSCH).state == "unavailable"
@@ -120,6 +122,21 @@ async def test_gestopptes_addon_lehnt_ab(hass, watchdog_status):
     assert float(hass.states.get(WUNSCH).state) == 21.5
     await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
     await hass.async_block_till_done()
+    assert [e.data["raum_soll"] for e in events] == [23.0]
+
+
+async def test_ein_doppeltes_addon_laesst_den_wunsch_zu(hass):
+    """`addon_mehrfach` ist eine Warnung: das Add-on kann gesund laufen, der Wunsch geht durch."""
+    entry = await _setup(hass)
+    hass.bus.async_fire(STATUS_EVENT, _event())
+    await hass.async_block_till_done()
+    events = _listen(hass)
+    entry.runtime_data._set_watchdog_status("addon_mehrfach")
+    await hass.async_block_till_done()
+
+    await hass.services.async_call("number", "set_value", {"entity_id": WUNSCH, "value": 23.0}, blocking=True)
+    await hass.async_block_till_done()
+
     assert [e.data["raum_soll"] for e in events] == [23.0]
 
 

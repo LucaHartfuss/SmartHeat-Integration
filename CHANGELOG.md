@@ -5,6 +5,38 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- README: Abschnitt „Entfernen“ mit der Reihenfolge (Eintrag löschen, im Portal „Abgemeldet“ abwarten, Add-on
+  deinstallieren, Integration in HACS entfernen), der Warnung vor der falschen Reihenfolge und der Erklärung des
+  Hinweises `addon_fehlt`.
+- Diagnose-Download: nennt die offenen Meldungen der Integration als Code und Kreisnummer (höchstens 20 in der Liste,
+  dazu die Gesamtzahl), nie mit Kennung, Schlüssel, Text, Fühler- oder Kreisnamen.
+- Einrichtungsassistent: Texte des Servers und des Geräts (Gründe von Abbrüchen und Fehlern, Anlagenname, Name und
+  Hinweis der Integration, Warnungen) erscheinen in den Beschreibungen als Klartext: Links, Formatierung und
+  Listen oder Überschriften aus fremdem Text werden nicht mehr dargestellt, Zeilenumbrüche werden zu Leerzeichen, der
+  Text ist auf 300 Zeichen gekürzt. Dieselbe Maskierung gilt für die Reparatur-Hinweise des Geräts.
+- Hinweise des Geräts: höchstens 50 Reparatur-Hinweise je Eintrag (kritische zuerst); die übrigen fasst ein
+  Sammel-Hinweis mit ihrer Anzahl zusammen. Die Kennung eines Hinweises mit unbekanntem Schlüssel besteht nur aus dem
+  Kreis (`k<n>`, falls der Schlüssel damit beginnt) und einem Kurzhash, nie aus Entity- oder Fühlernamen; bekannte
+  Schlüssel behalten ihre lesbare Kennung.
+- Push-Kern: Rote Befunde des Wächters (`addon_gestoppt`, `reagiert_nicht`, `addon_fehlt`) gehen sofort als Push an die
+  Handys, die das Status-Ereignis des Add-ons nennt (nur Dienste `notify.mobile_app_*`, höchstens zehn), auch in der
+  Ruhezeit; ein fehlgeschlagener Versand wird bis zu 24 h wiederholt, ein offener Befund erinnert alle 24 h. Orangefarbene
+  Hinweise gehen einmal hinaus, in der Ruhezeit erst an deren Ende und nur, wenn sie dann noch offen sind; ab dem
+  Tageslimit kommt eine Sammelnachricht mit allgemeinem Titel. Gelb wird nie gepusht, `hinweise_aus` schweigt nur
+  Nicht-Rot. Ungültige oder fehlende Regeln (Ruhezeit, Tageslimit) fallen auf 22 bis 7 Uhr und 5 zurück. Die Texte
+  folgen der Sprache von Home Assistant (de, en); Logs und Pushtexte nennen weder Dienst noch Kreis. Der Zustand liegt im
+  Store `smartheat.push` und verschwindet mit dem Eintrag. Versions- und Mehrfach-Befunde lösen keinen Push aus.
+- Befunde des zweiten Wächters (Heizungsbrücke gestoppt oder reagiert nicht) erscheinen als Repair unter
+  Einstellungen > Reparaturen statt als Benachrichtigung. Das Repair ist ein Fehler, nicht behebbar und bleibt über einen
+  Neustart von Home Assistant bestehen; die Integration räumt es beim Start ab, wenn der Wächter dann nichts findet.
+  Bei einer Eskalation ändert sich nur sein Text. Das Attribut `grund` des Status-Sensors trägt jetzt den Statuscode
+  (`addon_gestoppt`, `reagiert_nicht`) statt des Meldungstextes.
+- Zwei neue Wächter-Befunde: `addon_fehlt` (die Heizungsbrücke ist nicht installiert, belegt nur bei genau einem
+  Store-Eintrag unseres Repositorys und keinem Add-on mit der Endung `_heizungsbruecke`, erst nach drei Prüfungen in
+  Folge; Fehler-Repair, alle Entities außer dem Status sind nicht verfügbar, die Wunschtemperatur lehnt ab) und
+  `addon_mehrfach` (mehrfach installiert, sofort, als Warnung; die Entities bleiben verfügbar). Beide lösen keinen
+  Neustart des Add-ons aus. Der Befund `addon_fehlt` endet erst, wenn nach seinem Beginn ein Ereignis kam und das Add-on
+  nicht mehr als fehlend gilt.
 - Die Mindestversion im Repair-Text ist enger gefasst: nur ASCII-Ziffern, Endung nur `-x`, `+x` oder `.devN`. Werte wie
   `1.2.3.com` oder mit Unicode-Ziffern erscheinen nicht mehr im Text; das Repair nimmt dann den Text ohne Version.
 - Das Status-Ereignis des Add-ons trägt zwei weitere Anlagenfelder, die die Integration liest: `konfig_version`

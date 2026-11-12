@@ -22,6 +22,7 @@ from .const import (
     RAUM_SOLL_MAX,
     RAUM_SOLL_MIN,
     RAUM_SOLL_STEP,
+    STATUS_ADDON_FEHLT,
     STATUS_ADDON_GESTOPPT,
     STATUS_REAGIERT_NICHT,
     WUNSCH_EVENT,
@@ -74,6 +75,8 @@ class WunschtemperaturEntity(SmartHeatEntity, NumberEntity):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="kreis_nicht_gemeldet")
         if self.coordinator.version_status is not None:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key=self.coordinator.version_status)
+        if self.coordinator.watchdog_status == STATUS_ADDON_FEHLT:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key=STATUS_ADDON_FEHLT)
         if self.coordinator.watchdog_status in (STATUS_ADDON_GESTOPPT, STATUS_REAGIERT_NICHT):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="addon_nicht_bereit")
         hinweise = (self.coordinator.data or {}).get("geraet_hinweise") or []

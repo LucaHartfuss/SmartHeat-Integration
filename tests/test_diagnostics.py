@@ -7,6 +7,7 @@ import json
 
 import pytest
 from homeassistant.const import __version__ as HA_VERSION
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.components.diagnostics import _get_diagnostics_for_config_entry
 
 from custom_components.smartheat.const import STATUS_EVENT, V5_SCHEMAS
@@ -109,6 +110,7 @@ async def test_die_diagnose_zeigt_den_erlaubten_inhalt_und_sonst_nichts(hass, cl
             "befund": None, "versionsbefund": None, "nicht_laufend_in_folge": 0, "neustarts_letzte_stunde": 0,
             "alter_letztes_ereignis_s": 90,
         },
+        "meldungen": {"anzahl": 1, "offen": [{"code": "wunsch_begrenzt", "kreis": None}]},
         "status": {
             "schema": 4, "status": "regelt", "grund": None, "geraet_zustand": "regelt", "server_verbunden": True,
             "notbetrieb": False, "datenfehler": None, "letzte_serverantwort": "2026-11-11T08:00:00+00:00",
@@ -279,3 +281,78 @@ async def test_die_geraete_id_wird_auf_shg_und_sechs_zeichen_gekuerzt(hass, cloc
 
     assert (await async_get_config_entry_diagnostics(hass, entry))["geraet"] == "shg-x7k2m4"
     assert GERAET_ID not in GERAET
+
+
+def _hinweise(anzahl: int, kreis: int | None = None) -> list[dict]:
+    praefix = "" if kreis is None else f"k{kreis}_"
+    return [{"key": f"{praefix}fuehler_{GEHEIM['geraet_rest']}_{nummer}", "stufe": "warnung",
+             "text": GEHEIM["hinweistext"]} for nummer in range(anzahl)]
+
+
+async def test_offene_meldungen_erscheinen_als_code_und_kreis_ohne_id_und_namen(hass, clock):
+    """Ein Hinweis mit Kreis und Fuehlername im Schluessel, ein bekannter Hinweis und ein Waechterbefund: die Diagnose
+    nennt nur Code und Kreisnummer, nie die Issue-ID (sie traegt den Hash des Schluessels), den Schluessel oder den Text."""
+    fuehler = "k2_raumfuehler_sensor_kinderzimmer"
+    entry = await _laufend(hass, _ereignis(geraet_hinweise=[
+        {"key": fuehler, "stufe": "kritisch", "text": GEHEIM["hinweistext"]},
+        {"key": "wunsch_begrenzt", "stufe": "warnung", "text": GEHEIM["hinweistext"]},
+    ]))
+    entry.runtime_data._set_watchdog_status("addon_gestoppt")
+
+    meldungen = (await async_get_config_entry_diagnostics(hass, entry))["meldungen"]
+
+    assert meldungen == {"anzahl": 3, "offen": [
+        {"code": "addon_gestoppt", "kreis": None},
+        {"code": "geraet_hinweis", "kreis": 2},
+        {"code": "wunsch_begrenzt", "kreis": None},
+    ]}
+    text = _text(meldungen)
+    for schluessel in ("hinweis_", "kinderzimmer", fuehler, "waechter", GEHEIM["hinweistext"]):
+        assert schluessel not in text, schluessel
+    for issue in ir.async_get(hass).issues.values():
+        assert issue.issue_id not in text
+
+
+async def test_ohne_offene_meldungen_ist_die_liste_leer(hass, clock):
+    entry = await _laufend(hass, _ereignis(geraet_hinweise=[]))
+
+    assert (await async_get_config_entry_diagnostics(hass, entry))["meldungen"] == {"anzahl": 0, "offen": []}
+
+
+async def test_die_liste_der_meldungen_ist_begrenzt_die_anzahl_nicht(hass, clock):
+    """Eine Flut offener Meldungen blaeht die Diagnose nicht auf; die Anzahl bleibt wahr."""
+    entry = await _laufend(hass, _ereignis(geraet_hinweise=_hinweise(40, kreis=1)))
+
+    meldungen = (await async_get_config_entry_diagnostics(hass, entry))["meldungen"]
+
+    assert meldungen["anzahl"] == 40
+    assert len(meldungen["offen"]) == 20
+    assert all(eintrag == {"code": "geraet_hinweis", "kreis": 1} for eintrag in meldungen["offen"])
+
+
+async def test_das_sammel_issue_zaehlt_mit_und_jeder_eintrag_hat_nur_code_und_kreis(hass, clock):
+    entry = await _laufend(hass, _ereignis(geraet_hinweise=_hinweise(60)))
+
+    meldungen = (await async_get_config_entry_diagnostics(hass, entry))["meldungen"]
+
+    assert meldungen["anzahl"] == 51
+    assert all(set(eintrag) == {"code", "kreis"} for eintrag in meldungen["offen"])
+
+
+async def test_die_zeitstempel_der_diagnose_bleiben_neben_den_meldungen(hass, clock):
+    entry = await _laufend(hass)
+    clock["t"] = 1090.0
+
+    diagnose = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnose["waechter"]["alter_letztes_ereignis_s"] == 90
+    assert diagnose["status"]["letzte_serverantwort"] == "2026-11-11T08:00:00+00:00"
+    assert "meldungen" in diagnose
+
+
+async def test_fremde_issues_anderer_integrationen_erscheinen_nicht(hass, clock):
+    entry = await _laufend(hass, _ereignis(geraet_hinweise=[]))
+    ir.async_create_issue(hass, "andere", "fremd", is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                          translation_key="fremd")
+
+    assert (await async_get_config_entry_diagnostics(hass, entry))["meldungen"] == {"anzahl": 0, "offen": []}

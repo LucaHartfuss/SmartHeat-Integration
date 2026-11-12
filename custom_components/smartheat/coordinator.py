@@ -2,8 +2,7 @@
 HA-Kern, unabhaengig vom Zustand des Add-ons: sie haelt das letzte lesbare Status-Ereignis ihres Geraets
 (Zuordnung ueber die Geraete-ID, der Tenant fehlt vor der Einrichtung), macht aus dessen Hinweisen
 Reparatur-Hinweise, prueft alle WATCHDOG_INTERVAL_SECONDS beim Supervisor, ob die Heizungsbruecke laeuft und sich
-meldet, meldet Befunde per persistent_notification (Push an die Handys ist Sache des Add-ons, Nutzer-Entscheidung
-2026-10-11) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
+meldet, meldet Befunde als Repair (Rot-Befunde des Waechters zusaetzlich als Push, siehe push.py) und startet das Add-on (neu), hoechstens MAX_RESTARTS_PER_WINDOW mal je Stunde. Jedes Ereignis des
 eigenen Geraets zaehlt als Lebenszeichen des Add-ons, gleich welches Schema; umgekehrt meldet die Integration dem
 Add-on ihre Version und gelesenen Schemata (INTEGRATION_EVENT). Sie schreibt nie auf die Anlage (keine Notbremse,
 Nutzer-Entscheidung) und ruft keinen Server."""
@@ -15,7 +14,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from homeassistant.components import persistent_notification
 from homeassistant.components.hassio import AddonError, AddonState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
@@ -24,14 +22,24 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from . import geraete, repairs
 from .const import (
+    BRUECKE_FEHLT,
+    BRUECKE_GEFUNDEN,
+    BRUECKE_MEHRFACH,
     EINRICHTUNG_MAX_KREISE,
     INTEGRATION_EVENT,
     INTEGRATION_EVENT_FIELDS,
     INTEGRATION_EVENT_SCHEMA,
     MAX_RESTARTS_PER_WINDOW,
+    MISSING_AFTER_CHECKS,
+    PUSH_ABGLEICH_SECONDS,
+    PUSH_CODES,
+    PUSH_STUFE_ROT,
     RESTART_WINDOW_SECONDS,
     SILENCE_SECONDS,
+    STATUS_ADDON_FEHLT,
     STATUS_ADDON_GESTOPPT,
+    STATUS_ADDON_MEHRFACH,
+    STATUS_ADDON_NICHT_BEREIT,
     STATUS_ADDON_VERALTET,
     STATUS_EVENT,
     STATUS_EVENT_FIELDS,
@@ -42,13 +50,12 @@ from .const import (
     STOPPED_AFTER_CHECKS,
     V5_SCHEMAS,
     WATCHDOG_INTERVAL_SECONDS,
-    WATCHDOG_MESSAGES,
-    WATCHDOG_REASONS,
+    WATCHDOG_ISSUE_ID,
     WUNSCH_EVENT_SCHEMA,
     signal_update,
-    watchdog_notification_id,
 )
-from .supervisor_client import async_find_bridge_manager
+from .push import Push
+from .supervisor_client import async_bruecke_stand
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +77,7 @@ class Watchdog:
     started_at: float
     last_event_at: float | None = None
     not_running: int = 0
+    missing: int = 0
     restarts: deque = field(default_factory=deque)
     incident_since: float | None = None
     incident_status: str | None = None
@@ -77,7 +85,7 @@ class Watchdog:
     def event_received(self, now: float) -> None:
         self.last_event_at = now
 
-    def check(self, now: float, running: bool | None) -> tuple[str | None, bool]:
+    def check(self, now: float, running: bool | None, bruecke: str = BRUECKE_GEFUNDEN) -> tuple[str | None, bool]:
         """(Waechter-Status oder None, ob die Heizungsbruecke jetzt (neu) gestartet wird). `running`: laeuft laut
         Supervisor; `None`, wenn sich die Bruecke nicht aufloesen laesst (nicht oder mehrfach installiert, Repository
         unter anderer Adresse): das zaehlt nie als "laeuft nicht" und fuehrt nie zu einem Start, nur die Stille
@@ -86,20 +94,30 @@ class Watchdog:
         eigenen (Neu-)Start -- ein frisch gestartetes Add-on bekommt so eine Schonfrist, bevor es erneut als
         "reagiert nicht" gilt, statt sofort wieder gemeldet zu werden. Ohne Event und ohne eigenen Start zaehlt die
         Stille ab dem Setup (Anlaufschutz nach einem HA-Neustart). Ein einmal begonnener Vorfall bleibt aktiv, bis
-        er nach `_incident_resolved` beendet ist (siehe dort)."""
+        er nach `_incident_resolved` beendet ist (siehe dort).
+
+        `bruecke` ist der Stand laut Supervisor (`BRUECKE_*`). `fehlt` meldet erst ab MISSING_AFTER_CHECKS Pruefungen in
+        Folge `addon_fehlt` (jeder andere Stand setzt den Zaehler zurueck), ohne Startversuch; `mehrfach` meldet sofort
+        `addon_mehrfach`, ohne Vorfall, Wartezeit und Start. Stille und Stopp haben bei laufendem Vorfall Vortritt vor
+        `mehrfach`."""
         self.not_running = self.not_running + 1 if running is False else 0
-        if self._incident_resolved(running):
+        self.missing = self.missing + 1 if bruecke == BRUECKE_FEHLT else 0
+        if self._incident_resolved(running, bruecke):
             self.incident_since = None
             self.incident_status = None
             return None, False
         if self.not_running >= STOPPED_AFTER_CHECKS:
             status, revive = STATUS_ADDON_GESTOPPT, True
+        elif self.missing >= MISSING_AFTER_CHECKS:
+            status, revive = STATUS_ADDON_FEHLT, False
         elif running is not False and now - self._silence_reference() >= SILENCE_SECONDS:
             status, revive = STATUS_REAGIERT_NICHT, running is True
         elif self.incident_since is not None:
             # Vorfall laeuft weiter (z. B. Add-on wieder gestartet, aber noch kein Event): der zuletzt ermittelte
             # Status bleibt bestehen, ohne neuen Startversuch.
             status, revive = self.incident_status, False
+        elif bruecke == BRUECKE_MEHRFACH:
+            return STATUS_ADDON_MEHRFACH, False
         else:
             return None, False
         if self.incident_since is None:
@@ -107,14 +125,14 @@ class Watchdog:
         self.incident_status = status
         return status, revive and self._restart_allowed(now)
 
-    def _incident_resolved(self, running: bool | None) -> bool:
-        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam und die Bruecke dabei (bzw. seither) nicht
-        als gestoppt gilt."""
+    def _incident_resolved(self, running: bool | None, bruecke: str) -> bool:
+        """Entwarnung nur, wenn NACH dem Beginn des Vorfalls ein Event kam, die Bruecke dabei (bzw. seither) nicht als
+        gestoppt gilt und nicht als fehlend belegt ist."""
         if self.incident_since is None:
             return False
         if self.last_event_at is None or self.last_event_at <= self.incident_since:
             return False
-        return running is not False
+        return running is not False and bruecke != BRUECKE_FEHLT
 
     def _silence_reference(self) -> float:
         reference = self.started_at if self.last_event_at is None else self.last_event_at
@@ -189,9 +207,12 @@ class SmartHeatCoordinator:
         # die Integration es liest. `wunsch_schema`: das zuletzt gelesene Schema, in dem die Integration antwortet.
         self.version_status: str | None = None
         self.wunsch_schema: int = WUNSCH_EVENT_SCHEMA
-        self._watchdog_reason: str | None = None
         self._verfuegbar_gemeldet = True
         self._watchdog = Watchdog(started_at=_now())
+        self.push = Push(hass)
+        # Ob der Store des Pushs gegen den Waechter abgeglichen ist: ein Rot-Eintrag aus der Zeit vor dem Neustart, den der
+        # neue Waechter nicht wieder findet, ist erledigt und wird nicht weiter erinnert.
+        self._push_abgeglichen = False
         self._checking = False
         self._stopped = False
         self._version = ""
@@ -225,8 +246,10 @@ class SmartHeatCoordinator:
 
     @property
     def verfuegbar(self) -> bool:
-        """Ob die Entities ausser dem Status ihre Werte zeigen: nicht bei einem Waechter- oder Versionsbefund."""
-        return self.watchdog_status is None and self.version_status is None
+        """Ob die Entities ausser dem Status ihre Werte zeigen: nicht bei einem Waechterbefund, der das Add-on als nicht
+        bereit meldet (gestoppt, reagiert nicht, fehlt; `addon_mehrfach` gehoert nicht dazu) und nicht bei einem
+        Versionsbefund."""
+        return self.watchdog_status not in STATUS_ADDON_NICHT_BEREIT and self.version_status is None
 
     @callback
     def _verfuegbarkeit_melden(self) -> None:
@@ -242,8 +265,9 @@ class SmartHeatCoordinator:
 
     @property
     def reason(self) -> str | None:
+        """Der Grund des Status-Sensors: bei einem Waechter- oder Versionsbefund dessen Code, sonst der Grund des Add-ons."""
         if self.watchdog_status is not None:
-            return self._watchdog_reason
+            return self.watchdog_status
         if self.version_status is not None:
             return self.version_status
         return None if self.data is None else self.data.get("grund")
@@ -253,7 +277,12 @@ class SmartHeatCoordinator:
         """Startet Zuhoeren und Waechter-Takt und meldet dem Add-on die Version der Integration."""
         self._version = version
         self._watchdog = Watchdog(started_at=_now())
+        self._push_abgeglichen = False
         self._stopped = False
+        self.push.async_start(self.entry)
+        # Das Repair des Waechters ueberdauert einen Neustart von Home Assistant; der neue Waechter beginnt ohne Befund
+        # und legt es bei Bedarf neu an.
+        repairs.async_set_watchdog(self.hass, None)
         self.entry.async_on_unload(self._async_stop)
         self.entry.async_on_unload(self.hass.bus.async_listen(STATUS_EVENT, self.async_handle_event))
         self.entry.async_on_unload(async_track_time_interval(
@@ -315,6 +344,10 @@ class SmartHeatCoordinator:
         # Nur die Felder des Vertrags (STATUS_EVENT_FIELDS, STATUS_KREIS_FIELDS); fehlende bleiben fehlend.
         self.data = {key: data[key] for key in STATUS_EVENT_FIELDS if key in data and key != "kreise"}
         self.kreise = kreise
+        # Push-Ziele und -Regeln stehen (noch) nicht in STATUS_EVENT_FIELDS: sie kommen unveraendert aus dem Ereignis und
+        # werden in push.py auf Form und Muster geprueft.
+        if self.push.ziele_setzen(data.get("benachrichtigung"), data.get("hinweise_aus"), data.get("push_regeln")):
+            self.entry.async_create_task(self.hass, self.push.async_verarbeiten(), f"smartheat_push_{self.tenant_id}")
         self._async_geraete_nachziehen(data.get("konfig_version"))
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
@@ -360,11 +393,12 @@ class SmartHeatCoordinator:
         try:
             self._async_send_integration_event()  # auch wenn der Supervisor gleich nicht antwortet
             try:
-                manager = await async_find_bridge_manager(self.hass)
+                stand = await async_bruecke_stand(self.hass)
             except AddonError as error:
                 # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren.
                 _LOGGER.warning("Waechter: Supervisor nicht erreichbar, Pruefung faellt aus: %s", type(error).__name__)
                 return
+            manager = stand.manager
             running: bool | None = None  # None: Bruecke nicht aufloesbar (siehe Watchdog.check)
             if manager is not None:
                 try:
@@ -375,7 +409,7 @@ class SmartHeatCoordinator:
                     )
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running = info.state == AddonState.RUNNING
-            status, revive = self._watchdog.check(_now(), running)
+            status, revive = self._watchdog.check(_now(), running, stand.zustand)
             if self._stopped:  # der Eintrag wurde waehrend der Abfragen entladen/geloescht: nichts mehr starten
                 return
             if revive:
@@ -401,24 +435,37 @@ class SmartHeatCoordinator:
 
     @callback
     def _set_watchdog_status(self, status: str | None) -> None:
-        """persistent_notification beim Beginn (None -> kritisch) eines Vorfalls, entfernt an seinem Ende
-        (kritisch -> None). Eskaliert ein laufender Vorfall (z. B. gestoppt -> reagiert nicht oder umgekehrt), wird
-        nur der Text der bestehenden Meldung aktualisiert (gleiche notification_id, kein neuer Eintrag): es ist
-        derselbe Vorfall, keine zweite Stoerung."""
-        reason = None if status is None else WATCHDOG_REASONS[status]  # None = Entwarnung
-        previous = self.watchdog_status
-        changed = (status, reason) != (previous, self._watchdog_reason)
-        self.watchdog_status, self._watchdog_reason = status, reason
+        """Das Repair des Waechters beim Beginn (None -> Befund) eines Vorfalls anlegen, an seinem Ende (Befund -> None)
+        entfernen. Eskaliert ein laufender Vorfall (z. B. gestoppt -> reagiert nicht oder umgekehrt), bekommt das
+        bestehende Repair nur den neuen Text-Code (gleiche ID, kein neuer Eintrag): es ist derselbe Vorfall, keine
+        zweite Stoerung."""
+        changed = status != self.watchdog_status
+        alt = self.watchdog_status
+        self.watchdog_status = status
         self._verfuegbarkeit_melden()
-        if previous is None and status is not None:
-            persistent_notification.async_create(
-                self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
-            )
-        elif previous is not None and status is None:
-            persistent_notification.async_dismiss(self.hass, watchdog_notification_id(self.tenant_id))
-        elif previous is not None and status is not None and status != previous:
-            persistent_notification.async_create(
-                self.hass, WATCHDOG_MESSAGES[status], "SmartHeat", watchdog_notification_id(self.tenant_id),
-            )
+        self._push_nachziehen(status, alt, changed)
         if changed:
+            repairs.async_set_watchdog(self.hass, status)
             async_dispatcher_send(self.hass, self.signal)
+
+    @callback
+    def _push_nachziehen(self, status: str | None, alt: str | None, changed: bool) -> None:
+        """Rot-Befunde des Waechters (PUSH_CODES) dem Push melden, ihr Ende ebenfalls. Nach dem Start schliesst ein Waechter
+        ohne Befund einen Eintrag aus der Zeit davor, sobald er lange genug laeuft, um denselben Befund wieder gefunden zu
+        haben (PUSH_ABGLEICH_SECONDS); findet er ihn wieder, gibt es keinen zweiten Push."""
+        if changed:
+            self._push_abgeglichen = True
+            if status in PUSH_CODES:
+                self._push_melden(status, True)
+            elif alt in PUSH_CODES:
+                self._push_melden(alt, False)
+        elif status is None and not self._push_abgeglichen and _now() - self._watchdog.started_at >= PUSH_ABGLEICH_SECONDS:
+            self._push_abgeglichen = True
+            self._push_melden(WATCHDOG_ISSUE_ID, False)
+
+    @callback
+    def _push_melden(self, code: str, offen: bool) -> None:
+        self.entry.async_create_task(
+            self.hass, self.push.melden(code, WATCHDOG_ISSUE_ID, None, PUSH_CODES.get(code, PUSH_STUFE_ROT), offen),
+            f"smartheat_push_{self.tenant_id}",
+        )

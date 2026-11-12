@@ -273,6 +273,7 @@
           "zugang_abgelehnt": "Access denied", "abo_beendet": "Subscription ended",
           "abo_inaktiv": "Subscription inactive", "notbetrieb": "Emergency mode", "datenfehler": "Data fault",
           "abgemeldet": "Signed off", "addon_gestoppt": "Add-on stopped", "reagiert_nicht": "Add-on not responding",
+          "addon_fehlt": "Add-on missing", "addon_mehrfach": "Add-on installed multiple times",
           "integration_veraltet": "Integration outdated", "addon_veraltet": "Add-on outdated"
         }
       },
@@ -305,6 +306,7 @@
     "kreis_nicht_gemeldet": {"message": "The system does not report this heating circuit at the moment, so SmartHeat cannot pass on the target temperature."},
     "thermostat_aus": {"message": "The thermostat is switched off. SmartHeat accepts no target temperature while it is off."},
     "addon_nicht_bereit": {"message": "The add-on is not running or not responding, so SmartHeat cannot pass on the target temperature. Please wait until the add-on is back."},
+    "addon_fehlt": {"message": "The add-on is not installed, so SmartHeat cannot pass on the target temperature."},
     "integration_veraltet": {"message": "The SmartHeat integration is older than the add-on and cannot read its messages, so it cannot pass on the target temperature. Please update the integration."},
     "addon_veraltet": {"message": "The SmartHeat add-on is older than the integration and not understood by it, so the integration cannot pass on the target temperature. Please update the add-on."}
   },
@@ -316,14 +318,22 @@
     "konfiguration_abgelehnt": {"title": "SmartHeat: setting rejected", "description": "The add-on rejected the new setting: {text} Please check it under SmartHeat → Reconfigure."},
     "gesperrt": {"title": "SmartHeat: device blocked", "description": "{text}"},
     "geraet_hinweis": {"title": "SmartHeat notice", "description": "{text}"},
+    "geraet_hinweise_viele": {"title": "SmartHeat: many more notices", "description": "The device reports {anzahl} further notices that are not listed here. Please check the heating installation and the add-on."},
     "integration_veraltet": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated to at least version {mindest_integration}. Settings → Devices & services → HACS → SmartHeat → Update."},
     "integration_veraltet_ohne_version": {"title": "SmartHeat: update the integration", "description": "The add-on is newer than this integration and speaks a version it does not read. The values are not shown until the integration is updated. Settings → Devices & services → HACS → SmartHeat → Update."},
-    "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."}
+    "addon_veraltet": {"title": "SmartHeat: update the add-on", "description": "The add-on is older than this integration and speaks a version it no longer reads. The values are not shown until the add-on is updated. Settings → Add-ons → Heizungsbrücke → Update."},
+    "addon_gestoppt": {"title": "SmartHeat: add-on not running", "description": "The Heizungsbrücke add-on is not running, so the heating control is interrupted. Please check the add-on under Settings → Add-ons; if possible, SmartHeat restarts it."},
+    "reagiert_nicht": {"title": "SmartHeat: add-on not responding", "description": "The Heizungsbrücke add-on has not reported for 15 minutes, so the heating control is interrupted. Please check the add-on under Settings → Add-ons; if possible, SmartHeat restarts it."},
+    "addon_fehlt": {"title": "SmartHeat: add-on not installed", "description": "The Heizungsbrücke add-on is not installed. The heating stays at its last values. Installing it again creates a new device."},
+    "addon_mehrfach": {"title": "SmartHeat: add-on installed more than once", "description": "The Heizungsbrücke add-on is installed more than once, so SmartHeat cannot tell which one is meant. Please uninstall all but one under Settings → Add-ons."}
   },
   "common": {
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
     "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
-    "geraet_nicht_erreichbar": "The device cannot be reached."
+    "geraet_nicht_erreichbar": "The device cannot be reached.",
+    "push_text": "Please check Settings → Repairs in Home Assistant.",
+    "push_sammel_titel": "SmartHeat: several notices",
+    "push_sammel_text": "There are several notices. Please check Settings → Repairs in Home Assistant."
   }
 }
