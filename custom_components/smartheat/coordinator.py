@@ -20,7 +20,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import geraete, repairs
+from . import addon_control, geraete, repairs
 from .const import (
     BRUECKE_FEHLT,
     BRUECKE_GEFUNDEN,
@@ -400,6 +400,7 @@ class SmartHeatCoordinator:
                 return
             manager = stand.manager
             running: bool | None = None  # None: Bruecke nicht aufloesbar (siehe Watchdog.check)
+            auto_update: bool | None = None  # None: Schalter unbekannt, das Repair bleibt, wie es ist
             if manager is not None:
                 try:
                     info = await manager.async_get_addon_info()
@@ -409,9 +410,11 @@ class SmartHeatCoordinator:
                     )
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running = info.state == AddonState.RUNNING
+                auto_update = await addon_control.async_auto_update(self.hass, manager.addon_slug)  # nur lesen
             status, revive = self._watchdog.check(_now(), running, stand.zustand)
             if self._stopped:  # der Eintrag wurde waehrend der Abfragen entladen/geloescht: nichts mehr starten
                 return
+            repairs.async_set_auto_update(self.hass, auto_update)
             if revive:
                 await self._async_revive(manager, bool(running))
                 if not self._stopped:

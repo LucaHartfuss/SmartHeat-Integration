@@ -227,6 +227,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._client: EinrichtungClient | None = None
         self._discovery: dict[str, str] = {}
+        self._auto_update_gesetzt = False  # der Assistent hat die automatischen Updates des Add-ons eingeschaltet
         self._geraet: dict = {}
         self._vorschlag: dict = {}
         self._integration: dict = {}
@@ -376,7 +377,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         if (grund := (await addon_control.async_bootstrap_url(self.hass)).grund) in _VOR_DER_INSTALLATION:
             return self._merken(_Abbruch(grund))
         try:
-            await addon_control.async_install_and_start(self.hass)
+            gestartet = await addon_control.async_install_and_start(self.hass)
+            self._auto_update_gesetzt = gestartet.auto_update_gesetzt
         except AddonError as error:
             _LOGGER.warning("Einrichtung: Add-on nicht installiert oder gestartet (%s)", type(error).__name__)
             return self._merken(_Abbruch("addon_fehler"))
@@ -978,7 +980,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return await self._unterbrechung(unterbrechung)
         self._fehler = {}
         return self.async_show_form(step_id="zusammenfassung", description_placeholders={
-            "anlage": _md(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {})})
+            "anlage": _md(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {}),
+            "auto_update": await async_hint(self.hass, "auto_update_hinweis") if self._auto_update_gesetzt else ""})
 
     # --- Auftrag ---
 

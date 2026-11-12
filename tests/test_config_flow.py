@@ -1393,9 +1393,81 @@ async def test_manual_start_installs_the_addon_and_waits_for_discovery(hass, ser
     assert result["step_id"] == "anlage"
     assert [(addon.slug, addon.state) for addon in supervisor.installed] == [(BRIDGE_SLUG, AddonState.STARTED)]
     assert supervisor.supervision == {BRIDGE_SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
+    assert supervisor.auto_update == {BRIDGE_SLUG: True}
     assert supervisor.config_written == [] and folge == []
     assert ("uebernehmen", GERAET_ID, CLAIM_CODE) in server.calls
     assert server.base_url == LABOR_URL
+
+
+async def _von_anlage_bis_zusammenfassung(hass, result):
+    """Vom Schritt `anlage` bis zur Zusammenfassung (wie `_bis_zusammenfassung` ab der Anlage)."""
+    assert result["step_id"] == "anlage"
+    result = await _configure(hass, result, {"anlage": TENANT})
+    result = await _configure(hass, result, {"kreise": ["mypyllant|e1|SYSTEM|0"],
+                                             "profil": "vaillant_gastherme_heizkoerper"})
+    result = await _configure(hass, result, {"raumfuehler": ["sensor.wohnzimmer_temperatur"],
+                                             "room_target": "climate.wohnzimmer_thermostat", "raum_soll": 21.0})
+    result = await _configure(hass, result, {
+        "curve": "number.zuhause_circuit_0_heating_curve", "room_setpoint": "climate.zuhause_zone_1_circuit_0_climate",
+        "outdoor_temp": "sensor.zuhause_outdoor_temperature"})
+    result = await _configure(hass, result, {
+        "benachrichtigung": ["notify.mobile_app_handy"], "hinweise_aus": [], "batterien": ["sensor.wohnzimmer_batterie"]})
+    assert result["step_id"] == "zusammenfassung"
+    return result
+
+
+async def test_the_summary_says_that_the_manual_start_switched_on_automatic_updates_and_where_to_switch_off(
+        hass, server, supervisor):
+    result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    result = await _von_anlage_bis_zusammenfassung(hass, result)
+
+    assert supervisor.auto_update == {BRIDGE_SLUG: True}
+    hinweis = result["description_placeholders"]["auto_update"]
+    assert "automatic updates" in hinweis.lower() and "Settings" in hinweis and "Add-ons" in hinweis
+
+
+async def test_the_summary_is_silent_about_automatic_updates_when_nothing_was_switched(hass, server, supervisor):
+    """Der Weg ueber die Discovery des Add-ons fasst den Schalter nicht an, also sagt die Zusammenfassung nichts."""
+    supervisor.auto_update[BRIDGE_SLUG] = False
+
+    result = await _bis_zusammenfassung(hass)
+
+    assert result["description_placeholders"]["auto_update"] == ""
+    assert supervisor.auto_update == {BRIDGE_SLUG: False} and supervisor.client.addons.set_addon_options.await_count == 0
+
+
+async def test_the_summary_is_silent_when_the_switch_could_not_be_set(hass, server, supervisor):
+    supervisor.errors[("addons.set_addon_options", BRIDGE_SLUG)] = SupervisorError("geheimer-wert")
+    result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    result = await _von_anlage_bis_zusammenfassung(hass, result)
+
+    assert result["description_placeholders"]["auto_update"] == ""
+    assert supervisor.auto_update == {}
+
+
+async def test_a_second_manual_start_leaves_the_switch_of_an_existing_setup_alone(hass, server, supervisor):
+    """Mit vorhandenem Eintrag bricht der Assistent vor dem Add-on ab (`single_config_entry`): ein vom Kunden
+    ausgeschalteter Schalter bleibt aus, der Assistent schreibt nichts."""
+    MockConfigEntry(domain=DOMAIN, data={"geraet_id": GERAET_ID, "tenant_id": TENANT}, unique_id=GERAET_ID,
+                    version=config_flow.SmartHeatConfigFlow.VERSION, title=TENANT).add_to_hass(hass)
+    supervisor.auto_update[BRIDGE_SLUG] = False
+
+    result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "single_instance_allowed")
+    assert supervisor.auto_update == {BRIDGE_SLUG: False}
+    assert supervisor.client.addons.set_addon_options.await_count == 0
+
+
+async def test_a_new_setup_after_deleting_the_entry_switches_the_automatic_updates_on_again(hass, server, supervisor):
+    supervisor.auto_update[BRIDGE_SLUG] = False  # der Kunde hatte ihn ausgeschaltet; der Eintrag ist danach geloescht
+
+    result = await _progress(hass, await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER}))
+
+    assert result["step_id"] == "anlage"
+    assert supervisor.auto_update == {BRIDGE_SLUG: True}
 
 
 async def test_manual_start_without_supervisor_aborts(hass, server, supervisor):

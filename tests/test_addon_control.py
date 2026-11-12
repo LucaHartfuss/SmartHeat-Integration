@@ -162,24 +162,26 @@ async def test_install_and_start_never_writes_options(hass, supervisor, caplog):
     _installable(supervisor)
 
     with caplog.at_level(logging.WARNING):
-        manager = await addon_control.async_install_and_start(hass)
+        gestartet = await addon_control.async_install_and_start(hass)
 
-    assert isinstance(manager, AddonManager)
-    assert manager.addon_slug == SLUG
+    assert isinstance(gestartet.manager, AddonManager)
+    assert gestartet.manager.addon_slug == SLUG
+    assert gestartet.auto_update_gesetzt is True
     assert [(addon.slug, addon.state) for addon in supervisor.installed] == [(SLUG, AddonState.STARTED)]
     assert supervisor.config_written == []
     assert supervisor.addon_options == {}
     assert supervisor.supervision == {SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
+    assert supervisor.auto_update == {SLUG: True}
     # genau ein Aufruf, nur fuer den installierten Slug, und keine Warnung (auch kein gescheiterter weiterer Slug)
     supervisor.client.addons.set_addon_options.assert_awaited_once_with(
-        SLUG, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO))
+        SLUG, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO, auto_update=True))
     assert [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING] == []
 
 
 async def test_install_and_start_leaves_a_running_addon_alone(hass, supervisor):
     supervisor.store_addons = {SLUG: "1.0.0"}
 
-    manager = await addon_control.async_install_and_start(hass)
+    manager = (await addon_control.async_install_and_start(hass)).manager
 
     assert manager.addon_slug == SLUG
     assert supervisor.client.store.install_addon.await_count == 0
@@ -204,7 +206,7 @@ async def test_install_and_start_needs_the_supervisor(hass, supervisor):
     assert supervisor.client.store.repositories_list.await_count == 0
 
 
-# --- Watchdog und Autostart ---
+# --- Watchdog, Autostart und Schalter "Automatische Updates" ---
 
 
 async def test_supervision_sets_watchdog_and_boot_and_reports_a_failure(hass, supervisor, caplog):
@@ -213,7 +215,7 @@ async def test_supervision_sets_watchdog_and_boot_and_reports_a_failure(hass, su
     with caplog.at_level(logging.WARNING):
         assert await addon_control.async_set_supervision(hass, SLUG) is False
 
-    assert supervisor.supervision == {}
+    assert supervisor.supervision == {} and supervisor.auto_update == {}
     warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
     assert warnings == [f"Watchdog/Boot fuer Add-on {SLUG} nicht gesetzt: SupervisorTimeoutError"]
     assert "geheimer-wert" not in caplog.text
@@ -221,6 +223,7 @@ async def test_supervision_sets_watchdog_and_boot_and_reports_a_failure(hass, su
     supervisor.errors.clear()
     assert await addon_control.async_set_supervision(hass, SLUG) is True
     assert supervisor.supervision == {SLUG: {"watchdog": True, "boot": AddonBoot.AUTO}}
+    assert supervisor.auto_update == {SLUG: True}
     assert supervisor.config_written == []
 
 
@@ -228,13 +231,35 @@ async def test_install_and_start_only_warns_when_supervision_fails(hass, supervi
     supervisor.errors[("addons.set_addon_options", SLUG)] = SupervisorError("geheimer-wert")
 
     with caplog.at_level(logging.WARNING):
-        manager = await addon_control.async_install_and_start(hass)
+        gestartet = await addon_control.async_install_and_start(hass)
 
-    assert manager.addon_slug == SLUG
-    assert supervisor.supervision == {}
+    assert gestartet.manager.addon_slug == SLUG
+    assert gestartet.auto_update_gesetzt is False  # nicht gesetzt: der Assistent behauptet es nicht
+    assert supervisor.supervision == {} and supervisor.auto_update == {}
     assert f"Watchdog/Boot fuer Add-on {SLUG} nicht gesetzt: SupervisorError" in caplog.text
     assert "Watchdog und Autostart der Heizungsbruecke nicht gesetzt" in caplog.text
     assert "geheimer-wert" not in caplog.text
+
+
+async def test_the_update_switch_is_read_from_the_supervisor(hass, supervisor):
+    assert await addon_control.async_auto_update(hass, SLUG) is True
+    supervisor.auto_update[SLUG] = False
+    assert await addon_control.async_auto_update(hass, SLUG) is False
+    assert supervisor.supervision == {} and supervisor.client.addons.set_addon_options.await_count == 0
+
+
+@pytest.mark.parametrize("fehler", [SupervisorError("geheimer-wert"), SupervisorTimeoutError("geheimer-wert")])
+async def test_an_unreadable_update_switch_is_unknown_not_off(hass, supervisor, caplog, fehler):
+    supervisor.errors[("addons.addon_info", SLUG)] = fehler
+    with caplog.at_level(logging.WARNING):
+        assert await addon_control.async_auto_update(hass, SLUG) is None
+    assert "geheimer-wert" not in caplog.text
+
+
+@pytest.mark.parametrize("wert", [None, "false", 0, 1])
+async def test_a_non_boolean_update_switch_is_unknown(hass, supervisor, wert):
+    supervisor.auto_update[SLUG] = wert
+    assert await addon_control.async_auto_update(hass, SLUG) is None
 
 
 # --- Repository und Herkunft der Heizungsbruecke ---

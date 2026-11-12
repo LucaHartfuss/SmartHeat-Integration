@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
 from .const import (
+    AUTO_UPDATE_ISSUE_ID,
     CODE_RE,
     DOMAIN,
     HINWEIS_FELD_KEY,
@@ -108,7 +109,24 @@ def async_set_watchdog(hass: HomeAssistant, befund: str | None) -> None:
     )
 
 
+def async_set_auto_update(hass: HomeAssistant, auto_update: bool | None) -> None:
+    """Das Repair "automatische Updates des Add-ons aus" setzen (`False`) oder nehmen (`True`). `None` (Schalter nicht
+    lesbar) aendert nichts: ein Lesefehler ist kein Beleg fuer "an" und keiner fuer "aus". Nicht behebbar, Warnung,
+    vom Kunden ignorierbar; erneutes Setzen behaelt das Ignorieren. Der Text steht nur in den Uebersetzungen, ohne
+    Platzhalter."""
+    if auto_update is None:
+        return
+    if auto_update:
+        ir.async_delete_issue(hass, DOMAIN, AUTO_UPDATE_ISSUE_ID)
+        return
+    ir.async_create_issue(
+        hass, DOMAIN, AUTO_UPDATE_ISSUE_ID, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+        translation_key=AUTO_UPDATE_ISSUE_ID,
+    )
+
+
 def async_clear(hass: HomeAssistant) -> None:
     async_update(hass, [])
     async_set_version(hass, None)
     async_set_watchdog(hass, None)
+    ir.async_delete_issue(hass, DOMAIN, AUTO_UPDATE_ISSUE_ID)

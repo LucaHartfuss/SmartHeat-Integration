@@ -1431,6 +1431,79 @@ async def test_an_event_of_a_foreign_device_is_no_sign_of_life(hass, supervisor,
     assert supervisor.actions == [("restart", BRIDGE_SLUG)]
 
 
+def _update_issue(hass):
+    return ir.async_get(hass).async_get_issue(DOMAIN, "auto_update_aus")
+
+
+async def test_a_switched_off_update_switch_stays_off_and_shows_one_repair(hass, supervisor, clock):
+    """Start, Neustart und Pruefungen lesen den Schalter nur: er bleibt aus, die Integration schreibt keine Optionen;
+    der Hinweis kommt, bleibt ein einziger und geht, sobald der Kunde den Schalter wieder einschaltet."""
+    supervisor.auto_update[BRIDGE_SLUG] = False
+    entry = await _setup(hass)
+    assert _update_issue(hass) is None  # gelesen wird im Takt der Pruefung
+
+    await entry.runtime_data.async_check()
+    assert _update_issue(hass) is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)  # Neustart: Eintrag entladen und neu laden
+    assert _update_issue(hass) is None
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    clock["t"] += 300
+    _bridge(supervisor).version = "2.0.0"  # ein Update des Add-ons
+    await entry.runtime_data.async_check()
+    await entry.runtime_data.async_check()
+
+    assert supervisor.auto_update == {BRIDGE_SLUG: False}
+    assert supervisor.client.addons.set_addon_options.await_count == 0
+    assert _update_issue(hass) is not None
+
+    supervisor.auto_update[BRIDGE_SLUG] = True
+    await entry.runtime_data.async_check()
+    assert _update_issue(hass) is None
+
+
+async def test_a_switched_on_update_switch_shows_no_repair(hass, supervisor, clock):
+    entry = await _setup(hass)
+    await entry.runtime_data.async_check()
+    assert _update_issue(hass) is None
+    assert supervisor.client.addons.set_addon_options.await_count == 0
+
+
+async def test_an_unreadable_update_switch_shows_no_repair_and_does_not_stop_the_watchdog(hass, supervisor, clock):
+    _bridge(supervisor).state = AddonState.STOPPED
+    entry = await _setup(hass)
+    echt = supervisor.client.addons.addon_info.side_effect
+    aufrufe = []
+
+    def zweiter_aufruf_scheitert(addon):  # der erste Aufruf je Pruefung ist der Zustand der Bruecke, der zweite der Schalter
+        aufrufe.append(addon)
+        if len(aufrufe) % 2 == 0:
+            raise SupervisorError("geheimer-wert")
+        return echt(addon)
+
+    supervisor.client.addons.addon_info.side_effect = zweiter_aufruf_scheitert
+
+    await entry.runtime_data.async_check()
+    clock["t"] += 300
+    await entry.runtime_data.async_check()
+
+    assert len(aufrufe) == 4
+    assert _update_issue(hass) is None
+    assert hass.states.get(STATUS).state == "addon_gestoppt"  # der Waechter laeuft unabhaengig weiter
+
+
+async def test_the_update_repair_is_gone_with_the_entry(hass, supervisor, clock):
+    supervisor.auto_update[BRIDGE_SLUG] = False
+    entry = await _setup(hass)
+    await entry.runtime_data.async_check()
+    assert _update_issue(hass) is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert _update_issue(hass) is None
+
+
 async def test_a_high_schema_event_ends_a_silence_incident(hass, supervisor, clock, notes):
     entry = await _setup(hass)
     clock["t"] += STILLE
