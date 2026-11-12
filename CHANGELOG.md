@@ -5,6 +5,10 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Mindestversion der Integration: Nennt das Add-on in seinem Ereignis eine `mindest_integration`, die über der
+  eigenen Version liegt (verglichen werden die drei Zahlen), zeigt die Integration `integration_veraltet` mit
+  Reparatur-Hinweis und der Mindestversion. Gleichstand, eine niedrigere, fehlende oder unlesbare Angabe ergeben nie
+  einen Hinweis; er endet mit dem nächsten Ereignis ohne Unterschreitung. Der Server nennt heute keine Mindestversion.
 - Automatische Updates des Add-ons: Die Einrichtung (nur sie, nicht Start, Update oder Neuladen) schaltet sie für die
   Heizungsbrücke zusammen mit Watchdog und Autostart ein; die Zusammenfassung sagt es und nennt die Stelle zum
   Ausschalten (Einstellungen → Add-ons → Heizungsbrücke). Ist der Schalter später aus, bleibt er aus; die Integration
