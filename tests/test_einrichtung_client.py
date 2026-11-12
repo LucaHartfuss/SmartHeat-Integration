@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import ssl
+from pathlib import Path
 
 import aiohttp
 import pytest
@@ -40,7 +41,7 @@ async def _client(aiohttp_client, routes, token="t"):
     app = web.Application()
     for method, path, handler in routes:
         app.router.add_route(method, f"{P}{path}", handler)
-    client = EinrichtungClient(await aiohttp_client(app), "")
+    client = EinrichtungClient(await aiohttp_client(app), "", "de", "1.2.3")
     client.token = token
     return client
 
@@ -67,12 +68,12 @@ async def test_anfordern_sendet_nachweis_koepfe_und_leeren_koerper_ohne_token(ai
         return web.json_response(CODE_ANTWORT)
 
     client = await _client(aiohttp_client, [("POST", "/geraetecode", anfordern)], token="t-alt")
-    antwort = await client.geraetecode_anfordern(NACHWEIS, "de")
+    antwort = await client.geraetecode_anfordern(NACHWEIS)
     # Der Koerper ist byte-genau das, was der Geraetekern signiert hat.
     assert gesehen["koerper"] == b"{}"
     assert gesehen["koepfe"] == {"X-SHG-Device": NACHWEIS["geraet_id"], "X-SHG-Timestamp": "1761800000",
                                  "X-SHG-Signature": NACHWEIS["signatur"], "Accept-Language": "de",
-                                 "Authorization": None}
+                                 "Authorization": None}  # Sprache aus dem Konstruktor, nicht aus dem Aufruf
     assert antwort == CODE_ANTWORT and client.token == "t-alt"
 
 
@@ -89,14 +90,14 @@ async def test_anfordern_antwort_mit_unbrauchbarem_feld_ist_invalid_response(aio
     uebernommen."""
     client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(200, {**CODE_ANTWORT, feld: wert}))])
     with pytest.raises(InvalidResponse):
-        await client.geraetecode_anfordern(NACHWEIS, "de")
+        await client.geraetecode_anfordern(NACHWEIS)
 
 
 @pytest.mark.parametrize("feld", ["gueltig_s", "abfrage_s"])
 @pytest.mark.parametrize("wert", [1, 3600])
 async def test_anfordern_zeitgrenzen_gelten_beidseitig(aiohttp_client, feld, wert):
     client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(200, {**CODE_ANTWORT, feld: wert}))])
-    assert (await client.geraetecode_anfordern(NACHWEIS, "de"))[feld] == wert
+    assert (await client.geraetecode_anfordern(NACHWEIS))[feld] == wert
 
 
 @pytest.mark.parametrize("wert", [1, 3600])
@@ -110,14 +111,14 @@ async def test_anfordern_ohne_feld_ist_invalid_response(aiohttp_client):
     rest = {k: v for k, v in CODE_ANTWORT.items() if k != "link_komplett"}
     client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(200, rest))])
     with pytest.raises(InvalidResponse):
-        await client.geraetecode_anfordern(NACHWEIS, "de")
+        await client.geraetecode_anfordern(NACHWEIS)
 
 
 async def test_anfordern_401_ist_invalid_auth_aber_nicht_token_weg(aiohttp_client):
     client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(401, {"error": "Nicht angemeldet."}))],
                            token=None)
     with pytest.raises(InvalidAuth) as caught:
-        await client.geraetecode_anfordern(NACHWEIS, "de")
+        await client.geraetecode_anfordern(NACHWEIS)
     assert not isinstance(caught.value, TokenUngueltig) and caught.value.text == "Nicht angemeldet."
 
 
@@ -125,7 +126,7 @@ async def test_anfordern_drossel_ist_too_many_mit_text(aiohttp_client):
     client = await _client(aiohttp_client, [("POST", "/geraetecode", _antwort(429, {"error": "Zu viele Anfragen."}))],
                            token=None)
     with pytest.raises(TooMany) as caught:
-        await client.geraetecode_anfordern(NACHWEIS, "de")
+        await client.geraetecode_anfordern(NACHWEIS)
     assert caught.value.text == "Zu viele Anfragen." and caught.value.status == 429
 
 
@@ -294,12 +295,12 @@ async def test_200_with_a_list_is_invalid_response(aiohttp_client):
 async def unreachable():
     """Client auf einen Port ohne Server (der TestClient von aiohttp nimmt keine absoluten URLs)."""
     async with aiohttp.ClientSession() as session:
-        yield EinrichtungClient(session, "http://127.0.0.1:1")
+        yield EinrichtungClient(session, "http://127.0.0.1:1", "de", "1.2.3")
 
 
 async def test_unreachable_server_is_cannot_connect(unreachable):
     with pytest.raises(CannotConnect):
-        await unreachable.geraetecode_anfordern(NACHWEIS, "de")
+        await unreachable.geraetecode_anfordern(NACHWEIS)
 
 
 async def test_timeout_is_cannot_connect(aiohttp_client, monkeypatch):
@@ -434,7 +435,7 @@ async def test_secrets_never_reach_the_log(aiohttp_client, unreachable, caplog):
                ("GET", "/geraet", _antwort(404, {"error": "unbekanntes Gerät"})),
                ("POST", "/abmelden", _antwort(500, {"error": "x"}))]
     client = await _client(aiohttp_client, zugangs, token=None)
-    await client.geraetecode_anfordern(NACHWEIS, "de")
+    await client.geraetecode_anfordern(NACHWEIS)
     await client.geraetecode_abholen("gc-geheim-4")
     with pytest.raises(Rejected):
         await client.uebernehmen("shg-a", "code-geheim-3")
@@ -463,7 +464,7 @@ async def test_redirects_are_not_followed_and_never_resend_the_proof(aiohttp_cli
 
     client = await _client(aiohttp_client, [("POST", "/geraetecode", anfordern), ("POST", "/ziel", ziel)], token=None)
     with pytest.raises(ApiError) as caught:
-        await client.geraetecode_anfordern(NACHWEIS, "de")
+        await client.geraetecode_anfordern(NACHWEIS)
     assert type(caught.value) is ApiError and caught.value.status == status and caught.value.text == ""
     assert seen["target"] == 0 and client.token is None
 
@@ -840,11 +841,11 @@ async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_nachweis_noch_tok
         await site.start()
         base_url = f"https://127.0.0.1:{runner.addresses[0][1]}"
         session = async_get_clientsession(hass)
-        client = EinrichtungClient(session, base_url)
+        client = EinrichtungClient(session, base_url, "de", "1.2.3")
         client.token = "t-alt"  # ein Token des echten Servers darf nicht durch das des Angreifers ersetzt werden
 
         with pytest.raises(CannotConnect) as caught:
-            await client.geraetecode_anfordern(NACHWEIS, "de")
+            await client.geraetecode_anfordern(NACHWEIS)
 
         assert isinstance(caught.value.__cause__, aiohttp.ClientConnectorCertificateError)
         assert bodies == [] and client.token == "t-alt"
@@ -863,7 +864,7 @@ async def test_ein_server_mit_fremdem_zertifikat_bekommt_weder_nachweis_noch_tok
 # Methode und voller Pfad je Route als Literale aus V3 (Server `einrichtung/api.py`), nicht ueber die Konstanten.
 _ROUTEN_V3 = [
     ("geraetecode", "POST", "/einrichtung/v1/geraetecode", CODE_ANTWORT,
-     lambda c: c.geraetecode_anfordern(NACHWEIS, "de")),
+     lambda c: c.geraetecode_anfordern(NACHWEIS)),
     ("geraetecode_token", "POST", "/einrichtung/v1/geraetecode/token", {"zustand": "wartet"},
      lambda c: c.geraetecode_abholen("gc-1")),
     ("abmelden", "POST", "/einrichtung/v1/abmelden", {}, lambda c: c.abmelden()),
@@ -893,7 +894,7 @@ async def test_jede_route_trifft_methode_und_pfad_aus_v3(aiohttp_client, route, 
 
     app = web.Application()
     app.router.add_route(methode, pfad, handler)
-    client = EinrichtungClient(await aiohttp_client(app), "")
+    client = EinrichtungClient(await aiohttp_client(app), "", "de", "1.2.3")
     client.token = "t"
     await aufruf(client)
     assert gesehen == [(methode, pfad)]
@@ -932,9 +933,78 @@ async def test_eine_verschobene_route_bildet_den_client_nach_dem_status_ab(aioht
     app = web.Application(middlewares=[_html_fehlerseiten])
     if server_route is not None:
         app.router.add_route(server_methode, f"{P}{server_route}", handler)
-    client = EinrichtungClient(await aiohttp_client(app), "")
+    client = EinrichtungClient(await aiohttp_client(app), "", "de", "1.2.3")
     client.token = "t"
     with pytest.raises(ApiError) as caught:
         await aufruf(client)
     assert type(caught.value) is fehler and caught.value.status == status and caught.value.text == ""
     assert gesehen == []
+
+
+# --- Sprache und Kennung an jeder Anfrage -----------------------------------------------------------------------------
+
+MANIFEST = Path(einrichtung_client.__file__).parent / "manifest.json"
+
+
+def _manifest_version() -> str:
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))["version"]
+
+
+async def _koepfe_der_route(aiohttp_client, methode, pfad, antwort, aufruf, sprache, version):
+    gesehen = []
+
+    async def handler(request):
+        gesehen.append({k: request.headers.get(k) for k in ("Accept-Language", "User-Agent")})
+        return web.json_response(antwort)
+
+    app = web.Application()
+    app.router.add_route(methode, pfad, handler)
+    client = EinrichtungClient(await aiohttp_client(app), "", sprache, version)
+    client.token = "t"
+    await aufruf(client)
+    return gesehen
+
+
+@pytest.mark.parametrize("route, methode, pfad, antwort, aufruf", _ROUTEN_V3, ids=[r[0] for r in _ROUTEN_V3])
+async def test_jede_route_sendet_sprache_und_kennung_der_integration(aiohttp_client, route, methode, pfad, antwort,
+                                                                     aufruf):
+    """Der Server rendert seine Texte in der Sprache der Anfrage und zaehlt die Integrationsversion aus dem
+    `User-Agent`: beides geht an jeder Route mit, nicht nur beim Anfordern des Codes."""
+    version = _manifest_version()
+    assert await _koepfe_der_route(aiohttp_client, methode, pfad, antwort, aufruf, "de", version) == [
+        {"Accept-Language": "de", "User-Agent": f"smartheat-integration/{version}"}]
+
+
+@pytest.mark.parametrize("sprache, erwartet", [
+    ("de", "de"), ("en", "en"), ("pt-BR", "pt-BR"), ("zh-Hant-TW", "zh-Hant-TW"),
+    ("", "en"), (None, "en"), ("de\r\nX-Boese: 1", "en"), ("*", "en"), ("de;q=0", "en"), ("d", "en"),
+    ("x" * 300, "en"), ("de de", "en"), ("äö", "en"), (7, "en"),
+])
+async def test_eine_unbrauchbare_sprache_von_home_assistant_wird_zu_en(aiohttp_client, sprache, erwartet):
+    """Der Kopf traegt hoechstens eine einfache Sprachkennung: was keine ist (leer, Steuerzeichen, Gewichtung,
+    Ueberlaenge), geht als `en` an den Server."""
+    gesehen = await _koepfe_der_route(aiohttp_client, "GET", f"{P}/geraet", {}, lambda c: c.geraet(), sprache, "1.2.3")
+    assert [k["Accept-Language"] for k in gesehen] == [erwartet]
+
+
+@pytest.mark.parametrize("version", ["", None, "1.2.3\r\nX: y", "x" * 100, "a b"])
+async def test_eine_unbrauchbare_version_geht_als_unbekannt_mit(aiohttp_client, version):
+    """Die Kennung ist Auskunft: eine unlesbare Version bricht keine Anfrage ab und bringt kein Steuerzeichen in
+    den Kopf."""
+    gesehen = await _koepfe_der_route(aiohttp_client, "GET", f"{P}/geraet", {}, lambda c: c.geraet(), "de", version)
+    assert [k["User-Agent"] for k in gesehen] == ["smartheat-integration/unbekannt"]
+
+
+async def test_der_nachweis_kopf_bleibt_neben_der_sprache_unveraendert(aiohttp_client):
+    gesehen = {}
+
+    async def anfordern(request):
+        gesehen.update(request.headers)
+        return web.json_response(CODE_ANTWORT)
+
+    app = web.Application()
+    app.router.add_route("POST", f"{P}/geraetecode", anfordern)
+    client = EinrichtungClient(await aiohttp_client(app), "", "en", "1.2.3")
+    await client.geraetecode_anfordern(NACHWEIS)
+    assert gesehen["X-SHG-Device"] == NACHWEIS["geraet_id"] and gesehen["Accept-Language"] == "en"
+    assert gesehen["User-Agent"] == "smartheat-integration/1.2.3" and "Authorization" not in gesehen

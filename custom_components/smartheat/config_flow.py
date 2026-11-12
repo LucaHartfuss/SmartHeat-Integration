@@ -33,6 +33,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
+from homeassistant.loader import async_get_integration
 
 from . import addon_control, supervisor_client, vertrag_pin
 from . import anfrage as v3_anfrage
@@ -428,7 +429,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             bootstrap = await addon_control.async_bootstrap_url(self.hass)
             if bootstrap.url is None:
                 return self.async_abort(reason=bootstrap.grund or "bootstrap_url_ungueltig")
-            self._client = EinrichtungClient(async_get_clientsession(self.hass), bootstrap.url)
+            integration = await async_get_integration(self.hass, DOMAIN)
+            self._client = EinrichtungClient(async_get_clientsession(self.hass), bootstrap.url,
+                                             self.hass.config.language, str(integration.version))
             self._server = bootstrap.url
         return await self.async_step_anfordern()
 
@@ -444,8 +447,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         except addon_control.NachweisFehlt:
             return self._merken(_Abbruch("nachweis_fehlt"))
         try:
-            self._code = await self._api(self._client.geraetecode_anfordern, nachweis, self.hass.config.language,
-                                         veraltet="server_veraltet")
+            self._code = await self._api(self._client.geraetecode_anfordern, nachweis, veraltet="server_veraltet")
         except _Unterbrechung as unterbrechung:
             return self._merken(unterbrechung)
         return "warten"

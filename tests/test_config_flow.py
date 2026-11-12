@@ -69,7 +69,7 @@ def server(monkeypatch, supervisor, hass):
     auf `nachweis <geraet_id>` mit dem Ereignis `smartheat_nachweis`; `fake.pausen` sammelt die Wartezeiten des Pollings
     (sie laufen nicht wirklich)."""
     fake = FakeServer()
-    monkeypatch.setattr(config_flow, "EinrichtungClient", lambda session, base_url: fake.client(base_url))
+    monkeypatch.setattr(config_flow, "EinrichtungClient", lambda session, base_url, sprache, version: fake.client(base_url, sprache, version))
     supervisor.addon_options[BRIDGE_SLUG] = {"bootstrap_url": LABOR_URL}
     _melden(supervisor, {"geraet_id": GERAET_ID, "zustand": "nicht_uebernommen", "claim_code": CLAIM_CODE})
     monkeypatch.setattr(config_flow, "POLL_SECONDS", 0)
@@ -294,17 +294,18 @@ async def test_der_ablauf_fordert_den_nachweis_beim_add_on_an_und_holt_dann_das_
     ablauf = [call[0] for call in server.calls]
     assert ablauf[:3] == ["geraetecode_anfordern", "geraetecode_abholen", "uebernehmen"]
     assert server.calls[0] == ("geraetecode_anfordern", {"geraet_id": GERAET_ID, "zeitstempel": NACHWEIS_ZEITSTEMPEL,
-                                                         "signatur": NACHWEIS_SIGNATUR}, "en")
+                                                         "signatur": NACHWEIS_SIGNATUR})
     assert server.calls[1] == ("geraetecode_abholen", GERAETECODE)
     assert server.calls[2] == ("uebernehmen", GERAET_ID, CLAIM_CODE)
 
 
-async def test_die_sprache_von_home_assistant_geht_an_den_server(hass, server):
+async def test_sprache_von_home_assistant_und_version_aus_dem_manifest_gehen_an_den_client(hass, server):
     hass.config.language = "de"
 
     await _bis_anlage(hass)
 
-    assert server.calls[0][2] == "de"
+    manifest = json.loads((Path(config_flow.__file__).parent / "manifest.json").read_text(encoding="utf-8"))
+    assert (server.sprache, server.version) == ("de", manifest["version"])
 
 
 async def test_code_und_link_werden_im_wartenden_schritt_angezeigt_ohne_eingabefelder(hass, server):

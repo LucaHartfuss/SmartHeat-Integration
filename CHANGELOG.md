@@ -5,6 +5,9 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Einrichtungsassistent: jede Anfrage an den Server trägt die Sprache von Home Assistant (`Accept-Language`, bei einer
+  unbrauchbaren Angabe `en`) und die Kennung `smartheat-integration/<Version>` (`User-Agent`, Version aus
+  `manifest.json`). Der Server antwortet damit in der Sprache der Oberfläche.
 - README: Abschnitt „Entfernen“ mit der Reihenfolge (Eintrag löschen, im Portal „Abgemeldet“ abwarten, Add-on
   deinstallieren, Integration in HACS entfernen), der Warnung vor der falschen Reihenfolge und der Erklärung des
   Hinweises `addon_fehlt`.
