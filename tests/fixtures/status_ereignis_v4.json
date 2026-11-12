@@ -1,6 +1,7 @@
 {
   "addon_version": "0.20.0",
   "anlage_name": "Zuhause",
+  "benachrichtigung": [],
   "datenfehler": null,
   "geraet_hinweise": [],
   "geraet_id": "shg-a",
@@ -11,6 +12,7 @@
     "manueller_eingriff": null,
     "raumfuehler_ausgefallen": []
   },
+  "hinweise_aus": [],
   "konfig_version": 1,
   "kreise": [
     {

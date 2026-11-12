@@ -9,7 +9,7 @@ def test_status_event_schema_4_separates_the_plant_from_the_circuits():
     assert const.STATUS_EVENT_FIELDS == (
         "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
         "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name",
-        "konfig_version", "mindest_integration", "kreise")
+        "konfig_version", "mindest_integration", "benachrichtigung", "hinweise_aus", "kreise")
     assert const.STATUS_KREIS_FIELDS == (
         "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
         "hebelsatz", "hebel", "gelernt", "abo", "abo_frist_ende", "zustand", "kaelteschutz")

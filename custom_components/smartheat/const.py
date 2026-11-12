@@ -20,7 +20,7 @@ STATUS_EVENT_SCHEMA = 4
 STATUS_EVENT_FIELDS = (
     "schema", "tenant_id", "addon_version", "status", "grund", "notbetrieb", "datenfehler", "letzte_serverantwort",
     "hinweise", "geraet_id", "geraet_zustand", "server_verbunden", "geraet_hinweise", "anlage_name",
-    "konfig_version", "mindest_integration", "kreise",
+    "konfig_version", "mindest_integration", "benachrichtigung", "hinweise_aus", "kreise",
 )
 STATUS_KREIS_FIELDS = (
     "kreis", "name", "raum_soll", "raum_ist", "einlernphase_tag", "testphase_bis", "befunde", "boost",
