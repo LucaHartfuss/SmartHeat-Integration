@@ -49,7 +49,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     Status-Ereignis (spaetestens das Lebenszeichen) sie zurueck."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        repairs.async_clear(hass)
+        repairs.async_clear(hass, ignoriertes_auto_update_behalten=True)
     return unloaded
 
 

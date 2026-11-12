@@ -408,6 +408,37 @@ def test_an_ignored_update_repair_stays_ignored_while_the_switch_stays_off(hass)
     assert ir.async_get(hass).async_get_issue(DOMAIN, "auto_update_aus").dismissed_version is not None
 
 
+async def test_an_ignored_update_repair_stays_ignored_after_the_integration_is_reloaded(hass):
+    entry = await _setup(hass)
+    repairs.async_set_auto_update(hass, False)
+    ir.async_ignore_issue(hass, DOMAIN, "auto_update_aus", True)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    repairs.async_set_auto_update(hass, False)  # das naechste Lebenszeichen meldet den Schalter weiter als "aus"
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "auto_update_aus").dismissed_version is not None
+
+
+async def test_a_visible_update_repair_goes_when_the_integration_is_unloaded(hass):
+    entry = await _setup(hass)
+    repairs.async_set_auto_update(hass, False)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert _own_issues(hass) == {}
+
+
+async def test_removing_the_entry_takes_an_ignored_update_repair_too(hass):
+    entry = await _setup(hass)
+    repairs.async_set_auto_update(hass, False)
+    ir.async_ignore_issue(hass, DOMAIN, "auto_update_aus", True)
+
+    await hass.config_entries.async_remove(entry.entry_id)
+
+    assert _own_issues(hass) == {}
+
+
 def test_clearing_removes_the_update_repair(hass):
     repairs.async_set_auto_update(hass, False)
     repairs.async_clear(hass)

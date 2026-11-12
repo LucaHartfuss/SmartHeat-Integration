@@ -13,6 +13,7 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
   Heizungsbrücke zusammen mit Watchdog und Autostart ein; die Zusammenfassung sagt es und nennt die Stelle zum
   Ausschalten (Einstellungen → Add-ons → Heizungsbrücke). Ist der Schalter später aus, bleibt er aus; die Integration
   liest ihn nur und zeigt dann einen ignorierbaren Reparatur-Hinweis. Lässt er sich nicht lesen, gibt es keinen Hinweis.
+  Ein ignorierter Hinweis bleibt auch nach Neuladen oder Neustart der Integration ignoriert.
 - Einrichtungsassistent: jede Anfrage an den Server trägt die Sprache von Home Assistant (`Accept-Language`, bei einer
   unbrauchbaren Angabe `en`) und die Kennung `smartheat-integration/<Version>` (`User-Agent`, Version aus
   `manifest.json`). Der Server antwortet damit in der Sprache der Oberfläche.

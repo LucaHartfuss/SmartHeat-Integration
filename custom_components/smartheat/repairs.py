@@ -125,8 +125,14 @@ def async_set_auto_update(hass: HomeAssistant, auto_update: bool | None) -> None
     )
 
 
-def async_clear(hass: HomeAssistant) -> None:
+def async_clear(hass: HomeAssistant, *, ignoriertes_auto_update_behalten: bool = False) -> None:
+    """Alle eigenen Repairs nehmen. Beim Entladen (`ignoriertes_auto_update_behalten`) bleibt ein vom Kunden
+    ignoriertes Repair "automatische Updates aus" in der Registry: ein Loeschen vergaesse das Ignorieren, und der
+    Hinweis stuende nach dem Neuladen wieder offen da. Ignoriert ist er unsichtbar; das naechste Lebenszeichen setzt
+    oder nimmt ihn. Beim Loeschen des Eintrags geht er mit."""
     async_update(hass, [])
     async_set_version(hass, None)
     async_set_watchdog(hass, None)
-    ir.async_delete_issue(hass, DOMAIN, AUTO_UPDATE_ISSUE_ID)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, AUTO_UPDATE_ISSUE_ID)
+    if not (ignoriertes_auto_update_behalten and issue is not None and issue.dismissed_version is not None):
+        ir.async_delete_issue(hass, DOMAIN, AUTO_UPDATE_ISSUE_ID)
