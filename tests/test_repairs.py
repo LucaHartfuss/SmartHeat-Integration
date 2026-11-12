@@ -183,7 +183,7 @@ _NAMEN = ("raumfuehler", "wohnzimmer", "schlafzimmer", "sensor", "batterie")
 
 @pytest.mark.parametrize("key", [
     "k2_raumfuehler_wohnzimmer_sensor", "k1_batterie_schlafzimmer", "raumfuehler_wohnzimmer", "sensor_kueche_1",
-    "k12_x", "k_wohnzimmer", "k2", "neuer_hinweis", "k3_gesperrt", "a" * 40,
+    "k12_x", "k_wohnzimmer", "k2", "k2_", "K4_Wohnzimmer", "k1234_x", "neuer_hinweis", "k3_gesperrt", "a" * 40,
 ])
 def test_issue_ids_of_unknown_keys_carry_only_the_circuit_and_a_hash(key):
     """Die Issue-ID steht im Diagnose-Download und in der Registry: kein Entity- oder Fuehlername, hoechstens 64 Zeichen
@@ -191,7 +191,7 @@ def test_issue_ids_of_unknown_keys_carry_only_the_circuit_and_a_hash(key):
     issue_id = hinweis_issue_id(key)
     assert len(issue_id) <= 64 and CODE_RE.fullmatch(issue_id[len("hinweis_"):]) is not None
     assert not any(name in issue_id for name in _NAMEN)
-    kreis = re.fullmatch(r"k\d{1,3}", key.split("_")[0]) if "_" in key else None
+    kreis = re.match(r"k\d{1,3}(?=_.)", key.lower())
     erwartet = rf"hinweis_{kreis.group()}_h[0-9a-f]{{10}}" if kreis else r"hinweis_h[0-9a-f]{10}"
     assert re.fullmatch(erwartet, issue_id), issue_id
     assert hinweis_issue_id(key) == issue_id

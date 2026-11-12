@@ -101,6 +101,26 @@ async def test_red_is_never_collected_and_stays_outside_the_daily_limit(push, di
     assert titel[-1] == "SmartHeat: mehrere Meldungen"
 
 
+async def test_red_does_not_use_up_the_daily_limit(push, dienst):
+    """Umgekehrt zum Test davor: erst Rot, dann geht die erste Orange bei einem Limit von eins noch einzeln hinaus."""
+    push.ziele_setzen([DIENST], [], {"ruhe_von": 22, "ruhe_bis": 7, "tageslimit": 1})
+    await _rot(push)
+    await _orange(push, key="eins")
+
+    assert [aufruf.data["title"] for aufruf in dienst] == ["SmartHeat: Add-on läuft nicht", "SmartHeat: Gerät gesperrt"]
+
+
+async def test_an_orange_that_turns_red_under_the_same_key_and_code_is_pushed_again(push, dienst):
+    await push.melden("gesperrt", "hinweis_a", 1, "orange", True)
+    await push.melden("gesperrt", "hinweis_a", 1, "orange", True)
+    assert len(dienst) == 1
+
+    await push.melden("gesperrt", "hinweis_a", 1, "rot", True)
+    assert [aufruf.data["title"] for aufruf in dienst] == ["SmartHeat: Gerät gesperrt"] * 2
+    await push.melden("gesperrt", "hinweis_a", 1, "rot", True)
+    assert len(dienst) == 2
+
+
 async def test_open_red_is_pushed_once_and_reminded_every_24_hours_while_it_stays_open(push, dienst, freezer):
     await _rot(push)
     await _rot(push)
@@ -310,6 +330,31 @@ async def test_the_quiet_hours_follow_the_time_zone_of_home_assistant(hass, push
     await hass.config.async_set_time_zone("UTC")
     await push.async_verarbeiten()
     assert len(dienst) == 1
+
+
+@pytest.mark.parametrize(("von", "bis", "uhrzeit", "ruhig"), [
+    (8, 10, "07:59:00", False), (8, 10, "08:00:00", True), (8, 10, "09:59:00", True), (8, 10, "10:00:00", False),
+    (22, 7, "21:59:00", False), (22, 7, "22:00:00", True), (22, 7, "06:59:00", True), (22, 7, "07:00:00", False)])
+async def test_the_quiet_hours_start_at_the_full_hour_and_end_before_the_closing_hour(
+        push, dienst, freezer, von, bis, uhrzeit, ruhig):
+    push.ziele_setzen([DIENST], [], {"ruhe_von": von, "ruhe_bis": bis, "tageslimit": 5})
+    _um(freezer, uhrzeit)
+    await _orange(push)
+
+    assert len(dienst) == (0 if ruhig else 1)
+
+
+async def test_the_daily_limit_resets_at_midnight_of_the_local_time_zone(push, dienst, freezer):
+    """23:30 UTC am 11. ist 00:30 Berlin am 12.: nach UTC derselbe Tag, nach der Ortszeit schon der neue."""
+    push.ziele_setzen([DIENST], [], {"ruhe_von": 12, "ruhe_bis": 13, "tageslimit": 1})
+    freezer.move_to("2026-11-11 22:30:00+00:00")  # 23:30 am 11. in Berlin
+    await _orange(push, key="eins")
+    assert len(dienst) == 1
+
+    freezer.move_to("2026-11-11 23:30:00+00:00")  # 00:30 am 12. in Berlin
+    await _orange(push, key="zwei")
+
+    assert [aufruf.data["title"] for aufruf in dienst] == ["SmartHeat: Gerät gesperrt"] * 2
 
 
 async def test_yellow_is_never_pushed_and_closes_an_earlier_entry(push, dienst, freezer):

@@ -1183,6 +1183,19 @@ async def test_required_role_without_candidates_aborts_with_a_hint(hass, server)
     assert result["description_placeholders"]["rolle"] == "Außentemperatur"
 
 
+async def test_unknown_required_role_without_candidates_is_masked_in_the_abort(hass, server):
+    """Ohne Uebersetzung ist die Bezeichnung der rohe Schluessel des Servers: er geht maskiert in die Beschreibung."""
+    hass.config.language = "de"
+    server.zuordnung_antwort = {**ZUORDNUNG, "rollen": [*ROLLEN[:2], {**ROLLEN[2], "rolle": HOSTIL, "vorschlag": None,
+                                                                       "kandidaten": []}]}
+
+    result = await _configure(hass, await _bis_raeume_vorher(hass), {
+        "kreise": ["mypyllant|e1|SYSTEM|0"], "profil": "vaillant_gastherme_heizkoerper"})
+
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "rolle_ohne_kandidaten")
+    _nur_klartext(result["description_placeholders"]["rolle"])
+
+
 @pytest.mark.parametrize(("feld", "bezeichnung"), [("raumfuehler", "Raumfühler"),
                                                    ("room_target", "Wunschtemperatur-Entity")])
 async def test_ohne_raumfuehler_kandidaten_bricht_ab(hass, server, feld, bezeichnung):

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from aiohasupervisor.exceptions import SupervisorError
 from aiohasupervisor.models import AddonState
-from homeassistant.core import State
+from homeassistant.core import State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -259,6 +259,7 @@ def notes(hass):
     """Die Aenderungen am Repair des Waechters: (angelegt oder geaendert als (Issue-ID, Text-Code), entfernt als ID)."""
     created, dismissed = [], []
 
+    @callback
     def merken(event):
         if event.data["domain"] != DOMAIN or event.data["issue_id"] != WAECHTER_ISSUE:
             return
@@ -1226,6 +1227,7 @@ async def test_removing_the_entry_dismisses_an_open_watchdog_notification(hass, 
     await entry.runtime_data.async_check()
     clock["t"] += 300
     await entry.runtime_data.async_check()
+    await hass.async_block_till_done()
     if created != [(WAECHTER_ISSUE, "addon_gestoppt")]:
         # Failed statt AssertionError: eine kaputte Vorbedingung soll als solche auffallen.
         pytest.fail(f"Vorbedingung: der Waechter meldet addon_gestoppt genau einmal, gemeldet: {created}")

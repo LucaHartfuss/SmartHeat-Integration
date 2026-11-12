@@ -715,7 +715,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             for rolle in kreis["zuordnung"].get("rollen") or []:
                 if rolle.get("pflicht") and not rolle.get("kandidaten"):
                     bezeichnung = await async_role_label(self.hass, _text(rolle.get("rolle")))
-                    return await self._abbrechen("rolle_ohne_kandidaten", rolle=bezeichnung)
+                    return await self._abbrechen("rolle_ohne_kandidaten", rolle=_md(bezeichnung))
             # Raumfuehler und Raum-Soll sind Pflichtfelder des Schritts `raeume`: ohne Kandidaten gabe es nur einen
             # leeren Selektor, den niemand ausfuellen kann.
             for feld in _RAEUME:

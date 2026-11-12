@@ -94,8 +94,9 @@ def async_set_version(hass: HomeAssistant, befund: str | None, mindest_integrati
 def async_set_watchdog(hass: HomeAssistant, befund: str | None) -> None:
     """Das Repair zum Befund des Waechters (`addon_gestoppt`, `reagiert_nicht`, `addon_fehlt` oder `addon_mehrfach`)
     setzen; `None` nimmt es zurueck. Es gibt hoechstens eines, unter einer festen ID: eskaliert der Vorfall, aendert
-    sich nur der Text. Nicht behebbar, persistent (es ueberdauert einen Neustart von Home Assistant; die Integration
-    raeumt es beim Start ab, wenn der Waechter dann nichts findet). Fehler, nur `addon_mehrfach` ist eine Warnung (das
+    sich nur der Text. Nicht behebbar, als persistent angelegt, aber die Integration raeumt es bei jedem Start ab,
+    auch wenn der Befund fortbesteht; der neue Waechter legt es erst nach seinem ersten Befund neu an (nach einem
+    Neustart von Home Assistant fehlt es daher 10 bis 15 Minuten). Fehler, nur `addon_mehrfach` ist eine Warnung (das
     Add-on kann dabei gesund laufen). Der Text steht nur in den Uebersetzungen, ohne Platzhalter."""
     if befund is None:
         ir.async_delete_issue(hass, DOMAIN, WATCHDOG_ISSUE_ID)

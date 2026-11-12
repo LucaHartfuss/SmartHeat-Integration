@@ -75,6 +75,8 @@ erneutes Installieren des Add-ons ist ein neues Geraet. Der Hinweis endet, sobal
 
 Die Integration schaltet Watchdog und "Start beim Booten" fuer die Heizungsbruecke ein, prueft alle 5 Minuten, ob sie
 laeuft und sich meldet, meldet Ausfaelle und startet sie neu (hoechstens dreimal pro Stunde).
+Bei einem schweren Ausfall (Rot) geht zusaetzlich ein Push an die im Add-on eingetragenen Handys hinaus. Nach einem
+Neustart von Home Assistant geht er erst wieder hinaus, wenn sich das Add-on gemeldet hat.
 
 ## Aenderungen
 
