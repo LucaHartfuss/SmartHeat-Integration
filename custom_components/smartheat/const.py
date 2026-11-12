@@ -262,6 +262,8 @@ MAX_RESTARTS_PER_WINDOW = 3
 RESTART_WINDOW_SECONDS = 3600
 # Das eine Repair des Waechters: bei einer Eskalation aendert sich sein Text-Code, nicht seine ID.
 WATCHDOG_ISSUE_ID = "waechter"
+# Hinweis, dass der Kunde die automatischen Updates des Add-ons ausgeschaltet hat (Text nur in den Uebersetzungen).
+AUTO_UPDATE_ISSUE_ID = "auto_update_aus"
 
 # Push auf die Handys des Kunden. Der Store haelt Tageszaehler, aufgeschobene und offene Meldungen, nie Ziele.
 PUSH_STORE_KEY = "smartheat.push"

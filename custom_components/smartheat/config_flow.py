@@ -33,6 +33,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.hassio import is_hassio
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
+from homeassistant.loader import async_get_integration
 
 from . import addon_control, supervisor_client, vertrag_pin
 from . import anfrage as v3_anfrage
@@ -226,6 +227,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._client: EinrichtungClient | None = None
         self._discovery: dict[str, str] = {}
+        self._auto_update_gesetzt = False  # der Assistent hat die automatischen Updates des Add-ons eingeschaltet
         self._geraet: dict = {}
         self._vorschlag: dict = {}
         self._integration: dict = {}
@@ -375,7 +377,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         if (grund := (await addon_control.async_bootstrap_url(self.hass)).grund) in _VOR_DER_INSTALLATION:
             return self._merken(_Abbruch(grund))
         try:
-            await addon_control.async_install_and_start(self.hass)
+            gestartet = await addon_control.async_install_and_start(self.hass)
+            self._auto_update_gesetzt = gestartet.auto_update_gesetzt
         except AddonError as error:
             _LOGGER.warning("Einrichtung: Add-on nicht installiert oder gestartet (%s)", type(error).__name__)
             return self._merken(_Abbruch("addon_fehler"))
@@ -428,7 +431,9 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             bootstrap = await addon_control.async_bootstrap_url(self.hass)
             if bootstrap.url is None:
                 return self.async_abort(reason=bootstrap.grund or "bootstrap_url_ungueltig")
-            self._client = EinrichtungClient(async_get_clientsession(self.hass), bootstrap.url)
+            integration = await async_get_integration(self.hass, DOMAIN)
+            self._client = EinrichtungClient(async_get_clientsession(self.hass), bootstrap.url,
+                                             self.hass.config.language, str(integration.version))
             self._server = bootstrap.url
         return await self.async_step_anfordern()
 
@@ -444,8 +449,7 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         except addon_control.NachweisFehlt:
             return self._merken(_Abbruch("nachweis_fehlt"))
         try:
-            self._code = await self._api(self._client.geraetecode_anfordern, nachweis, self.hass.config.language,
-                                         veraltet="server_veraltet")
+            self._code = await self._api(self._client.geraetecode_anfordern, nachweis, veraltet="server_veraltet")
         except _Unterbrechung as unterbrechung:
             return self._merken(unterbrechung)
         return "warten"
@@ -976,7 +980,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
             return await self._unterbrechung(unterbrechung)
         self._fehler = {}
         return self.async_show_form(step_id="zusammenfassung", description_placeholders={
-            "anlage": _md(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {})})
+            "anlage": _md(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {}),
+            "auto_update": await async_hint(self.hass, "auto_update_hinweis") if self._auto_update_gesetzt else ""})
 
     # --- Auftrag ---
 

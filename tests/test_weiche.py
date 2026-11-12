@@ -31,6 +31,7 @@ BOOST = "sensor.smartheat_k1_boost"
 NOTBETRIEB = "binary_sensor.smartheat_notbetrieb"
 WUNSCH = "number.smartheat_k1_wunschtemperatur"
 KERN = "1.4.0"
+NIEDRIG = "0.9.0"
 _COMPONENT = Path(__file__).parent.parent / "custom_components" / "smartheat"
 
 
@@ -54,7 +55,10 @@ async def _fire(hass, event):
 
 
 def _ereignis(schema=4, status="regelt", **overrides):
-    return {**status_event(TENANT, status, **overrides), "schema": schema, "mindest_integration": KERN}
+    """Ein gelesenes Schema (3, 4) nennt eine Mindestversion unter der der Integration; KERN steht nur im Ereignis eines
+    Schemas, das die Integration nicht liest."""
+    return {**status_event(TENANT, status, **overrides), "schema": schema,
+            "mindest_integration": NIEDRIG if schema in (3, 4) else KERN}
 
 
 def _issues(hass):
@@ -149,6 +153,148 @@ async def test_ein_lesbares_ereignis_hebt_den_befund_und_das_repair_wieder_auf(h
     assert hass.states.get(BOOST).state != STATE_UNAVAILABLE
     assert float(hass.states.get(WUNSCH).state) == 21.5
     assert not set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"}
+
+
+# --- Mindestversion der Integration bei gelesenem Schema ---
+
+def _eigene_version(entry, version):
+    entry.runtime_data._version = version
+
+
+def _mit_mindest(mindest, **overrides):
+    return {**_ereignis(**overrides), "mindest_integration": mindest}
+
+
+@pytest.mark.parametrize(("eigene", "mindest"), [
+    ("1.1.0", "1.1.1"), ("1.1.0", "1.2.0"), ("1.1.0", "2.0.0"), ("1.9.0", "1.10.0"), ("1.9.9", "1.9.10"),
+    ("9.9.9", "10.0.0"), ("1.4.0-rc1", "1.4.1"), ("1.3.0", "1.4.0-rc1"), ("1.3.0", "1.4.0+build5"),
+])
+async def test_eine_mindestversion_ueber_der_eigenen_version_ergibt_den_befund(hass, clock, eigene, mindest):
+    entry = await _setup(hass)
+    _eigene_version(entry, eigene)
+
+    await _fire(hass, _mit_mindest(mindest))
+
+    assert entry.runtime_data.status == "integration_veraltet"
+    assert hass.states.get(STATUS).state == "integration_veraltet"
+    for entity_id in (BOOST, NOTBETRIEB, WUNSCH):
+        assert hass.states.get(entity_id).state == STATE_UNAVAILABLE, entity_id
+    issue = _issues(hass)["integration_veraltet"]
+    assert issue.translation_key == "integration_veraltet" and not issue.is_fixable
+    assert issue.translation_placeholders == {"mindest_integration": mindest}
+    assert set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"} == {"integration_veraltet"}
+
+
+@pytest.mark.parametrize(("eigene", "mindest"), [
+    ("1.1.0", "1.1.0"), ("1.1.0", "1.0.9"), ("1.10.0", "1.9.0"), ("2.0.0", "1.99.99"), ("1.4.0-rc1", "1.4.0"),
+    ("1.4.0", "1.4.0-rc1"), ("1.4.0.dev3", "1.4.0"), ("1.4.0", "1.4.0+build5"), ("0.0.0", "0.0.0"),
+])
+async def test_gleichstand_und_eine_niedrigere_mindestversion_ergeben_keinen_befund(hass, clock, eigene, mindest):
+    entry = await _setup(hass)
+    _eigene_version(entry, eigene)
+
+    await _fire(hass, _mit_mindest(mindest))
+
+    assert entry.runtime_data.status == "regelt" and entry.runtime_data.version_status is None
+    assert hass.states.get(BOOST).state != STATE_UNAVAILABLE
+    assert not set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"}
+
+
+@pytest.mark.parametrize("mindest", [None, "", "x" * 200, 7, ["9.9.9"], {"v": "9.9.9"}, True, "9.9", "9", "v9.9.9",
+                                     "9.9.9.com", "www.setwell-update.de", "99.0.0.rc1", "9.9.9\n", "9.9.9 ",
+                                     "٩.٩.٩", "9.9.9-www.evil.de", "9.9.9-" + "a" * 40, "a.b.c"])
+async def test_eine_unlesbare_oder_fehlende_mindestversion_ergibt_nie_einen_befund(hass, clock, mindest):
+    entry = await _setup(hass)
+    await _fire(hass, _mit_mindest(mindest))
+
+    assert entry.runtime_data.version_status is None
+    assert hass.states.get(STATUS).state == "regelt"
+    assert hass.states.get(BOOST).state != STATE_UNAVAILABLE
+    assert not set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"}
+
+
+async def test_ein_ereignis_ohne_mindestversion_ergibt_keinen_befund(hass, clock):
+    entry = await _setup(hass)
+
+    await _fire(hass, {k: v for k, v in _ereignis().items() if k != "mindest_integration"})
+
+    assert entry.runtime_data.version_status is None
+    assert not set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"}
+
+
+@pytest.mark.parametrize("eigene", ["", "dev", "1.1", "1.1.0.com", "x" * 100, None, 1.1])
+async def test_eine_unlesbare_eigene_version_ergibt_keinen_befund(hass, clock, eigene):
+    entry = await _setup(hass)
+    _eigene_version(entry, eigene)
+
+    await _fire(hass, _mit_mindest("99.0.0"))
+
+    assert entry.runtime_data.version_status is None
+    assert not set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"}
+
+
+async def test_die_eigene_version_ist_die_des_manifests(hass, clock):
+    """Ohne Eingriff vergleicht die Integration die Version aus `manifest.json` (nicht eine Konstante im Code)."""
+    version = json.loads((_COMPONENT / "manifest.json").read_text(encoding="utf-8"))["version"]
+    major, minor, patch = (int(teil) for teil in version.split("."))
+    entry = await _setup(hass)
+    assert entry.runtime_data.version == version
+
+    await _fire(hass, _mit_mindest(version))
+    assert entry.runtime_data.version_status is None
+    await _fire(hass, _mit_mindest(f"{major}.{minor}.{patch + 1}"))
+    assert entry.runtime_data.version_status == "integration_veraltet"
+
+
+async def test_der_befund_der_mindestversion_endet_mit_dem_naechsten_ereignis_ohne_ihn(hass, clock):
+    entry = await _setup(hass)
+    await _fire(hass, _mit_mindest("99.0.0", raum_soll=21.0))
+    assert hass.states.get(STATUS).state == "integration_veraltet"
+
+    await _fire(hass, _mit_mindest(NIEDRIG, raum_soll=21.5))
+
+    assert entry.runtime_data.version_status is None
+    assert hass.states.get(STATUS).state == "regelt"
+    assert float(hass.states.get(WUNSCH).state) == 21.5
+    assert not set(_issues(hass)) & {"integration_veraltet", "addon_veraltet"}
+
+    await _fire(hass, _mit_mindest("99.0.0"))
+    await _fire(hass, {k: v for k, v in _ereignis().items() if k != "mindest_integration"})
+    assert entry.runtime_data.version_status is None
+    assert "integration_veraltet" not in _issues(hass)
+
+
+async def test_der_wunsch_lehnt_bei_zu_alter_integration_ab(hass, clock):
+    await _setup(hass)
+    await _fire(hass, _ereignis())
+    await _fire(hass, _mit_mindest("99.0.0"))
+    wuensche = async_capture_events(hass, WUNSCH_EVENT)
+
+    with pytest.raises(ServiceValidationError) as fehler:
+        await _entity(hass, WUNSCH).async_set_native_value(22.0)
+
+    assert (fehler.value.translation_domain, fehler.value.translation_key) == (DOMAIN, "integration_veraltet")
+    await hass.async_block_till_done()
+    assert wuensche == []
+
+
+async def test_ein_nicht_gelesenes_schema_bleibt_beim_schema_befund(hass, clock):
+    """Bei einem Schema darunter gilt `addon_veraltet`, auch wenn die Mindestversion die eigene uebersteigt; ein
+    Schema darueber hat seinen eigenen Befund."""
+    await _setup(hass)
+
+    await _fire(hass, {**_ereignis(schema=3), "mindest_integration": "99.0.0"})
+
+    assert hass.states.get(STATUS).state == "addon_veraltet"
+    assert set(_issues(hass)) == {"addon_veraltet"}
+
+
+async def test_ein_fremdes_geraet_loest_den_mindestversionsbefund_nicht_aus(hass, clock):
+    await _setup(hass)
+
+    await _fire(hass, {**_mit_mindest("99.0.0"), "geraet_id": "shg-b"})
+
+    assert not _issues(hass)
 
 
 async def test_der_wechsel_von_einem_befund_zum_anderen_tauscht_das_repair(hass, clock):

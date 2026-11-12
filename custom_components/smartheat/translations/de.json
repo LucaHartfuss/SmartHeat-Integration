@@ -143,7 +143,7 @@
           "batterien": "Batterie-Entities, die SmartHeat überwacht und deren schwachen Stand es meldet."
         }
       },
-      "zusammenfassung": {"title": "Zusammenfassung", "description": "Anlage {anlage}. Hinweise:\n{warnungen}\n\nJetzt einrichten?"},
+      "zusammenfassung": {"title": "Zusammenfassung", "description": "Anlage {anlage}. Hinweise:\n{warnungen}\n\n{auto_update}Jetzt einrichten?"},
       "menue": {
         "title": "Neu konfigurieren",
         "description": "Anlage {anlage}: Was soll geändert werden?",
@@ -325,9 +325,11 @@
     "addon_gestoppt": {"title": "SmartHeat: Add-on läuft nicht", "description": "Das Add-on Heizungsbrücke läuft nicht, die Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat es neu."},
     "reagiert_nicht": {"title": "SmartHeat: Add-on meldet sich nicht", "description": "Das Add-on Heizungsbrücke meldet sich seit 15 Minuten nicht, die Heizungssteuerung ist unterbrochen. Bitte das Add-on unter Einstellungen → Add-ons prüfen; wenn möglich, startet SmartHeat es neu."},
     "addon_fehlt": {"title": "SmartHeat: Add-on nicht installiert", "description": "Das Add-on Heizungsbrücke ist nicht installiert. Die Heizung bleibt auf den letzten Werten. Erneutes Installieren ist ein neues Gerät."},
-    "addon_mehrfach": {"title": "SmartHeat: Add-on mehrfach installiert", "description": "Das Add-on Heizungsbrücke ist mehrfach installiert, SmartHeat kann nicht erkennen, welches gemeint ist. Bitte alle bis auf eines unter Einstellungen → Add-ons deinstallieren."}
+    "addon_mehrfach": {"title": "SmartHeat: Add-on mehrfach installiert", "description": "Das Add-on Heizungsbrücke ist mehrfach installiert, SmartHeat kann nicht erkennen, welches gemeint ist. Bitte alle bis auf eines unter Einstellungen → Add-ons deinstallieren."},
+    "auto_update_aus": {"title": "SmartHeat: automatische Updates des Add-ons sind aus", "description": "Die automatischen Updates sind für das Add-on Heizungsbrücke ausgeschaltet, es bekommt neue Versionen nur, wenn Sie es selbst aktualisieren. Sie können sie unter Einstellungen → Add-ons → Heizungsbrücke (Automatisch aktualisieren) wieder einschalten. Sie können diesen Hinweis auch ignorieren."}
   },
   "common": {
+    "auto_update_hinweis": "Die Einrichtung hat die automatischen Updates für das Add-on Heizungsbrücke eingeschaltet. Sie können sie unter Einstellungen → Add-ons → Heizungsbrücke (Automatisch aktualisieren) ausschalten.\n\n",
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
     "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
     "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities.",

@@ -60,6 +60,9 @@ class FakeSupervisor:
         self.installed: list = [installed_addon(BRIDGE_SLUG)]
         self.addon_options: dict[str, object] = {}  # Optionen (config) je Slug, wie addon_info sie liefert
         self.supervision: dict[str, dict] = {}  # watchdog/boot je Slug, gesetzt ueber set_addon_options
+        # Schalter "Automatische Updates" je Slug; ohne Eintrag gilt er als an. `addon_info` liefert ihn, nur
+        # `set_addon_options` mit `auto_update` aendert ihn.
+        self.auto_update: dict[str, bool] = {}
         self.config_written: list[str] = []  # Slugs, an die set_addon_options eine Konfiguration schrieb
         self.discovery: list = []
         self.errors: dict = {}
@@ -144,7 +147,7 @@ class FakeSupervisor:
         found = self._installed_or_404(addon)
         return SimpleNamespace(slug=addon, available=True, hostname=addon.replace("_", "-"),
                                options=self.addon_options.get(addon, {}), state=found.state, update_available=False,
-                               version=found.version)
+                               version=found.version, auto_update=self.auto_update.get(addon, True))
 
     def _set_addon_options(self, addon: str, options: AddonsOptions) -> None:
         self._check("addons.set_addon_options", addon)
@@ -154,6 +157,8 @@ class FakeSupervisor:
             self.addon_options[addon] = options.config
         if options.watchdog is not None or options.boot is not None:
             self.supervision[addon] = {"watchdog": options.watchdog, "boot": options.boot}
+        if options.auto_update is not None:
+            self.auto_update[addon] = options.auto_update
 
     def _start_addon(self, addon: str) -> None:
         self._check("addons.start_addon", addon)

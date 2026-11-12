@@ -5,6 +5,18 @@ HACS zeigt den Abschnitt der jeweiligen Version als Release-Notiz. Pro Version e
 
 ## Unveröffentlicht
 
+- Mindestversion der Integration: Nennt das Add-on in seinem Ereignis eine `mindest_integration`, die über der
+  eigenen Version liegt (verglichen werden die drei Zahlen), zeigt die Integration `integration_veraltet` mit
+  Reparatur-Hinweis und der Mindestversion. Gleichstand, eine niedrigere, fehlende oder unlesbare Angabe ergeben nie
+  einen Hinweis; er endet mit dem nächsten Ereignis ohne Unterschreitung. Der Server nennt heute keine Mindestversion.
+- Automatische Updates des Add-ons: Die Einrichtung (nur sie, nicht Start, Update oder Neuladen) schaltet sie für die
+  Heizungsbrücke zusammen mit Watchdog und Autostart ein; die Zusammenfassung sagt es und nennt die Stelle zum
+  Ausschalten (Einstellungen → Add-ons → Heizungsbrücke). Ist der Schalter später aus, bleibt er aus; die Integration
+  liest ihn nur und zeigt dann einen ignorierbaren Reparatur-Hinweis. Lässt er sich nicht lesen, gibt es keinen Hinweis.
+  Ein ignorierter Hinweis bleibt auch nach Neuladen oder Neustart der Integration ignoriert.
+- Einrichtungsassistent: jede Anfrage an den Server trägt die Sprache von Home Assistant (`Accept-Language`, bei einer
+  unbrauchbaren Angabe `en`) und die Kennung `smartheat-integration/<Version>` (`User-Agent`, Version aus
+  `manifest.json`). Der Server antwortet damit in der Sprache der Oberfläche.
 - README: Abschnitt „Entfernen“ mit der Reihenfolge (Eintrag löschen, im Portal „Abgemeldet“ abwarten, Add-on
   deinstallieren, Integration in HACS entfernen), der Warnung vor der falschen Reihenfolge und der Erklärung des
   Hinweises `addon_fehlt`.

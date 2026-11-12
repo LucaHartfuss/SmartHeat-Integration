@@ -76,6 +76,8 @@ class FakeServer:
 
     def __init__(self) -> None:
         self.base_url: str | None = None
+        self.sprache: str | None = None
+        self.version: str | None = None
         self.calls: list[tuple] = []
         self.geraet_sicht = {"device_id": GERAET_ID, "host": "ha", "eingerichtet": False, "tenant_id": None,
                              "anlagen": [{"tenant_id": TENANT, "aktiv": True, "belegt": False, "ersetzbar": False}],
@@ -95,9 +97,10 @@ class FakeServer:
         self.freigabe = asyncio.Event()
         self._client = None
 
-    def client(self, base_url: str):
-        """Ersatz fuer `EinrichtungClient(session, base_url)` im Assistenten."""
-        self.base_url = base_url
+    def client(self, base_url: str, sprache: str | None = None, version: str | None = None):
+        """Ersatz fuer `EinrichtungClient(session, base_url, sprache, version)` im Assistenten; Sprache und Version
+        der letzten Erzeugung stehen in `self.sprache` und `self.version`."""
+        self.base_url, self.sprache, self.version = base_url, sprache, version
         client = create_autospec(EinrichtungClient, instance=True)
         client.token = None
         for name in self.ROUTEN:
@@ -109,8 +112,8 @@ class FakeServer:
         if route in self.fehler:
             raise self.fehler[route]
 
-    async def _geraetecode_anfordern(self, nachweis, sprache):
-        self.calls.append(("geraetecode_anfordern", nachweis, sprache))
+    async def _geraetecode_anfordern(self, nachweis):
+        self.calls.append(("geraetecode_anfordern", nachweis))
         self._check("geraetecode_anfordern")
         return dict(self.code_antwort)
 

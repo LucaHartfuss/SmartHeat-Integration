@@ -80,7 +80,7 @@ def _ereignis(**overrides):
                      "raumfuehler_ausgefallen": [GEHEIM["entity_fuehler"], "sensor.zweiter"],
                      "manueller_eingriff": {"entity": GEHEIM["entity_zuordnung"]}},
         "geraet_hinweise": [{"key": "wunsch_begrenzt", "stufe": "warnung", "text": GEHEIM["hinweistext"]}],
-        "mindest_integration": "1.4.0",
+        "mindest_integration": "1.0.0",
         **overrides,
     }
 

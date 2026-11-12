@@ -20,7 +20,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import geraete, repairs
+from . import addon_control, geraete, repairs
 from .const import (
     BRUECKE_FEHLT,
     BRUECKE_GEFUNDEN,
@@ -30,6 +30,7 @@ from .const import (
     INTEGRATION_EVENT_FIELDS,
     INTEGRATION_EVENT_SCHEMA,
     MAX_RESTARTS_PER_WINDOW,
+    MINDEST_INTEGRATION_RE,
     MISSING_AFTER_CHECKS,
     PUSH_ABGLEICH_SECONDS,
     PUSH_CODES,
@@ -185,6 +186,23 @@ def _versionsbefund(schema: object) -> str | None:
     if schema < min(V5_SCHEMAS):
         return STATUS_ADDON_VERALTET
     return None
+
+
+def _kernversion(version: object) -> tuple[int, int, int] | None:
+    """Die drei Zahlen einer Version nach `MINDEST_INTEGRATION_RE` (eine Endung zaehlt nicht mit); None, wenn der Wert
+    keine Version ist."""
+    if not isinstance(version, str) or MINDEST_INTEGRATION_RE.fullmatch(version) is None:
+        return None
+    major, minor, patch = version.split("-")[0].split("+")[0].split(".")[:3]
+    return int(major), int(minor), int(patch)
+
+
+def _mindestversion_verfehlt(eigene: object, mindest: object) -> bool:
+    """Ob die eigene Version unter der Mindestversion des Add-ons liegt. Nur wenn beide lesbar sind und die eigene
+    echt darunter liegt; Gleichstand, ein unlesbarer oder fehlender Wert auf einer der Seiten ergibt nie einen Befund
+    (die Integration soll nicht auf ein Gerucht hin stilllegen)."""
+    ihre, noetig = _kernversion(eigene), _kernversion(mindest)
+    return ihre is not None and noetig is not None and ihre < noetig
 
 
 class SmartHeatCoordinator:
@@ -351,7 +369,11 @@ class SmartHeatCoordinator:
         self._async_geraete_nachziehen(data.get("konfig_version"))
         hinweise = data.get("geraet_hinweise")
         repairs.async_update(self.hass, hinweise if isinstance(hinweise, list) else [])
-        self._set_version_status(None)  # sendet das Signal in jedem Fall
+        # Gelesenes Schema: ein Befund entsteht nur, wenn die Mindestversion lesbar ist und ueber der eigenen Version
+        # liegt. Das Signal geht in jedem Fall raus.
+        mindest = data.get("mindest_integration")
+        self._set_version_status(
+            STATUS_INTEGRATION_VERALTET if _mindestversion_verfehlt(self._version, mindest) else None, mindest)
 
     @callback
     def _async_geraete_nachziehen(self, konfig_version: object) -> None:
@@ -400,6 +422,7 @@ class SmartHeatCoordinator:
                 return
             manager = stand.manager
             running: bool | None = None  # None: Bruecke nicht aufloesbar (siehe Watchdog.check)
+            auto_update: bool | None = None  # None: Schalter unbekannt, das Repair bleibt, wie es ist
             if manager is not None:
                 try:
                     info = await manager.async_get_addon_info()
@@ -409,9 +432,11 @@ class SmartHeatCoordinator:
                     )
                     return  # Zustand unbekannt: kein Zaehler, kein Alarm
                 running = info.state == AddonState.RUNNING
+                auto_update = await addon_control.async_auto_update(self.hass, manager.addon_slug)  # nur lesen
             status, revive = self._watchdog.check(_now(), running, stand.zustand)
             if self._stopped:  # der Eintrag wurde waehrend der Abfragen entladen/geloescht: nichts mehr starten
                 return
+            repairs.async_set_auto_update(self.hass, auto_update)
             if revive:
                 await self._async_revive(manager, bool(running))
                 if not self._stopped:

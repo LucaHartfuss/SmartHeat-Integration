@@ -143,7 +143,7 @@
           "batterien": "Battery entities SmartHeat watches and reports when they run low."
         }
       },
-      "zusammenfassung": {"title": "Summary", "description": "Installation {anlage}. Notes:\n{warnungen}\n\nSet up now?"},
+      "zusammenfassung": {"title": "Summary", "description": "Installation {anlage}. Notes:\n{warnungen}\n\n{auto_update}Set up now?"},
       "menue": {
         "title": "Reconfigure",
         "description": "Installation {anlage}: what should change?",
@@ -325,9 +325,11 @@
     "addon_gestoppt": {"title": "SmartHeat: add-on not running", "description": "The Heizungsbrücke add-on is not running, so the heating control is interrupted. Please check the add-on under Settings → Add-ons; if possible, SmartHeat restarts it."},
     "reagiert_nicht": {"title": "SmartHeat: add-on not responding", "description": "The Heizungsbrücke add-on has not reported for 15 minutes, so the heating control is interrupted. Please check the add-on under Settings → Add-ons; if possible, SmartHeat restarts it."},
     "addon_fehlt": {"title": "SmartHeat: add-on not installed", "description": "The Heizungsbrücke add-on is not installed. The heating stays at its last values. Installing it again creates a new device."},
-    "addon_mehrfach": {"title": "SmartHeat: add-on installed more than once", "description": "The Heizungsbrücke add-on is installed more than once, so SmartHeat cannot tell which one is meant. Please uninstall all but one under Settings → Add-ons."}
+    "addon_mehrfach": {"title": "SmartHeat: add-on installed more than once", "description": "The Heizungsbrücke add-on is installed more than once, so SmartHeat cannot tell which one is meant. Please uninstall all but one under Settings → Add-ons."},
+    "auto_update_aus": {"title": "SmartHeat: automatic updates of the add-on are off", "description": "Automatic updates are switched off for the Heizungsbrücke add-on, so it only gets new versions when you update it yourself. You can switch them back on under Settings → Add-ons → Heizungsbrücke (Automatic update). You can also ignore this notice."}
   },
   "common": {
+    "auto_update_hinweis": "The setup switched on automatic updates for the Heizungsbrücke add-on. You can switch them off under Settings → Add-ons → Heizungsbrücke (Automatic update).\n\n",
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
     "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",

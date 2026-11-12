@@ -1,6 +1,7 @@
 """Add-on-Steuerung der Integration: Heizungsbruecke finden, bei Bedarf installieren und ohne Optionen
-starten, Watchdog/Autostart, Discovery und die Option bootstrap_url lesen, den Nachweis des Geraets anfordern. Die
-Integration schreibt keine Optionen; nur das Add-on schreibt auf die Anlage."""
+starten, Watchdog/Autostart und (nur bei der Ersteinrichtung) automatische Updates setzen, den Schalter lesen,
+Discovery und die Option bootstrap_url lesen, den Nachweis des Geraets anfordern. Die Integration schreibt keine
+Add-on-Konfiguration; nur das Add-on schreibt auf die Anlage."""
 from __future__ import annotations
 
 import asyncio
@@ -80,9 +81,20 @@ async def _repository_hash(hass: HomeAssistant) -> str:
     raise AddonError(f"Das Add-on-Repository {ADDON_REPOSITORY_URL} ist im Add-on-Store nicht eingetragen")
 
 
-async def async_install_and_start(hass: HomeAssistant) -> AddonManager:
-    """Installiert die Heizungsbruecke aus dem Repository (falls noetig) und startet sie, ohne Optionen zu schreiben;
-    danach Watchdog und Autostart an. Wirft AddonError."""
+@dataclass(frozen=True)
+class GestarteteBruecke:
+    """Ergebnis von async_install_and_start: der Manager der Heizungsbruecke und ob der Schalter "Automatische
+    Updates" gesetzt wurde (False, wenn das Schreiben scheiterte)."""
+
+    manager: AddonManager
+    auto_update_gesetzt: bool
+
+
+async def async_install_and_start(hass: HomeAssistant) -> GestarteteBruecke:
+    """Installiert die Heizungsbruecke aus dem Repository (falls noetig) und startet sie, ohne Konfiguration zu
+    schreiben; danach Watchdog, Autostart und automatische Updates an. Das ist die Ersteinrichtung (der Assistent
+    laeuft dank `single_config_entry` nur ohne Eintrag); Start, Update und Neuladen der Integration rufen es nie auf,
+    ein vom Kunden ausgeschalteter Schalter bleibt dort aus. Wirft AddonError."""
     if not is_hassio(hass):
         raise AddonError("Kein Supervisor: das Add-on laesst sich hier nicht installieren")
     slug = await async_bridge_slug(hass) or f"{await _repository_hash(hass)}_{HEIZUNGSBRUECKE_ADDON_SLUG}"
@@ -93,23 +105,36 @@ async def async_install_and_start(hass: HomeAssistant) -> AddonManager:
         info = await manager.async_get_addon_info()
     if info.state == AddonState.NOT_RUNNING:
         await manager.async_start_addon()
-    if not await async_set_supervision(hass, slug):
+    gesetzt = await async_set_supervision(hass, slug)
+    if not gesetzt:
         _LOGGER.warning("Watchdog und Autostart der Heizungsbruecke nicht gesetzt")
-    return manager
+    return GestarteteBruecke(manager, gesetzt)
 
 
 async def async_set_supervision(hass: HomeAssistant, slug: str) -> bool:
-    """Watchdog und Boot der Heizungsbruecke an: watchdog + boot auto. True, wenn es gesetzt wurde;
-    scheitert es, ist das nur eine Warnung des Aufrufers."""
+    """Watchdog, Boot und automatische Updates der Heizungsbruecke an: watchdog + boot auto + auto_update, in einem
+    Aufruf. True, wenn es gesetzt wurde; scheitert es, ist das nur eine Warnung des Aufrufers."""
     try:
         await get_supervisor_client(hass).addons.set_addon_options(
-            slug, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO),
+            slug, AddonsOptions(watchdog=True, boot=AddonBoot.AUTO, auto_update=True),
         )
     except SupervisorError as error:
         # Nicht den Supervisor-Text loggen: er kann Optionswerte zitieren.
         _LOGGER.warning("Watchdog/Boot fuer Add-on %s nicht gesetzt: %s", slug, type(error).__name__)
         return False
     return True
+
+
+async def async_auto_update(hass: HomeAssistant, slug: str) -> bool | None:
+    """Stand des Schalters "Automatische Updates" der Heizungsbruecke (der Supervisor liefert ihn nur in den
+    Add-on-Infos). None, wenn er sich nicht lesen laesst oder kein Wahrheitswert ist: dann gilt er als unbekannt, nie
+    als aus. Wirft nie; der Supervisor-Text steht nicht im Log."""
+    try:
+        wert = (await get_supervisor_client(hass).addons.addon_info(slug)).auto_update
+    except Exception as error:  # noqa: BLE001 - nicht lesbar heisst unbekannt
+        _LOGGER.debug("Schalter Automatische Updates nicht lesbar (%s)", type(error).__name__)
+        return None
+    return wert if isinstance(wert, bool) else None
 
 
 def _valid_url(value) -> bool:

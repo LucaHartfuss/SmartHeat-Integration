@@ -35,7 +35,7 @@ async def _laufend(hass):
     entry = make_device_entry(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    hass.bus.async_fire(STATUS_EVENT, {**status_event(TENANT, "regelt"), "mindest_integration": "1.4.0"})
+    hass.bus.async_fire(STATUS_EVENT, {**status_event(TENANT, "regelt"), "mindest_integration": "1.0.0"})
     await hass.async_block_till_done()
     return entry.runtime_data
 

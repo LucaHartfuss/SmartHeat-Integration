@@ -370,3 +370,82 @@ def test_every_known_hint_has_a_text_with_the_device_text(path):
         assert issues[key]["title"].strip(), (path, key)
         assert "{text}" in issues[key]["description"], (path, key)
     assert "complete_setup" not in issues
+
+
+# --- Schalter "Automatische Updates" des Add-ons ---
+
+
+def test_an_update_switch_that_is_off_is_a_warning_that_can_be_ignored_and_goes_when_it_is_on(hass):
+    repairs.async_set_auto_update(hass, False)
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "auto_update_aus")
+    assert (issue.severity, issue.is_fixable, issue.is_persistent, issue.translation_key) == (
+        ir.IssueSeverity.WARNING, False, False, "auto_update_aus")
+    assert issue.translation_placeholders is None
+
+    repairs.async_set_auto_update(hass, False)  # wiederholt: dasselbe Issue, kein zweites
+    assert list(_own_issues(hass)) == ["auto_update_aus"]
+
+    repairs.async_set_auto_update(hass, True)
+    assert _own_issues(hass) == {}
+
+
+def test_an_unknown_update_switch_changes_nothing(hass):
+    repairs.async_set_auto_update(hass, None)
+    assert _own_issues(hass) == {}
+
+    repairs.async_set_auto_update(hass, False)
+    repairs.async_set_auto_update(hass, None)  # Lesefehler: kein Beleg fuer "an", das Issue bleibt, wie es war
+    assert list(_own_issues(hass)) == ["auto_update_aus"]
+
+
+def test_an_ignored_update_repair_stays_ignored_while_the_switch_stays_off(hass):
+    repairs.async_set_auto_update(hass, False)
+    ir.async_ignore_issue(hass, DOMAIN, "auto_update_aus", True)
+
+    repairs.async_set_auto_update(hass, False)
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "auto_update_aus").dismissed_version is not None
+
+
+async def test_an_ignored_update_repair_stays_ignored_after_the_integration_is_reloaded(hass):
+    entry = await _setup(hass)
+    repairs.async_set_auto_update(hass, False)
+    ir.async_ignore_issue(hass, DOMAIN, "auto_update_aus", True)
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    repairs.async_set_auto_update(hass, False)  # das naechste Lebenszeichen meldet den Schalter weiter als "aus"
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "auto_update_aus").dismissed_version is not None
+
+
+async def test_a_visible_update_repair_goes_when_the_integration_is_unloaded(hass):
+    entry = await _setup(hass)
+    repairs.async_set_auto_update(hass, False)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+    assert _own_issues(hass) == {}
+
+
+async def test_removing_the_entry_takes_an_ignored_update_repair_too(hass):
+    entry = await _setup(hass)
+    repairs.async_set_auto_update(hass, False)
+    ir.async_ignore_issue(hass, DOMAIN, "auto_update_aus", True)
+
+    await hass.config_entries.async_remove(entry.entry_id)
+
+    assert _own_issues(hass) == {}
+
+
+def test_clearing_removes_the_update_repair(hass):
+    repairs.async_set_auto_update(hass, False)
+    repairs.async_clear(hass)
+    assert _own_issues(hass) == {}
+
+
+@pytest.mark.parametrize("path", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_the_update_repair_names_the_place_to_switch_it_back_on(path):
+    issue = json.loads((_COMPONENT / path).read_text())["issues"]["auto_update_aus"]
+    assert issue["title"].strip() and issue["description"].strip()

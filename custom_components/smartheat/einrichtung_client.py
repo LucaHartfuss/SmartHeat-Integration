@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -138,6 +139,11 @@ _ERRORS: dict[int, type[ApiError]] = {404: NotFound, 409: Conflict, 429: TooMany
 # Bestaetigung im Portal fuehren.
 _ERWARTETE_STATUS = frozenset({401, 404, 409, 429})
 _ERWARTETE_ZUSTAENDE = frozenset({ZUSTAND_ERNEUT_ANMELDEN, ZUSTAND_PORTAL_BESTAETIGUNG})
+SPRACHE_RUECKFALL = "en"
+USER_AGENT_NAME = "smartheat-integration"
+VERSION_UNBEKANNT = "unbekannt"
+_SPRACHE_RE = re.compile(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}")
+_VERSION_RE = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,31}")
 
 
 def _sekunden(wert: Any) -> bool:
@@ -145,18 +151,36 @@ def _sekunden(wert: Any) -> bool:
     return isinstance(wert, int) and not isinstance(wert, bool) and 1 <= wert <= GERAETECODE_SEKUNDEN_MAX
 
 
+def _sprachkennung(sprache: Any) -> str:
+    """Die Sprache von Home Assistant als Wert fuer `Accept-Language`: nur eine einfache Sprachkennung (`de`,
+    `pt-BR`), sonst `en`. Keine Gewichtung, kein Platzhalter, keine Steuerzeichen, keine Ueberlaenge."""
+    if isinstance(sprache, str) and _SPRACHE_RE.fullmatch(sprache):
+        return sprache
+    return SPRACHE_RUECKFALL
+
+
+def _kennung(version: Any) -> str:
+    """Wert des `User-Agent`: Name der Integration und ihre Version; eine unlesbare Version steht als `unbekannt` da."""
+    if not (isinstance(version, str) and _VERSION_RE.fullmatch(version)):
+        version = VERSION_UNBEKANNT
+    return f"{USER_AGENT_NAME}/{version}"
+
+
 class EinrichtungClient:
-    def __init__(self, session: aiohttp.ClientSession, base_url: str) -> None:
+    def __init__(self, session: aiohttp.ClientSession, base_url: str, sprache: str, version: str) -> None:
+        """`sprache`: Sprache von Home Assistant (der Server rendert seine Texte in ihr), `version`: Version der
+        Integration aus `manifest.json`; beide gehen an jeder Anfrage als Kopf mit."""
         self._session, self._base_url = session, base_url.rstrip("/")
+        self._kopfe = {"Accept-Language": _sprachkennung(sprache), "User-Agent": _kennung(version)}
         self.token: str | None = None
 
-    async def geraetecode_anfordern(self, nachweis: dict, sprache: str) -> dict:
+    async def geraetecode_anfordern(self, nachweis: dict) -> dict:
         """Fordert den Anmeldecode an. `nachweis`: `geraet_id`, `zeitstempel`, `signatur` aus dem Ereignis des Add-ons;
         der Koerper ist `{}`, genau das hat der Geraetekern signiert. Antwort: `geraetecode`, `anmeldecode`, `link`,
         `link_komplett`, `gueltig_s`, `abfrage_s`, jedes Feld geprueft (Code und Link stehen dem Kunden auf dem
         Bildschirm, die Zeiten steuern das Polling)."""
         kopfe = {NACHWEIS_KOPF_GERAET: nachweis["geraet_id"], NACHWEIS_KOPF_ZEITSTEMPEL: str(nachweis["zeitstempel"]),
-                 NACHWEIS_KOPF_SIGNATUR: nachweis["signatur"], "Accept-Language": sprache}
+                 NACHWEIS_KOPF_SIGNATUR: nachweis["signatur"]}
         antwort = await self._dict("geraetecode", json={}, auth=False, headers=kopfe)
         code = antwort.get("geraetecode")
         if not isinstance(code, str) or not code or len(code) > GERAETECODE_MAX_ZEICHEN:
@@ -273,7 +297,7 @@ class EinrichtungClient:
                     self._deklariert(route, raum, EINRICHTUNG_ANFRAGE_RAUM_FELDER)
         if job_id is not None:
             path = path.replace("<job_id>", quote(job_id, safe=""))
-        headers = {**(headers or {}), **({"Authorization": f"Bearer {self.token}"} if auth and self.token else {})}
+        headers = {**self._kopfe, **(headers or {}), **({"Authorization": f"Bearer {self.token}"} if auth and self.token else {})}
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
                 async with self._session.request(method, f"{self._base_url}{EINRICHTUNG_PREFIX}{path}", json=json,
