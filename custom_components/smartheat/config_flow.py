@@ -981,7 +981,8 @@ class SmartHeatConfigFlow(ProgressFlowMixin, ConfigFlow, domain=DOMAIN):
         self._fehler = {}
         return self.async_show_form(step_id="zusammenfassung", description_placeholders={
             "anlage": _md(self._tenant), "warnungen": await self._warnungen(ergebnis.get("warnungen") or {}),
-            "auto_update": await async_hint(self.hass, "auto_update_hinweis") if self._auto_update_gesetzt else ""})
+            # eigener Absatz vor der Frage; der Umbruch steht hier, weil Uebersetzungstexte keinen Leerraum am Ende haben duerfen
+            "auto_update": await async_hint(self.hass, "auto_update_hinweis") + "\n\n" if self._auto_update_gesetzt else ""})
 
     # --- Auftrag ---
 

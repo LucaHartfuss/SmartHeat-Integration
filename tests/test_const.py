@@ -105,6 +105,28 @@ def test_the_outdated_addon_text_names_the_minimum_version():
         assert f" {minimum} " in text, datei
 
 
+def _alle_texte(knoten, pfad=""):
+    if isinstance(knoten, str):
+        yield pfad, knoten
+    elif isinstance(knoten, dict):
+        for schluessel, wert in knoten.items():
+            yield from _alle_texte(wert, f"{pfad}.{schluessel}" if pfad else schluessel)
+    elif isinstance(knoten, list):
+        for nr, wert in enumerate(knoten):
+            yield from _alle_texte(wert, f"{pfad}[{nr}]")
+
+
+@pytest.mark.parametrize("datei", ["strings.json", "translations/en.json", "translations/de.json"])
+def test_kein_uebersetzungstext_hat_fuehrenden_oder_nachfolgenden_leerraum(datei):
+    """hassfest weist jeden Text mit Leerraum am Anfang oder Ende ab; Zeilenumbrueche zwischen Textteilen gehoeren in
+    den Code, der einen Platzhalter fuellt."""
+    import json
+    from pathlib import Path
+
+    texte = json.loads((Path(const.__file__).parent / datei).read_text(encoding="utf-8"))
+    assert [pfad for pfad, text in _alle_texte(texte) if text != text.strip()] == []
+
+
 @pytest.mark.parametrize("status", ["reagiert_nicht", "addon_gestoppt"])
 @pytest.mark.parametrize("datei, pruefen, moeglich", [
     ("strings.json", "check", "if possible"),

@@ -329,7 +329,7 @@
     "auto_update_aus": {"title": "SmartHeat: automatische Updates des Add-ons sind aus", "description": "Die automatischen Updates sind für das Add-on Heizungsbrücke ausgeschaltet, es bekommt neue Versionen nur, wenn Sie es selbst aktualisieren. Sie können sie unter Einstellungen → Add-ons → Heizungsbrücke (Automatisch aktualisieren) wieder einschalten. Sie können diesen Hinweis auch ignorieren."}
   },
   "common": {
-    "auto_update_hinweis": "Die Einrichtung hat die automatischen Updates für das Add-on Heizungsbrücke eingeschaltet. Sie können sie unter Einstellungen → Add-ons → Heizungsbrücke (Automatisch aktualisieren) ausschalten.\n\n",
+    "auto_update_hinweis": "Die Einrichtung hat die automatischen Updates für das Add-on Heizungsbrücke eingeschaltet. Sie können sie unter Einstellungen → Add-ons → Heizungsbrücke (Automatisch aktualisieren) ausschalten.",
     "warning_stale": "Seit über 6 Stunden kein neuer Wert: {entities}",
     "warning_deviation": "Mehr als 3 K Abweichung von den übrigen Raumfühlern: {entities}",
     "warning_write_role_unmatched": "Nicht als Teil des gewählten Heizkreises erkannt: {entities}. SmartHeat schreibt auf diese Entities.",
