@@ -1425,6 +1425,7 @@ async def test_the_summary_says_that_the_manual_start_switched_on_automatic_upda
     assert supervisor.auto_update == {BRIDGE_SLUG: True}
     hinweis = result["description_placeholders"]["auto_update"]
     assert "automatic updates" in hinweis.lower() and "Settings" in hinweis and "Add-ons" in hinweis
+    assert hinweis.endswith(").\n\n") and not hinweis.startswith(("\n", " "))  # eigener Absatz vor „Set up now?“
 
 
 async def test_the_summary_is_silent_about_automatic_updates_when_nothing_was_switched(hass, server, supervisor):

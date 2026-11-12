@@ -329,7 +329,7 @@
     "auto_update_aus": {"title": "SmartHeat: automatic updates of the add-on are off", "description": "Automatic updates are switched off for the Heizungsbrücke add-on, so it only gets new versions when you update it yourself. You can switch them back on under Settings → Add-ons → Heizungsbrücke (Automatic update). You can also ignore this notice."}
   },
   "common": {
-    "auto_update_hinweis": "The setup switched on automatic updates for the Heizungsbrücke add-on. You can switch them off under Settings → Add-ons → Heizungsbrücke (Automatic update).\n\n",
+    "auto_update_hinweis": "The setup switched on automatic updates for the Heizungsbrücke add-on. You can switch them off under Settings → Add-ons → Heizungsbrücke (Automatic update).",
     "warning_stale": "No update for more than 6 hours: {entities}",
     "warning_deviation": "More than 3 K away from the other room sensors: {entities}",
     "warning_write_role_unmatched": "Not recognised as part of the chosen heating circuit: {entities}. SmartHeat will write to these entities.",
